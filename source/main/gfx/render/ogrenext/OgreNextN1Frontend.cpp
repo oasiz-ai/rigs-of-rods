@@ -15,6 +15,7 @@
 #include "OgreNextN1Policy.h"
 #include "OgreNextReflectionProbeRuntime.h"
 #include "OgreNextSunVisibilityV2Interop.h"
+#include "OgreNextTaaContract.h"
 #include "OgreNextUvAffinePbs.h"
 #include "ror_ogre_next_n1_config.h"
 
@@ -154,6 +155,23 @@ bool OgreNextStage0FeatureDisabled(const char *token) noexcept {
     cursor = end + 1U;
   }
   return false;
+}
+
+/// Stage 5 temporal-foundation kill-switch. TAA (projection jitter, motion
+/// vectors, and the temporal resolve between the aerial-haze pass and the
+/// stock HDR post node) is on by default for the single-evaluation HDR/PSSM
+/// topology; ROR_TAA=off (or 0/false) restores the exact pre-TAA graph so
+/// matched A/B frame-budget runs can attribute its cost. Read once.
+bool OgreNextTemporalAaRequested() noexcept {
+  static const bool enabled = [] {
+    const char *raw = std::getenv("ROR_TAA");
+    if (raw == nullptr) {
+      return true;
+    }
+    const std::string value(raw);
+    return !(value == "off" || value == "0" || value == "false");
+  }();
+  return enabled;
 }
 
 /// Stage 0 item 7 evidence: every blocking waitForStreamingCompletion() in
@@ -1911,6 +1929,152 @@ constexpr const char kOgreNextAerialHazeInputTexture[] = "RoRHazeInputHdr";
 constexpr const char kOgreNextAerialHazeDepthInput[] = "RoRHazeOpaqueDepth";
 constexpr const char kOgreNextAerialHazeOutputTexture[] = "RoRHazeOutputHdr";
 constexpr const char kOgreNextAerialHazeMaterial[] = "RoR/HDR/AerialHaze";
+// Stage 5 temporal AA. The node sits between the aerial-haze quad and the
+// stock HDR post node, entirely on linear pre-tonemap HDR, so the HUD
+// (composited post-tonemap by HdrRenderUi) and the transported menu never
+// see a jittered or temporally blended pixel.
+constexpr const char kOgreNextTaaNode[] = "RoRTemporalAaNodeV1";
+constexpr const char kOgreNextTaaInputTexture[] = "RoRTaaInputHdr";
+constexpr const char kOgreNextTaaDepthInput[] = "RoRTaaOpaqueDepth";
+constexpr const char kOgreNextTaaMotionTexture[] = "RoRTaaMotion";
+constexpr const char kOgreNextTaaPrevDepthTexture[] = "RoRTaaPrevDepth";
+constexpr const char kOgreNextTaaHistoryATexture[] = "RoRTaaHistoryA";
+constexpr const char kOgreNextTaaHistoryBTexture[] = "RoRTaaHistoryB";
+constexpr const char kOgreNextTaaReactiveTexture[] = "RoRTaaReactive";
+constexpr const char kOgreNextTaaOutputTexture[] = "RoRTaaOutputHdr";
+constexpr const char kOgreNextTaaMotionMaterial[] =
+    "RoR/HDR/TaaMotionVectors";
+constexpr const char kOgreNextTaaResolveMaterial[] = "RoR/HDR/TaaResolve";
+constexpr const char kOgreNextTaaDepthStoreMaterial[] =
+    "RoR/HDR/TaaDepthStore";
+constexpr const char kOgreNextTaaCopyMaterial[] = "Ogre/Copy/4xFP32";
+constexpr const char kOgreNextTaaCullCameraName[] =
+    "RoROgreNextN1TaaCullCamera";
+/// The contract's ping-pong history alternates by destination slot. Slot 1
+/// (RoRTaaHistoryB) executes under the even mask, slot 0 (RoRTaaHistoryA)
+/// under the odd mask; the per-frame workspace execution mask enables
+/// exactly one of the two resolve/copy pairs. Bits 0x01/0x02 stay reserved
+/// for the sun-visibility V2 split/post phases.
+constexpr std::uint8_t kOgreNextTaaEvenExecutionMask = 0x04U;
+constexpr std::uint8_t kOgreNextTaaOddExecutionMask = 0x08U;
+
+/// Row-major double mirror of the portable column-major Matrix4x4, for the
+/// TAA reprojection product. The two portable projections and rigid views
+/// are individually well-conditioned, but the product VP_prev * inv(VP_cur)
+/// cancels large translations, so it is composed in binary64 and only the
+/// finished rows round to binary32.
+using TaaMatrixRowMajor = std::array<double, 16U>;
+
+TaaMatrixRowMajor TaaToRowMajor(const Matrix4x4 &matrix) noexcept {
+  TaaMatrixRowMajor result{};
+  for (std::size_t row = 0U; row < 4U; ++row) {
+    for (std::size_t column = 0U; column < 4U; ++column) {
+      result[row * 4U + column] =
+          static_cast<double>(matrix.elements[column * 4U + row]);
+    }
+  }
+  return result;
+}
+
+TaaMatrixRowMajor TaaMultiply(const TaaMatrixRowMajor &lhs,
+                              const TaaMatrixRowMajor &rhs) noexcept {
+  TaaMatrixRowMajor result{};
+  for (std::size_t row = 0U; row < 4U; ++row) {
+    for (std::size_t column = 0U; column < 4U; ++column) {
+      double sum = 0.0;
+      for (std::size_t inner = 0U; inner < 4U; ++inner) {
+        sum += lhs[row * 4U + inner] * rhs[inner * 4U + column];
+      }
+      result[row * 4U + column] = sum;
+    }
+  }
+  return result;
+}
+
+/// Gauss-Jordan with partial pivoting in binary64. Returns false for a
+/// numerically singular matrix instead of dividing by a vanishing pivot.
+[[nodiscard]] bool TaaInvert(const TaaMatrixRowMajor &matrix,
+                             TaaMatrixRowMajor &inverse) noexcept {
+  TaaMatrixRowMajor work = matrix;
+  TaaMatrixRowMajor identity{};
+  for (std::size_t index = 0U; index < 4U; ++index) {
+    identity[index * 4U + index] = 1.0;
+  }
+  for (std::size_t pivot = 0U; pivot < 4U; ++pivot) {
+    std::size_t best = pivot;
+    double best_magnitude = std::fabs(work[pivot * 4U + pivot]);
+    for (std::size_t row = pivot + 1U; row < 4U; ++row) {
+      const double magnitude = std::fabs(work[row * 4U + pivot]);
+      if (magnitude > best_magnitude) {
+        best_magnitude = magnitude;
+        best = row;
+      }
+    }
+    if (!(best_magnitude > 1.0e-30)) {
+      return false;
+    }
+    if (best != pivot) {
+      for (std::size_t column = 0U; column < 4U; ++column) {
+        std::swap(work[best * 4U + column], work[pivot * 4U + column]);
+        std::swap(identity[best * 4U + column],
+                  identity[pivot * 4U + column]);
+      }
+    }
+    const double pivot_value = work[pivot * 4U + pivot];
+    for (std::size_t column = 0U; column < 4U; ++column) {
+      work[pivot * 4U + column] /= pivot_value;
+      identity[pivot * 4U + column] /= pivot_value;
+    }
+    for (std::size_t row = 0U; row < 4U; ++row) {
+      if (row == pivot) {
+        continue;
+      }
+      const double factor = work[row * 4U + pivot];
+      if (factor == 0.0) {
+        continue;
+      }
+      for (std::size_t column = 0U; column < 4U; ++column) {
+        work[row * 4U + column] -= factor * work[pivot * 4U + column];
+        identity[row * 4U + column] -=
+            factor * identity[pivot * 4U + column];
+      }
+    }
+  }
+  inverse = identity;
+  return true;
+}
+
+/// Composes M = VP_prev * inverse(VP_cur) from the validated portable view,
+/// with both projections unjittered, and rounds its rows to finite binary32
+/// shader constants. Returns false when the composition is singular or
+/// non-finite; the caller degrades the frame instead of binding it.
+[[nodiscard]] bool
+TryComputeTaaReprojectionRows(const CameraViewRequest &view,
+                              std::array<Ogre::Vector4, 4U> &rows) noexcept {
+  const TaaMatrixRowMajor current = TaaMultiply(
+      TaaToRowMajor(view.clip_from_view), TaaToRowMajor(view.view_from_render));
+  const TaaMatrixRowMajor previous =
+      TaaMultiply(TaaToRowMajor(view.previous_clip_from_view),
+                  TaaToRowMajor(view.previous_view_from_render));
+  TaaMatrixRowMajor current_inverse{};
+  if (!TaaInvert(current, current_inverse)) {
+    return false;
+  }
+  const TaaMatrixRowMajor reprojection =
+      TaaMultiply(previous, current_inverse);
+  for (std::size_t row = 0U; row < 4U; ++row) {
+    const float x = static_cast<float>(reprojection[row * 4U + 0U]);
+    const float y = static_cast<float>(reprojection[row * 4U + 1U]);
+    const float z = static_cast<float>(reprojection[row * 4U + 2U]);
+    const float w = static_cast<float>(reprojection[row * 4U + 3U]);
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) ||
+        !std::isfinite(w)) {
+      return false;
+    }
+    rows[row] = Ogre::Vector4(x, y, z, w);
+  }
+  return true;
+}
 constexpr const char kOgreNextHdrSunVisibilityV2ContinuationWorkspace[] =
     "RoRHdrSunVisibilityV2Continuation";
 constexpr const char kOgreNextHdrSubtractMaterial[] =
@@ -2597,9 +2761,210 @@ void CreateAndVerifyAerialHazeNode(Ogre::CompositorManager2 &compositors) {
   }
 }
 
+// Stage 5 temporal AA node, single-scene topology only. Consumes the hazed
+// linear HDR radiance (channel 0) and the scene's exported D32 opaque depth
+// (channel 1), and emits the temporally resolved HDR frame for the stock
+// post node. Seven passes:
+//
+//   1. one-time clear of the persistent reactive mask (all zero: the tier-1
+//      reactive path relies on depth disocclusion and variance clipping for
+//      deforming soft-body geometry, and the mask stays wired so a later
+//      vehicle-mask tier is a content change, not a graph change),
+//   2. camera-reprojection motion vectors from depth,
+//   3. temporal resolve writing history slot B (even frames), and
+//   4. its odd sibling writing history slot A - the per-frame workspace
+//      execution mask enables exactly one of the two,
+//   5./6. a bit-exact FP32 copy of the freshly written history slot into the
+//      output texture the post node consumes (masked like 3./4.), and
+//   7. this frame's depth stored into the persistent R32 history for the
+//      next frame's disocclusion test - deliberately last, after the resolve
+//      consumed the previous depth.
+void CreateAndVerifyTemporalAaNode(Ogre::CompositorManager2 &compositors) {
+  const Ogre::IdString node_name(kOgreNextTaaNode);
+  if (compositors.hasNodeDefinition(node_name)) {
+    throw std::runtime_error(
+        "Ogre-Next temporal AA node identity is not empty");
+  }
+  Ogre::CompositorNodeDef *node =
+      compositors.addNodeDefinition(kOgreNextTaaNode);
+  node->addTextureSourceName(kOgreNextTaaInputTexture, 0U,
+                             Ogre::TextureDefinitionBase::TEXTURE_INPUT);
+  node->addTextureSourceName(kOgreNextTaaDepthInput, 1U,
+                             Ogre::TextureDefinitionBase::TEXTURE_INPUT);
+
+  node->setNumLocalTextureDefinitions(6U);
+  const auto add_local = [&](const char *name,
+                             Ogre::PixelFormatGpu format,
+                             bool persistent) {
+    Ogre::TextureDefinitionBase::TextureDefinition *texture =
+        node->addTextureDefinition(name);
+    texture->textureType = Ogre::TextureTypes::Type2D;
+    texture->width = 0U;
+    texture->height = 0U;
+    texture->depthOrSlices = 1U;
+    texture->numMipmaps = 1U;
+    texture->format = format;
+    texture->fsaa = "1";
+    // History, previous-depth, and reactive content must survive across
+    // frames: no DiscardableContent on the persistent set.
+    texture->textureFlags =
+        Ogre::TextureFlags::RenderToTexture |
+        (persistent ? 0U : Ogre::TextureFlags::DiscardableContent);
+    texture->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
+    Ogre::RenderTargetViewDef *view = node->addRenderTextureView(name);
+    Ogre::RenderTargetViewEntry colour;
+    colour.textureName = name;
+    view->colourAttachments.push_back(colour);
+    view->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
+  };
+  add_local(kOgreNextTaaMotionTexture, Ogre::PFG_RG16_FLOAT, false);
+  add_local(kOgreNextTaaPrevDepthTexture, Ogre::PFG_R32_FLOAT, true);
+  add_local(kOgreNextTaaHistoryATexture, Ogre::PFG_RGBA16_FLOAT, true);
+  add_local(kOgreNextTaaHistoryBTexture, Ogre::PFG_RGBA16_FLOAT, true);
+  add_local(kOgreNextTaaReactiveTexture, Ogre::PFG_R32_FLOAT, true);
+  add_local(kOgreNextTaaOutputTexture, Ogre::PFG_RGBA16_FLOAT, false);
+
+  node->setNumTargetPass(7U);
+
+  Ogre::CompositorTargetDef *reactive_target =
+      node->addTargetPass(kOgreNextTaaReactiveTexture);
+  reactive_target->setNumPasses(1U);
+  auto *reactive_clear = static_cast<Ogre::CompositorPassClearDef *>(
+      reactive_target->addPass(Ogre::PASS_CLEAR));
+  reactive_clear->mNumInitialPasses = 1U;
+  reactive_clear->setBuffersToClear(Ogre::RenderPassDescriptor::Colour0);
+  reactive_clear->setAllClearColours(
+      Ogre::ColourValue(0.0F, 0.0F, 0.0F, 0.0F));
+
+  const auto add_quad = [&](const char *target_name, const char *material,
+                            std::initializer_list<const char *> sources,
+                            std::uint8_t execution_mask,
+                            const char *profiling_id) {
+    Ogre::CompositorTargetDef *target = node->addTargetPass(target_name);
+    target->setNumPasses(1U);
+    auto *quad = static_cast<Ogre::CompositorPassQuadDef *>(
+        target->addPass(Ogre::PASS_QUAD));
+    quad->mMaterialIsHlms = false;
+    quad->mMaterialName = material;
+    quad->mUseQuad = false;
+    std::size_t slot = 0U;
+    for (const char *source : sources) {
+      quad->addQuadTextureSource(slot, source);
+      ++slot;
+    }
+    quad->setAllLoadActions(Ogre::LoadAction::DontCare);
+    quad->mStoreActionColour[0] = Ogre::StoreAction::Store;
+    if (execution_mask != 0U) {
+      quad->mExecutionMask = execution_mask;
+    }
+    quad->mProfilingId = profiling_id;
+    return quad;
+  };
+
+  add_quad(kOgreNextTaaMotionTexture, kOgreNextTaaMotionMaterial,
+           {kOgreNextTaaDepthInput}, 0U, "TAA Motion Vectors");
+  add_quad(kOgreNextTaaHistoryBTexture, kOgreNextTaaResolveMaterial,
+           {kOgreNextTaaInputTexture, kOgreNextTaaDepthInput,
+            kOgreNextTaaMotionTexture, kOgreNextTaaPrevDepthTexture,
+            kOgreNextTaaHistoryATexture, kOgreNextTaaReactiveTexture},
+           kOgreNextTaaEvenExecutionMask, "TAA Resolve (even)");
+  add_quad(kOgreNextTaaHistoryATexture, kOgreNextTaaResolveMaterial,
+           {kOgreNextTaaInputTexture, kOgreNextTaaDepthInput,
+            kOgreNextTaaMotionTexture, kOgreNextTaaPrevDepthTexture,
+            kOgreNextTaaHistoryBTexture, kOgreNextTaaReactiveTexture},
+           kOgreNextTaaOddExecutionMask, "TAA Resolve (odd)");
+  add_quad(kOgreNextTaaOutputTexture, kOgreNextTaaCopyMaterial,
+           {kOgreNextTaaHistoryBTexture}, kOgreNextTaaEvenExecutionMask,
+           "TAA Output Copy (even)");
+  add_quad(kOgreNextTaaOutputTexture, kOgreNextTaaCopyMaterial,
+           {kOgreNextTaaHistoryATexture}, kOgreNextTaaOddExecutionMask,
+           "TAA Output Copy (odd)");
+  add_quad(kOgreNextTaaPrevDepthTexture, kOgreNextTaaDepthStoreMaterial,
+           {kOgreNextTaaDepthInput}, 0U, "TAA Depth Store");
+
+  node->setNumOutputChannels(1U);
+  node->mapOutputChannel(0U, kOgreNextTaaOutputTexture);
+
+  // Exact definition readback: textures, pass closure, materials, sources,
+  // and execution masks, in declaration order.
+  const auto &textures_observed = node->getLocalTextureDefinitions();
+  struct ExpectedTexture final {
+    const char *name;
+    Ogre::PixelFormatGpu format;
+    bool persistent;
+  };
+  constexpr std::array<ExpectedTexture, 6U> expected_textures{{
+      {kOgreNextTaaMotionTexture, Ogre::PFG_RG16_FLOAT, false},
+      {kOgreNextTaaPrevDepthTexture, Ogre::PFG_R32_FLOAT, true},
+      {kOgreNextTaaHistoryATexture, Ogre::PFG_RGBA16_FLOAT, true},
+      {kOgreNextTaaHistoryBTexture, Ogre::PFG_RGBA16_FLOAT, true},
+      {kOgreNextTaaReactiveTexture, Ogre::PFG_R32_FLOAT, true},
+      {kOgreNextTaaOutputTexture, Ogre::PFG_RGBA16_FLOAT, false},
+  }};
+  bool exact = textures_observed.size() == expected_textures.size() &&
+               node->getNumTargetPasses() == 7U &&
+               node->calculateNumPasses() == 7U &&
+               node->getNumOutputChannels() == 1U;
+  for (std::size_t index = 0U; exact && index < expected_textures.size();
+       ++index) {
+    const ExpectedTexture &expected = expected_textures[index];
+    const std::uint32_t expected_flags =
+        Ogre::TextureFlags::RenderToTexture |
+        (expected.persistent ? 0U : Ogre::TextureFlags::DiscardableContent);
+    exact = textures_observed[index].getName() ==
+                Ogre::IdString(expected.name) &&
+            textures_observed[index].format == expected.format &&
+            textures_observed[index].width == 0U &&
+            textures_observed[index].height == 0U &&
+            textures_observed[index].textureFlags == expected_flags &&
+            textures_observed[index].depthBufferId ==
+                Ogre::DepthBuffer::POOL_NO_DEPTH;
+  }
+  struct ExpectedQuad final {
+    std::size_t target_index;
+    const char *material;
+    std::size_t source_count;
+    std::uint8_t execution_mask;
+  };
+  constexpr std::array<ExpectedQuad, 6U> expected_quads{{
+      {1U, kOgreNextTaaMotionMaterial, 1U, 0xFFU},
+      {2U, kOgreNextTaaResolveMaterial, 6U, kOgreNextTaaEvenExecutionMask},
+      {3U, kOgreNextTaaResolveMaterial, 6U, kOgreNextTaaOddExecutionMask},
+      {4U, kOgreNextTaaCopyMaterial, 1U, kOgreNextTaaEvenExecutionMask},
+      {5U, kOgreNextTaaCopyMaterial, 1U, kOgreNextTaaOddExecutionMask},
+      {6U, kOgreNextTaaDepthStoreMaterial, 1U, 0xFFU},
+  }};
+  const auto *verified_clear =
+      exact && node->getTargetPass(0U)->getCompositorPasses().size() == 1U
+          ? dynamic_cast<const Ogre::CompositorPassClearDef *>(
+                node->getTargetPass(0U)->getCompositorPasses().front())
+          : nullptr;
+  exact = exact && verified_clear != nullptr &&
+          verified_clear->mNumInitialPasses == 1U;
+  for (std::size_t index = 0U; exact && index < expected_quads.size();
+       ++index) {
+    const ExpectedQuad &expected = expected_quads[index];
+    const Ogre::CompositorPassDefVec &passes =
+        node->getTargetPass(expected.target_index)->getCompositorPasses();
+    const auto *quad =
+        passes.size() == 1U
+            ? dynamic_cast<const Ogre::CompositorPassQuadDef *>(
+                  passes.front())
+            : nullptr;
+    exact = quad != nullptr && !quad->mMaterialIsHlms && !quad->mUseQuad &&
+            quad->mMaterialName == expected.material &&
+            quad->getTextureSources().size() == expected.source_count &&
+            quad->mExecutionMask == expected.execution_mask;
+  }
+  if (!exact) {
+    throw std::runtime_error(
+        "Ogre-Next temporal AA node topology failed exact definition readback");
+  }
+}
+
 void CreateAndVerifyHdrSingleSceneNode(
     Ogre::CompositorManager2 &compositors,
-    bool &owns_node_definition) {
+    bool &owns_node_definition, bool temporal_aa_cull_camera) {
   const Ogre::IdString node_name(kOgreNextHdrRenderingNode);
   if (owns_node_definition || !compositors.hasNodeDefinition(node_name)) {
     throw std::runtime_error(
@@ -2680,6 +3045,13 @@ void CreateAndVerifyHdrSingleSceneNode(
   scene->mUpdateLodLists = true;
   scene->setVisibilityMask(kOgreNextRt4AuthoredVisibilityMask);
   scene->setLightVisibilityMask(Ogre::VisibilityFlags::RESERVED_VISIBILITY_FLAGS);
+  // Temporal AA jitters only the render camera's projection. Culling, LOD
+  // list updates, and the PSSM shadow node consult this dedicated unjittered
+  // cull camera instead, so visibility and shadow-camera fitting never see
+  // the sub-pixel offset (the contract's unjittered_culling invariant).
+  if (temporal_aa_cull_camera) {
+    scene->mCullCameraName = kOgreNextTaaCullCameraName;
+  }
   scene->setAllLoadActions(Ogre::LoadAction::Clear);
   scene->setAllClearColours(Ogre::ColourValue(6.667F, 13.333F, 20.0F, 1.0F));
   // The clear stays exactly 1.0 and the store becomes Store: a later pass
@@ -2745,6 +3117,9 @@ void CreateAndVerifyHdrSingleSceneNode(
       verified_scene == nullptr ||
       verified_scene->mIdentifier != kOgreNextHdrSingleScenePassIdentifier ||
       verified_scene->mVisibilityMask != kOgreNextRt4AuthoredVisibilityMask ||
+      verified_scene->mCullCameraName !=
+          (temporal_aa_cull_camera ? Ogre::IdString(kOgreNextTaaCullCameraName)
+                                   : Ogre::IdString()) ||
       verified_scene->mShadowNode != Ogre::IdString() ||
       verified_scene->mIncludeOverlays || !verified_scene->mEnableForwardPlus ||
       !verified_scene->mUpdateLodLists ||
@@ -3287,6 +3662,13 @@ public:
     return hdr_enabled &&
            hdr_scene_topology ==
                OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1;
+  }
+
+  /// Stage 5 temporal AA gate: single-scene HDR/PSSM production topology
+  /// only, killable via ROR_TAA=off. The V2 and directional-split showcase
+  /// topologies keep their frozen graphs.
+  [[nodiscard]] bool TemporalAaEnabled() const noexcept {
+    return SingleSceneHdrPssmEnabled() && OgreNextTemporalAaRequested();
   }
 
   [[nodiscard]] NativeSunVisibilityV2Result V2PresentationResult(
@@ -6274,8 +6656,24 @@ public:
                           Ogre::IdString(kOgreNextAerialHazeNode), 0U);
       definition->connect(Ogre::IdString(kOgreNextHdrRenderingNode), 2U,
                           Ogre::IdString(kOgreNextAerialHazeNode), 1U);
-      definition->connect(Ogre::IdString(kOgreNextAerialHazeNode), 0U,
-                          Ogre::IdString(kOgreNextHdrPostprocessingNode), 0U);
+      if (TemporalAaEnabled()) {
+        // Stage 5: the temporal AA node slots between haze and post, still
+        // entirely pre-tonemap: hazed radiance on TAA channel 0, the same
+        // exported D32 depth on TAA channel 1, resolved radiance into post
+        // channel 0. Everything downstream - metering, bloom, tone map, and
+        // the post-tonemap HdrRenderUi HUD - is untouched.
+        definition->connect(Ogre::IdString(kOgreNextAerialHazeNode), 0U,
+                            Ogre::IdString(kOgreNextTaaNode), 0U);
+        definition->connect(Ogre::IdString(kOgreNextHdrRenderingNode), 2U,
+                            Ogre::IdString(kOgreNextTaaNode), 1U);
+        definition->connect(Ogre::IdString(kOgreNextTaaNode), 0U,
+                            Ogre::IdString(kOgreNextHdrPostprocessingNode),
+                            0U);
+      } else {
+        definition->connect(Ogre::IdString(kOgreNextAerialHazeNode), 0U,
+                            Ogre::IdString(kOgreNextHdrPostprocessingNode),
+                            0U);
+      }
     } else {
       definition->connect(Ogre::IdString(kOgreNextHdrRenderingNode), 0U,
                           SunVisibilityV2Enabled()
@@ -6309,15 +6707,19 @@ public:
         aliases.find(Ogre::IdString(kOgreNextThinSlabNode)) != aliases.end();
     const bool has_haze =
         aliases.find(Ogre::IdString(kOgreNextAerialHazeNode)) != aliases.end();
+    const bool has_taa =
+        aliases.find(Ogre::IdString(kOgreNextTaaNode)) != aliases.end();
     const bool has_upstream_ui =
         aliases.find(Ogre::IdString(kOgreNextHdrUiNode)) != aliases.end();
     // The HDR UI node is now a required production member of the closure.
     constexpr bool expected_ui = true;
     // Haze is single-scene only; DIRECTIONAL_SPLIT_V2 keeps rendering -> post
-    // (or -> thin slab -> post) exactly as before.
+    // (or -> thin slab -> post) exactly as before. Temporal AA additionally
+    // requires the single-scene topology and its own kill-switch.
     if (!has_rendering || !has_postprocessing ||
         has_refraction != SunVisibilityV2Enabled() ||
         has_haze != SingleSceneHdrPssmEnabled() ||
+        has_taa != TemporalAaEnabled() ||
         has_upstream_ui != expected_ui) {
       return HdrBackendFailure(
           "programmatic HDR workspace node closure is not exact");
@@ -6356,6 +6758,16 @@ public:
   [[nodiscard]] bool
   DestroyHdrCompositor(bool destroy_definitions_and_resources = true) noexcept {
     bool clean = true;
+    // The TAA history stream lives in the workspace's persistent textures;
+    // retiring the workspace retires the stream. The contract state resets
+    // here and re-initializes with a fresh lifecycle epoch on the next
+    // workspace creation, so a retired epoch can never be replayed.
+    if (taa_commit_prepared) {
+      taa_state.AbortPrepared();
+      taa_commit_prepared = false;
+    }
+    taa_frame_active = false;
+    taa_state.Reset();
     if (production_source_target == hdr_output_target &&
         production_source_target != nullptr) {
       // The HDR output is borrowed by the copy-only presentation workspace.
@@ -6509,6 +6921,28 @@ public:
     }
     if (destroy_definitions_and_resources) {
       hdr_haze_node_definition_created = false;
+    }
+    if (destroy_definitions_and_resources && root &&
+        hdr_taa_node_definition_created) {
+      try {
+        Ogre::CompositorManager2 *compositors =
+            root->getCompositorManager2();
+        const Ogre::IdString taa_name(kOgreNextTaaNode);
+        if (!compositors->hasNodeDefinition(taa_name)) {
+          clean = false;
+        } else {
+          compositors->removeNodeDefinition(taa_name);
+        }
+        clean = !compositors->hasNodeDefinition(taa_name) && clean;
+      } catch (...) {
+        clean = false;
+      }
+    } else if (destroy_definitions_and_resources &&
+               hdr_taa_node_definition_created) {
+      clean = false;
+    }
+    if (destroy_definitions_and_resources) {
+      hdr_taa_node_definition_created = false;
     }
     if (destroy_definitions_and_resources && root &&
         hdr_split_node_definition_created) {
@@ -6916,6 +7350,314 @@ public:
     return bound;
   }
 
+  /// Named-constant binder with exact readback for one TAA material,
+  /// following the aerial-haze pattern. Every verified constant counts
+  /// toward the frame's native-state-verification evidence.
+  [[nodiscard]] RenderOperationResult ConfigureTemporalAaMaterialConstants(
+      const char *material_name,
+      const std::vector<std::pair<const char *, Ogre::Vector4>> &bindings) {
+    for (const auto &binding : bindings) {
+      const Ogre::Vector4 &value = binding.second;
+      if (!IsFinite(static_cast<float>(value.x)) ||
+          !IsFinite(static_cast<float>(value.y)) ||
+          !IsFinite(static_cast<float>(value.z)) ||
+          !IsFinite(static_cast<float>(value.w))) {
+        return HdrBackendFailure(
+            "temporal AA constant is not representable as finite binary32");
+      }
+    }
+    Ogre::MaterialPtr material = std::static_pointer_cast<Ogre::Material>(
+        Ogre::MaterialManager::getSingleton().load(
+            material_name, kOgreNextHdrResourceGroup));
+    if (!material || material->getNumTechniques() != 1U ||
+        material->getTechnique(0U) == nullptr ||
+        material->getTechnique(0U)->getNumPasses() != 1U) {
+      return HdrBackendFailure(
+          "temporal AA material lost its exact single-technique quad pass");
+    }
+    Ogre::Pass *pass = material->getTechnique(0U)->getPass(0U);
+    Ogre::GpuProgramParametersSharedPtr parameters =
+        pass->getFragmentProgramParameters();
+    if (!parameters) {
+      return HdrBackendFailure(
+          "temporal AA material exposes no fragment parameters");
+    }
+    for (const auto &binding : bindings) {
+      const Ogre::Vector4 &value = binding.second;
+      parameters->setNamedConstant(binding.first, value);
+      float observed[4U]{};
+      const Ogre::GpuConstantDefinition &definition =
+          parameters->getConstantDefinition(binding.first);
+      parameters->_readRawConstants(definition.physicalIndex, 4U, observed);
+      if (observed[0U] != static_cast<float>(value.x) ||
+          observed[1U] != static_cast<float>(value.y) ||
+          observed[2U] != static_cast<float>(value.z) ||
+          observed[3U] != static_cast<float>(value.w)) {
+        return HdrBackendFailure(
+            "temporal AA constant changed after deterministic binding");
+      }
+      ++taa_constant_readbacks_this_frame;
+    }
+    return RenderOperationResult::Success();
+  }
+
+  [[nodiscard]] Ogre::Vector4
+  TemporalAaExtentConstant(std::uint32_t width,
+                           std::uint32_t height) const noexcept {
+    const float width_pixels = width != 0U ? static_cast<float>(width) : 1.0F;
+    const float height_pixels =
+        height != 0U ? static_cast<float>(height) : 1.0F;
+    return Ogre::Vector4(width_pixels, height_pixels, 1.0F / width_pixels,
+                         1.0F / height_pixels);
+  }
+
+  /// The canonical TAA pass-through binding: identity reprojection, zero
+  /// jitter, and history disabled, so the resolve is exactly the current
+  /// frame. Used for warmup frames and for every fail-closed degrade.
+  [[nodiscard]] RenderOperationResult
+  BindIdentityTemporalAaParameters(std::uint32_t width,
+                                   std::uint32_t height) {
+    const Ogre::Vector4 extent = TemporalAaExtentConstant(width, height);
+    const Ogre::Vector4 row0(1.0F, 0.0F, 0.0F, 0.0F);
+    const Ogre::Vector4 row1(0.0F, 1.0F, 0.0F, 0.0F);
+    const Ogre::Vector4 row2(0.0F, 0.0F, 1.0F, 0.0F);
+    const Ogre::Vector4 row3(0.0F, 0.0F, 0.0F, 1.0F);
+    const Ogre::Vector4 zero(0.0F, 0.0F, 0.0F, 0.0F);
+    const RenderOperationResult motion = ConfigureTemporalAaMaterialConstants(
+        kOgreNextTaaMotionMaterial,
+        {{"taaReproject0", row0},
+         {"taaReproject1", row1},
+         {"taaReproject2", row2},
+         {"taaReproject3", row3},
+         {"taaJitter", zero},
+         {"taaExtent", extent}});
+    if (!motion) {
+      return motion;
+    }
+    return ConfigureTemporalAaMaterialConstants(
+        kOgreNextTaaResolveMaterial,
+        {{"taaReproject0", row0},
+         {"taaReproject1", row1},
+         {"taaReproject2", row2},
+         {"taaReproject3", row3},
+         {"taaJitter", zero},
+         {"taaExtent", extent},
+         {"taaBlend",
+          Ogre::Vector4(0.0F, taa_configuration.variance_clip_gamma,
+                        taa_configuration.full_motion_rejection_pixels,
+                        1.0F)},
+         {"taaDepthPolicy",
+          Ogre::Vector4(taa_configuration.disocclusion_absolute_depth,
+                        taa_configuration.disocclusion_relative_depth, 0.0F,
+                        0.0F)}});
+  }
+
+  /// Binds this frame's reprojection, jitter, and blend policy from the
+  /// contract's validated frame plan, with exact readback.
+  [[nodiscard]] RenderOperationResult
+  ConfigureTemporalAaForFrame(const OgreNextTaaFramePlan &plan) {
+    std::array<Ogre::Vector4, 4U> rows{};
+    if (!TryComputeTaaReprojectionRows(plan.view, rows)) {
+      return HdrBackendFailure(
+          "temporal AA reprojection is singular or non-finite");
+    }
+    const Ogre::Vector4 extent =
+        TemporalAaExtentConstant(plan.width, plan.height);
+    const Ogre::Vector4 jitter(plan.jitter_pixels.x, plan.jitter_pixels.y,
+                               plan.previous_jitter_pixels.x,
+                               plan.previous_jitter_pixels.y);
+    const RenderOperationResult motion = ConfigureTemporalAaMaterialConstants(
+        kOgreNextTaaMotionMaterial,
+        {{"taaReproject0", rows[0U]},
+         {"taaReproject1", rows[1U]},
+         {"taaReproject2", rows[2U]},
+         {"taaReproject3", rows[3U]},
+         {"taaJitter", jitter},
+         {"taaExtent", extent}});
+    if (!motion) {
+      return motion;
+    }
+    return ConfigureTemporalAaMaterialConstants(
+        kOgreNextTaaResolveMaterial,
+        {{"taaReproject0", rows[0U]},
+         {"taaReproject1", rows[1U]},
+         {"taaReproject2", rows[2U]},
+         {"taaReproject3", rows[3U]},
+         {"taaJitter", jitter},
+         {"taaExtent", extent},
+         {"taaBlend",
+          Ogre::Vector4(taa_configuration.history_weight,
+                        taa_configuration.variance_clip_gamma,
+                        taa_configuration.full_motion_rejection_pixels,
+                        plan.history_exposure_ratio)},
+         {"taaDepthPolicy",
+          Ogre::Vector4(taa_configuration.disocclusion_absolute_depth,
+                        taa_configuration.disocclusion_relative_depth,
+                        plan.history_available ? 1.0F : 0.0F, 0.0F)}});
+  }
+
+  /// Fail-closed degrade: this frame renders the exact un-jittered
+  /// pass-through path, the temporal history is invalidated so the next
+  /// frame re-seeds instead of blending a stale stream, and the reason is
+  /// logged. Never a session failure.
+  void DegradeTemporalAaFrame(std::uint64_t frame_id, const char *reason) {
+    ++taa_degraded_frames;
+    taa_last_degrade_reason = reason != nullptr ? reason : "unknown";
+    taa_frame_active = false;
+    taa_commit_prepared = false;
+    if (taa_state.initialized()) {
+      static_cast<void>(taa_state.InvalidateHistory());
+    }
+    static_cast<void>(BindIdentityTemporalAaParameters(hdr_width, hdr_height));
+    if (hdr_workspace != nullptr) {
+      hdr_workspace->setExecutionMask(
+          static_cast<std::uint8_t>(0xFFU & ~kOgreNextTaaOddExecutionMask));
+    }
+    std::fprintf(stderr,
+                 "[RoR|OgreNext|TemporalAa] degrade frame_id=%llu "
+                 "committed=%llu degraded=%llu reason=%s\n",
+                 static_cast<unsigned long long>(frame_id),
+                 static_cast<unsigned long long>(taa_committed_frames),
+                 static_cast<unsigned long long>(taa_degraded_frames),
+                 taa_last_degrade_reason.c_str());
+  }
+
+  /// (Re)initializes the TAA lifecycle: fresh contract epoch, bumped native
+  /// texture generation (the workspace's persistent allocations are new),
+  /// and the identity pass-through binding for warmup frames.
+  [[nodiscard]] RenderOperationResult InitializeTemporalAaRuntime() {
+    taa_state.Reset();
+    OgreNextTaaConfiguration configuration;
+    configuration.lifecycle_epoch = ++taa_lifecycle_epoch_sequence;
+    taa_configuration = configuration;
+    const ValidationResult initialized_state =
+        taa_state.Initialize(configuration);
+    if (!initialized_state) {
+      return HdrBackendFailure(
+          "temporal AA contract state refused initialization: " +
+          initialized_state.detail);
+    }
+    ++taa_texture_generation;
+    taa_frame_active = false;
+    taa_commit_prepared = false;
+    if (hdr_workspace != nullptr) {
+      hdr_workspace->setExecutionMask(
+          static_cast<std::uint8_t>(0xFFU & ~kOgreNextTaaOddExecutionMask));
+    }
+    return BindIdentityTemporalAaParameters(hdr_width, hdr_height);
+  }
+
+  /// Looks up one native TAA image and proves format and extent before it
+  /// becomes contract evidence. Each successful lookup counts as one native
+  /// state verification.
+  [[nodiscard]] bool VerifyTemporalAaBinding(
+      Ogre::TextureGpu *texture, Ogre::PixelFormatGpu native_format,
+      PixelFormat portable_format, const OgreNextTaaFramePlan &plan,
+      OgreNextTaaImageBinding &binding) {
+    if (texture == nullptr || texture->getPixelFormat() != native_format ||
+        texture->getWidth() != plan.width ||
+        texture->getHeight() != plan.height) {
+      return false;
+    }
+    binding.native_identity =
+        static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(texture));
+    binding.generation = taa_texture_generation;
+    binding.format = portable_format;
+    binding.width = plan.width;
+    binding.height = plan.height;
+    ++taa_constant_readbacks_this_frame;
+    return true;
+  }
+
+  /// Builds this frame's execution evidence from the live workspace and
+  /// prepares the two-phase contract commit. Failure leaves the temporal
+  /// stream un-advanced; the caller degrades instead of failing the frame.
+  [[nodiscard]] RenderOperationResult PrepareTemporalAaCommit() {
+    if (!taa_frame_active || hdr_workspace == nullptr) {
+      return HdrBackendFailure(
+          "temporal AA commit requested without an active frame");
+    }
+    Ogre::CompositorNode *rendering =
+        hdr_workspace->findNode(kOgreNextHdrRenderingNode);
+    Ogre::CompositorNode *haze =
+        hdr_workspace->findNode(kOgreNextAerialHazeNode);
+    Ogre::CompositorNode *taa = hdr_workspace->findNode(kOgreNextTaaNode);
+    if (rendering == nullptr || haze == nullptr || taa == nullptr) {
+      return HdrBackendFailure(
+          "temporal AA workspace nodes disappeared before evidence");
+    }
+    const OgreNextTaaFramePlan &plan = taa_frame_plan;
+    OgreNextTaaExecutionEvidence evidence;
+    evidence.lifecycle_epoch = plan.lifecycle_epoch;
+    evidence.frame_id = plan.frame_id;
+    evidence.snapshot_id = plan.snapshot_id;
+    evidence.view_id = plan.view_id;
+    evidence.camera_lineage_fnv1a64 = plan.camera_lineage_fnv1a64;
+    Ogre::TextureGpu *history_a =
+        taa->getDefinedTexture(kOgreNextTaaHistoryATexture);
+    Ogre::TextureGpu *history_b =
+        taa->getDefinedTexture(kOgreNextTaaHistoryBTexture);
+    Ogre::TextureGpu *history_source_texture =
+        plan.source_history_slot == 0U ? history_a : history_b;
+    Ogre::TextureGpu *history_destination_texture =
+        plan.destination_history_slot == 0U ? history_a : history_b;
+    const bool bindings_exact =
+        VerifyTemporalAaBinding(
+            haze->getDefinedTexture(kOgreNextAerialHazeOutputTexture),
+            Ogre::PFG_RGBA16_FLOAT, PixelFormat::RGBA16_FLOAT, plan,
+            evidence.current_colour) &&
+        VerifyTemporalAaBinding(
+            rendering->getDefinedTexture(kOgreNextHdrOpaqueDepthTexture),
+            Ogre::PFG_D32_FLOAT, PixelFormat::R32_FLOAT, plan,
+            evidence.current_depth) &&
+        VerifyTemporalAaBinding(
+            taa->getDefinedTexture(kOgreNextTaaMotionTexture),
+            Ogre::PFG_RG16_FLOAT, PixelFormat::RG16_FLOAT, plan,
+            evidence.motion_vectors) &&
+        VerifyTemporalAaBinding(
+            taa->getDefinedTexture(kOgreNextTaaReactiveTexture),
+            Ogre::PFG_R32_FLOAT, PixelFormat::R32_FLOAT, plan,
+            evidence.reactive_mask) &&
+        VerifyTemporalAaBinding(history_source_texture, Ogre::PFG_RGBA16_FLOAT,
+                                PixelFormat::RGBA16_FLOAT, plan,
+                                evidence.history_source) &&
+        VerifyTemporalAaBinding(history_destination_texture,
+                                Ogre::PFG_RGBA16_FLOAT,
+                                PixelFormat::RGBA16_FLOAT, plan,
+                                evidence.history_destination);
+    if (!bindings_exact) {
+      return HdrBackendFailure(
+          "temporal AA native images failed exact evidence verification");
+    }
+    evidence.prepare_count = 1U;
+    evidence.execute_count = 1U;
+    evidence.history_read_count = plan.history_available ? 1U : 0U;
+    evidence.history_write_count = 1U;
+    evidence.history_advance_count = 1U;
+    evidence.jitter_application_count = 1U;
+    evidence.native_state_verification_count =
+        taa_constant_readbacks_this_frame;
+    evidence.production_content_readback_count = 0U;
+    evidence.production_framebuffer_readback_count = 0U;
+    evidence.unjittered_culling = true;
+    evidence.motion_vectors_remove_jitter = true;
+    evidence.current_previous_transform_lineage = true;
+    evidence.non_reversed_depth_reprojection = true;
+    evidence.pre_exposure_history_rescale = true;
+    evidence.reactive_mask_consumed = true;
+    evidence.variance_neighbourhood_clipping = true;
+    evidence.output_alpha_one = true;
+    const ValidationResult prepared =
+        taa_state.PrepareCommit(plan, evidence);
+    if (!prepared) {
+      return HdrBackendFailure(
+          "temporal AA contract refused the frame commit: " +
+          prepared.detail);
+    }
+    taa_commit_prepared = true;
+    return RenderOperationResult::Success();
+  }
+
   [[nodiscard]] bool ReadHdrHistory(HdrR16Float &history) {
     if (hdr_workspace == nullptr) {
       return false;
@@ -7202,6 +7944,11 @@ public:
         }
         clean = !compositors->hasShadowNodeDefinition(shadow_name) &&
                 hdr_workspace->findShadowNode(shadow_name) == nullptr;
+        if (TemporalAaEnabled()) {
+          // recreateAllNodes() replaced the persistent TAA history
+          // allocations; a stale temporal lineage must not survive them.
+          clean = static_cast<bool>(InitializeTemporalAaRuntime()) && clean;
+        }
       }
     } catch (...) {
       clean = false;
@@ -7320,6 +8067,17 @@ public:
       // initialization warmup therefore never instantiates a zero-light PSSM
       // runtime or reports active_lights=0 as if it were a valid shadow frame.
       hdr_workspace->recreateAllNodes();
+      if (TemporalAaEnabled()) {
+        // recreateAllNodes() replaced the persistent TAA history
+        // allocations: start a fresh temporal lifecycle so the contract can
+        // never validate evidence against retired textures. The in-flight
+        // frame (if any) degrades to the pass-through path and re-seeds.
+        const RenderOperationResult taa_runtime =
+            InitializeTemporalAaRuntime();
+        if (!taa_runtime) {
+          return rollback_failure(taa_runtime);
+        }
+      }
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
       injected = MaybeInjectHdrFailure(
           OgreNextN1HdrFailureStage::AFTER_SINGLE_SCENE_PSSM_WORKSPACE_RECREATE);
@@ -7466,9 +8224,13 @@ public:
       if (SingleSceneHdrPssmEnabled()) {
         CreateAndVerifyHdrSingleSceneNode(
             *root->getCompositorManager2(),
-            hdr_split_node_definition_created);
+            hdr_split_node_definition_created, TemporalAaEnabled());
         CreateAndVerifyAerialHazeNode(*root->getCompositorManager2());
         hdr_haze_node_definition_created = true;
+        if (TemporalAaEnabled()) {
+          CreateAndVerifyTemporalAaNode(*root->getCompositorManager2());
+          hdr_taa_node_definition_created = true;
+        }
       } else {
         CreateAndVerifyHdrLightingSplitNode(
             *root->getCompositorManager2(), hdr_split_node_definition_created,
@@ -7512,7 +8274,11 @@ public:
           (SingleSceneHdrPssmEnabled() &&
            (!hdr_haze_node_definition_created ||
             !compositors->hasNodeDefinition(
-                Ogre::IdString(kOgreNextAerialHazeNode))))) {
+                Ogre::IdString(kOgreNextAerialHazeNode)))) ||
+          (TemporalAaEnabled() &&
+           (!hdr_taa_node_definition_created ||
+            !compositors->hasNodeDefinition(
+                Ogre::IdString(kOgreNextTaaNode))))) {
         return HdrBackendFailure(
             "retained HDR definitions disappeared before resize rebuild");
       }
@@ -7531,10 +8297,13 @@ public:
       const bool has_haze =
           aliases.find(Ogre::IdString(kOgreNextAerialHazeNode)) !=
           aliases.end();
+      const bool has_taa =
+          aliases.find(Ogre::IdString(kOgreNextTaaNode)) != aliases.end();
       // The HDR UI node is a required production member of the closure.
       constexpr bool expected_ui = true;
       if (!has_rendering || !has_postprocessing || has_ui != expected_ui ||
-          has_haze != SingleSceneHdrPssmEnabled()) {
+          has_haze != SingleSceneHdrPssmEnabled() ||
+          has_taa != TemporalAaEnabled()) {
         return HdrBackendFailure(
             "retained HDR workspace topology changed before resize rebuild");
       }
@@ -7883,6 +8652,15 @@ public:
           BindIdentityAerialHazeParameters();
       if (!haze_identity) {
         return haze_identity;
+      }
+    }
+    if (TemporalAaEnabled()) {
+      // Fresh workspace means fresh persistent history allocations: start a
+      // new TAA lifecycle epoch and bind the exact pass-through identity so
+      // the warmup frames resolve to the current sample.
+      const RenderOperationResult taa_runtime = InitializeTemporalAaRuntime();
+      if (!taa_runtime) {
+        return taa_runtime;
       }
     }
     if (SunVisibilityV2Enabled()) {
@@ -9518,6 +10296,7 @@ public:
     }
     scene_manager = nullptr;
     camera = nullptr;
+    taa_cull_camera = nullptr;
     pbs = nullptr;
     unlit = nullptr;
     if (!DestroyPresentationResources()) {
@@ -9678,6 +10457,7 @@ public:
   bool hdr_split_node_definition_created = false;
   bool hdr_refraction_node_definition_created = false;
   bool hdr_haze_node_definition_created = false;
+  bool hdr_taa_node_definition_created = false;
   bool hdr_shadow_node_definition_created = false;
   bool hdr_pssm_finalization_prepared = false;
   bool hdr_pssm_finalized_with_populated_scene = false;
@@ -9719,6 +10499,24 @@ public:
   /// Last bound atmosphere, for the presenter's runtime evidence log.
   float hdr_aerial_haze_extinction_per_meter = 0.0F;
   Float3 hdr_aerial_haze_inscatter{};
+  /// Stage 5 temporal AA runtime. The contract state owns jitter phase,
+  /// history ping-pong lineage, and the two-phase frame commit; the members
+  /// beside it carry the native texture generation, the per-frame plan, and
+  /// the fail-closed degrade audit. Frame identity is frontend-relative
+  /// (contiguous from 1 per TAA lifecycle epoch), so a degrade resets the
+  /// lifecycle instead of desynchronizing an external counter.
+  OgreNextTaaState taa_state;
+  OgreNextTaaConfiguration taa_configuration{};
+  std::uint64_t taa_lifecycle_epoch_sequence = 0U;
+  std::uint64_t taa_texture_generation = 0U;
+  Ogre::Camera *taa_cull_camera = nullptr;
+  bool taa_frame_active = false;
+  bool taa_commit_prepared = false;
+  OgreNextTaaFramePlan taa_frame_plan{};
+  std::uint32_t taa_constant_readbacks_this_frame = 0U;
+  std::uint64_t taa_committed_frames = 0U;
+  std::uint64_t taa_degraded_frames = 0U;
+  std::string taa_last_degrade_reason;
   bool hdr_auto_exposure_graph_verified = false;
   bool hdr_bloom_graph_verified = false;
   bool hdr_tone_map_graph_verified = false;
@@ -10340,6 +11138,16 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
     }
     impl_->camera =
         impl_->scene_manager->createCamera("RoROgreNextN1Camera");
+    if (impl_->TemporalAaEnabled()) {
+      // Dedicated unjittered cull camera: the single-scene pass definition
+      // names it as mCullCameraName, so visibility, LOD lists, and the PSSM
+      // shadow node consult this camera while only the render camera's
+      // projection carries the temporal sub-pixel jitter. It must exist
+      // before the HDR workspace instantiates and resolves the name.
+      impl_->taa_cull_camera =
+          impl_->scene_manager->createCamera(kOgreNextTaaCullCameraName);
+      impl_->taa_cull_camera->setAutoAspectRatio(false);
+    }
     if (impl_->raster_feature_tier ==
         OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
       impl_->reflection_probe_runtime =
@@ -11525,6 +12333,51 @@ RenderOperationResult OgreNextN1Frontend::Render(
         return haze;
       }
     }
+    // Stage 5 temporal AA frame plan. The wire-level view stays unjittered
+    // (the N1 policy still rejects nonzero wire jitter); the frontend is the
+    // jitter authority and plans against an internally adjusted view whose
+    // jitter is the contract's exact Halton phase for the frontend-relative
+    // TAA frame id. Any planning or binding failure degrades this frame to
+    // the exact un-jittered pass-through instead of failing the session.
+    impl_->taa_frame_active = false;
+    impl_->taa_commit_prepared = false;
+    impl_->taa_constant_readbacks_this_frame = 0U;
+    if (impl_->TemporalAaEnabled()) {
+      OgreNextTaaFrameInput taa_input;
+      taa_input.lifecycle_epoch = impl_->taa_state.lifecycle_epoch();
+      taa_input.frame_id = impl_->taa_state.committed_frame_id() + 1U;
+      taa_input.snapshot_id = request.scene_snapshot->snapshot_id();
+      taa_input.view = validated_view;
+      taa_input.pre_exposure = kOgreNextTaaCurrentRawHdrPreExposure;
+      taa_input.camera_cut = false;
+      Float2 planned_jitter{};
+      ValidationResult planned_taa =
+          ComputeOgreNextTaaJitterPixels(taa_input.frame_id, planned_jitter);
+      OgreNextTaaFramePlan taa_plan;
+      if (planned_taa) {
+        taa_input.view.temporal_jitter_pixels = planned_jitter;
+        planned_taa = impl_->taa_state.PrepareFrame(taa_input, taa_plan);
+      }
+      if (!planned_taa) {
+        impl_->DegradeTemporalAaFrame(request.frame_id,
+                                      planned_taa.detail.c_str());
+      } else if (const RenderOperationResult taa_bound =
+                     impl_->ConfigureTemporalAaForFrame(taa_plan);
+                 !taa_bound) {
+        impl_->DegradeTemporalAaFrame(
+            request.frame_id, "temporal AA constants failed exact binding");
+      } else {
+        impl_->taa_frame_plan = taa_plan;
+        impl_->taa_frame_active = true;
+        // Enable exactly one resolve/copy parity for this frame's planned
+        // history destination slot; everything else in the graph carries the
+        // default full mask.
+        impl_->hdr_workspace->setExecutionMask(static_cast<std::uint8_t>(
+            taa_plan.destination_history_slot == 1U
+                ? 0xFFU & ~kOgreNextTaaOddExecutionMask
+                : 0xFFU & ~kOgreNextTaaEvenExecutionMask));
+      }
+    }
   }
   std::uint64_t readback_row_pitch = 0U;
   std::size_t readback_total_bytes = 0U;
@@ -12115,6 +12968,21 @@ RenderOperationResult OgreNextN1Frontend::Render(
     hdr_commit_prepared = false;
     return !impl_->hdr_temporal_state.CanCommitPrepared();
   };
+  const auto abort_taa_commit = [&]() noexcept {
+    if (impl_->taa_commit_prepared) {
+      impl_->taa_state.AbortPrepared();
+      impl_->taa_commit_prepared = false;
+    }
+    if (impl_->taa_frame_active) {
+      // The jittered frame may have advanced GPU history without a commit;
+      // invalidate so the next frame re-seeds instead of blending it.
+      impl_->taa_frame_active = false;
+      if (impl_->taa_state.initialized()) {
+        static_cast<void>(impl_->taa_state.InvalidateHistory());
+      }
+    }
+    return !impl_->taa_state.CanCommitPrepared();
+  };
   const auto abort_hdr_pssm_finalization = [&]() noexcept {
     if (!impl_->hdr_pssm_finalization_prepared) {
       return true;
@@ -12137,6 +13005,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
     clean = abort_interop_commit() && clean;
     const bool hdr_prepared_rollback_verified = abort_hdr_commit();
     clean = hdr_prepared_rollback_verified && clean;
+    clean = abort_taa_commit() && clean;
     clean = abort_hdr_pssm_finalization() && clean;
     clean = abort_production_output() && clean;
     clean = cleanup_scene() && clean;
@@ -13783,6 +14652,49 @@ RenderOperationResult OgreNextN1Frontend::Render(
     } else {
       impl_->camera->setCustomProjectionMatrix(true, native_projection, false);
     }
+    if (impl_->TemporalAaEnabled()) {
+      // The single-scene pass definition names the TAA cull camera whenever
+      // TAA is enabled, so it must mirror the render camera on EVERY frame -
+      // including degraded ones - or culling would use stale state.
+      Ogre::Camera *const cull = impl_->taa_cull_camera;
+      if (cull == nullptr) {
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::BACKEND_FAILURE,
+            "Ogre-Next temporal AA cull camera disappeared"));
+      }
+      cull->setNearClipDistance(view.near_plane);
+      cull->setFarClipDistance(view.far_plane);
+      cull->setAspectRatio(static_cast<float>(view.width) /
+                           static_cast<float>(view.height));
+      if (shadow_plan.enabled) {
+        // The shadow node consults the cull camera's derived pose exactly as
+        // the render camera's pose is kept coherent above.
+        cull->setPosition(impl_->camera->getPosition());
+        cull->setOrientation(impl_->camera->getOrientation());
+      }
+      cull->setCustomViewMatrix(true, native_view);
+      if (shadow_plan.enabled) {
+        ConfigureAndVerifyPssmProjection(
+            *cull, shadow_plan.projection_extents, native_projection);
+      } else {
+        cull->setCustomProjectionMatrix(true, native_projection, false);
+      }
+      if (impl_->taa_frame_active) {
+        // Only the render camera's projection carries this frame's exact
+        // Halton jitter phase. The clip-space offset is 2 * jitter / extent,
+        // negated on Y because the portable jitter convention is +Y down in
+        // pixels while clip-space +Y is up. Culling, LOD, PSSM extents, and
+        // every wire-level matrix stay unjittered.
+        const Float2 jitter = impl_->taa_frame_plan.jitter_pixels;
+        Ogre::Matrix4 jitter_offset = Ogre::Matrix4::IDENTITY;
+        jitter_offset[0U][3U] =
+            2.0F * jitter.x / static_cast<float>(view.width);
+        jitter_offset[1U][3U] =
+            -2.0F * jitter.y / static_cast<float>(view.height);
+        impl_->camera->setCustomProjectionMatrix(
+            true, jitter_offset * native_projection, false);
+      }
+    }
 
     if (portable_sky.enabled) {
       Ogre::HlmsMacroblock sky_macroblock;
@@ -14837,6 +15749,18 @@ RenderOperationResult OgreNextN1Frontend::Render(
         }
         hdr_commit_prepared = true;
       }
+      if (impl_->taa_frame_active) {
+        // Stage 5: the jittered frame rendered; gather its native execution
+        // evidence and prepare the temporal-history advance. A refusal here
+        // degrades the stream (this frame presented with at most a half-pixel
+        // offset and the next frame re-seeds) - never the session.
+        const RenderOperationResult taa_preparation =
+            impl_->PrepareTemporalAaCommit();
+        if (!taa_preparation) {
+          impl_->DegradeTemporalAaFrame(
+              request.frame_id, taa_preparation.detail.c_str());
+        }
+      }
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
       if (!deferred_sun_visibility_v2) {
         const RenderOperationResult injected = impl_->MaybeInjectHdrFailure(
@@ -15020,6 +15944,45 @@ RenderOperationResult OgreNextN1Frontend::Render(
           impl_->hdr_temporal_state.last_history_comparison();
       impl_->hdr_native_history_validated =
           impl_->hdr_history_comparison.accepted;
+    }
+    if (impl_->taa_frame_active && impl_->taa_commit_prepared) {
+      if (impl_->taa_state.CanCommitPrepared()) {
+        impl_->taa_state.CommitPrepared();
+        ++impl_->taa_committed_frames;
+      } else {
+        impl_->taa_state.AbortPrepared();
+        impl_->DegradeTemporalAaFrame(
+            request.frame_id,
+            "temporal lineage changed between prepare and publication");
+      }
+      impl_->taa_commit_prepared = false;
+      impl_->taa_frame_active = false;
+    }
+    if (impl_->TemporalAaEnabled() &&
+        (impl_->taa_committed_frames == 1U ||
+         (impl_->taa_committed_frames != 0U &&
+          impl_->taa_committed_frames % 300U == 0U))) {
+      const OgreNextTaaFramePlan committed_taa_plan =
+          impl_->taa_state.committed_plan();
+      std::fprintf(
+          stderr,
+          "[RoR|OgreNext|TemporalAa] frame_id=%llu taa_frame=%llu "
+          "jitter_phase=%u jitter=(%.5f,%.5f) history=%s reset=%u "
+          "slot=%u->%u committed=%llu degraded=%llu extent=%ux%u "
+          "epoch=%llu\n",
+          static_cast<unsigned long long>(request.frame_id),
+          static_cast<unsigned long long>(committed_taa_plan.frame_id),
+          committed_taa_plan.jitter_phase,
+          static_cast<double>(committed_taa_plan.jitter_pixels.x),
+          static_cast<double>(committed_taa_plan.jitter_pixels.y),
+          committed_taa_plan.history_available ? "blend" : "seed",
+          static_cast<unsigned>(committed_taa_plan.reset_reason),
+          static_cast<unsigned>(committed_taa_plan.source_history_slot),
+          static_cast<unsigned>(committed_taa_plan.destination_history_slot),
+          static_cast<unsigned long long>(impl_->taa_committed_frames),
+          static_cast<unsigned long long>(impl_->taa_degraded_frames),
+          committed_taa_plan.width, committed_taa_plan.height,
+          static_cast<unsigned long long>(committed_taa_plan.lifecycle_epoch));
     }
     if (shadow_plan.enabled) {
       impl_->shadow_audit.last_frame = shadow_plan;
