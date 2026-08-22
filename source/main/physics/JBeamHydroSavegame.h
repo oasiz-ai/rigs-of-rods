@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "JBeamHydroControlBinding.h"
 #include "JBeamHydroRuntime.h"
 
 #include <cstddef>
@@ -37,6 +38,7 @@ struct LiveHydro
     float reference_length = 0.0f;
     float saved_runtime_rest_length = 0.0f;
     JBeamHydroRuntimeConfig config;
+    JBeamHydroControlBinding control_binding;
     JBeamHydroRuntimeState runtime_state;
 };
 
@@ -76,6 +78,7 @@ enum class Error
     ENABLEMENT_MISMATCH,
     CONFIGURATION_MISMATCH,
     INVALID_CONFIGURATION,
+    INVALID_CONTROL_BINDING,
     REFERENCE_LENGTH_MISMATCH,
     INVALID_STATE,
     INVALID_FAULT,
@@ -204,6 +207,12 @@ inline Result TryStage(
         {
             return Failure(
                 Error::INVALID_CONFIGURATION, live.hydro_index);
+        }
+        if (!IsValidJBeamHydroControlBinding(
+                live.control_binding, live.config))
+        {
+            return Failure(
+                Error::INVALID_CONTROL_BINDING, live.hydro_index);
         }
         if (!JBeamHydroRuntimeDetail::IsNormalBinary32(
                 live.reference_length) ||

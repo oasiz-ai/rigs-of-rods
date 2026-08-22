@@ -13,6 +13,7 @@
 #pragma once
 
 #include "DeterministicStateDigest.h"
+#include "JBeamHydroControlBinding.h"
 #include "JBeamHydroRuntime.h"
 
 #include <cstdint>
@@ -92,12 +93,14 @@ inline bool ExactFloatEqual(float first, float second)
 /// source state leaves the destination unchanged.
 inline bool Populate(
     const JBeamHydroRuntimeConfig& config,
+    const JBeamHydroControlBinding& control_binding,
     const JBeamHydroRuntimeState& state,
     float reference_length,
     float runtime_rest_length,
     HydroRecord& destination)
 {
     if (!JBeamHydroRuntimeDetail::IsValidConfig(config) ||
+        !IsValidJBeamHydroControlBinding(control_binding, config) ||
         !JBeamHydroRuntimeDetail::IsNormalBinary32(reference_length) ||
         !JBeamHydroRuntimeDetail::IsNormalBinary32(runtime_rest_length) ||
         !HydroActuatorDetail::IsFinite(state.response.length_ratio) ||

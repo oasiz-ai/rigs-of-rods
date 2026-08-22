@@ -34,6 +34,7 @@
 #include "Console.h"
 #include "DeterministicCounterNoise.h"
 #include "DeterministicFixedStepCadence.h"
+#include "DeterministicVehicleInput.h"
 #include "Differentials.h"
 #include "Engine.h"
 #include "FlexAirfoil.h"
@@ -50,6 +51,16 @@
 
 using namespace Ogre;
 using namespace RoR;
+
+static_assert(
+    JBEAM_HYDRO_RUNTIME_INPUT_REGISTRY_SCHEMA_VERSION ==
+        DeterministicVehicleInput::SNAPSHOT_SCHEMA_VERSION,
+    "native JBeam hydros require deterministic vehicle-input schema 1");
+static_assert(
+    JBEAM_HYDRO_RUNTIME_CONTROL_STEERING_COMMAND ==
+        static_cast<std::uint32_t>(
+            DeterministicVehicleInput::CONTROL_STEERING_COMMAND),
+    "native JBeam hydro steering binding must retain control ID 1");
 
 void Actor::CalcForcesEulerCompute(bool doUpdate, int num_steps)
 {
@@ -737,8 +748,41 @@ void Actor::CalcHydros()
                     JBeamHydroRuntimeFault::INVALID_PREVIOUS_STATE;
                 continue;
             }
-            const double input =
-                static_cast<double>(ar_hydro_dir_command);
+            JBeamHydroAppliedControlSample control_sample;
+            control_sample.registry_schema_version =
+                DeterministicVehicleInput::SNAPSHOT_SCHEMA_VERSION;
+            const std::uint64_t actor_instance_id =
+                ar_instance_id > ACTORINSTANCEID_INVALID
+                    ? static_cast<std::uint64_t>(ar_instance_id)
+                    : 0U;
+            control_sample.actor_instance_id = actor_instance_id;
+            control_sample.control_id =
+                static_cast<std::uint32_t>(
+                    DeterministicVehicleInput::
+                        CONTROL_STEERING_COMMAND);
+            control_sample.value = ar_hydro_dir_command;
+            double input = 0.0;
+            JBeamHydroControlBindingStatus control_status;
+            if (!ResolveJBeamHydroControlInput(
+                    hydrobeam.hb_jbeam_control_binding,
+                    hydrobeam.hb_jbeam_config,
+                    actor_instance_id,
+                    control_sample,
+                    input,
+                    control_status))
+            {
+                hydrobeam.hb_jbeam_state.fault_latched = true;
+                hydrobeam.hb_jbeam_state.fault =
+                    control_status.error ==
+                            JBeamHydroControlBindingError::
+                                INVALID_BINDING ||
+                        control_status.error ==
+                            JBeamHydroControlBindingError::
+                                INVALID_RUNTIME_CONFIG
+                        ? JBeamHydroRuntimeFault::INVALID_CONFIG
+                        : JBeamHydroRuntimeFault::INVALID_INPUT;
+                continue;
+            }
             const JBeamHydroRuntimeStep step =
                 AdvanceJBeamHydroRuntime(
                     hydrobeam.hb_jbeam_config,

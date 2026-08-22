@@ -176,6 +176,13 @@ void TestRejectsConflictsAndMalformedState()
         wrong_config, live, staged).error ==
         RoR::JBeamHydroSavegame::Error::CONFIGURATION_MISMATCH);
 
+    std::vector<RoR::JBeamHydroSavegame::LiveHydro>
+        wrong_control_binding = live;
+    wrong_control_binding[0].control_binding.runtime_control_id++;
+    CHECK(RoR::JBeamHydroSavegame::TryStage(
+        payload, wrong_control_binding, staged).error ==
+        RoR::JBeamHydroSavegame::Error::INVALID_CONTROL_BINDING);
+
     RoR::JBeamHydroSavegame::ActorPayload wrong_reference = payload;
     wrong_reference.records[0].reference_length = 3.0f;
     CHECK(RoR::JBeamHydroSavegame::TryStage(

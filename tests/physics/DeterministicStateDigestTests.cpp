@@ -572,8 +572,9 @@ void TestJBeamHydroRuntimeMapping()
     hydro.actor_id = 2;
     hydro.hydro_id = 4;
     hydro.beam_id = 6;
+    RoR::JBeamHydroControlBinding control_binding;
     CHECK(JBeamHydroStateDigest::Populate(
-        config, state, 2.f, 1.5f, hydro));
+        config, control_binding, state, 2.f, 1.5f, hydro));
     CHECK(hydro.actor_id == 2);
     CHECK(hydro.hydro_id == 4U);
     CHECK(hydro.beam_id == 6U);
@@ -587,10 +588,17 @@ void TestJBeamHydroRuntimeMapping()
     const HydroRecord unchanged = hydro;
     state.fault = static_cast<RoR::JBeamHydroRuntimeFault>(999);
     CHECK(!JBeamHydroStateDigest::Populate(
-        config, state, 2.f, 1.5f, hydro));
+        config, control_binding, state, 2.f, 1.5f, hydro));
     CHECK(hydro.actor_id == unchanged.actor_id);
     CHECK(hydro.fault == unchanged.fault);
     CHECK(hydro.accepted_step_count == unchanged.accepted_step_count);
+
+    state.fault = RoR::JBeamHydroRuntimeFault::INVALID_TIMESTEP;
+    control_binding.runtime_control_id++;
+    CHECK(!JBeamHydroStateDigest::Populate(
+        config, control_binding, state, 2.f, 1.5f, hydro));
+    CHECK(hydro.actor_id == unchanged.actor_id);
+    CHECK(hydro.fault == unchanged.fault);
 }
 
 void TestCompleteMaterialHistorySensitivity()

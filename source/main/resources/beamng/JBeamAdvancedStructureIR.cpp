@@ -3112,6 +3112,10 @@ JBeamAdvancedDocumentationProfile::
         "https://documentation.beamng.com/modding/vehicle/"
         "sections/hydros/")
     , hydros_last_modified("2025-01-24")
+    , electrics_url(
+        "https://documentation.beamng.com/modding/vehicle/"
+        "sections/electrics/")
+    , electrics_last_modified("2025-04-02")
     , rails_url(
         "https://documentation.beamng.com/modding/vehicle/"
         "sections/rails/")
@@ -3892,6 +3896,14 @@ JBeamHydroRuntimePlan BuildRuntimePlanFromViews(
         actuator.has_steering_wheel_lock;
     result.runtime_config.steering_wheel_lock =
         actuator.steering_wheel_lock;
+    if (!IsValidJBeamHydroControlBinding(
+            result.control_binding,
+            result.runtime_config))
+    {
+        result.code =
+            JBeamHydroRuntimePlanCode::UNSUPPORTED_INPUT_SOURCE;
+        return result;
+    }
     result.initialized_runtime = InitializeJBeamHydroRuntime(
         result.runtime_config, result.initial_rest_length);
     if (!result.initialized_runtime.valid)

@@ -4557,7 +4557,10 @@ void ActorSpawner::ProcessHydro(RigDef::Hydro & def)
             !def.beam_defaults ||
             !def.inertia_defaults ||
             jbeam_plan->runtime_config.input_route !=
-                RoR::JBeamHydroInputRoute::STEERING_INPUT)
+                RoR::JBeamHydroInputRoute::STEERING_INPUT ||
+            !RoR::IsValidJBeamHydroControlBinding(
+                jbeam_plan->control_binding,
+                jbeam_plan->runtime_config))
         {
             AddMessage(
                 Message::TYPE_ERROR,
@@ -4618,6 +4621,7 @@ void ActorSpawner::ProcessHydro(RigDef::Hydro & def)
         hb.hb_flags = 0U;
         hb.hb_has_jbeam_runtime = true;
         hb.hb_jbeam_config = jbeam_plan->runtime_config;
+        hb.hb_jbeam_control_binding = jbeam_plan->control_binding;
         hb.hb_jbeam_state = jbeam_initialized.state;
     }
     else

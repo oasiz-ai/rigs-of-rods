@@ -420,6 +420,7 @@ bool BuildLiveJBeamHydros(
         live.enabled = hydro.hb_has_jbeam_runtime;
         live.reference_length = hydro.hb_ref_length;
         live.config = hydro.hb_jbeam_config;
+        live.control_binding = hydro.hb_jbeam_control_binding;
         live.runtime_state = hydro.hb_jbeam_state;
         if (!live.enabled)
         {

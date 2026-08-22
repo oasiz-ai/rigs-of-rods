@@ -214,6 +214,9 @@ void TestDocumentationProfile()
     CHECK(profile.hydros_url.find("sections/hydros/") !=
         std::string::npos);
     CHECK(profile.hydros_last_modified == "2025-01-24");
+    CHECK(profile.electrics_url.find("sections/electrics/") !=
+        std::string::npos);
+    CHECK(profile.electrics_last_modified == "2025-04-02");
     CHECK(profile.rails_url.find("sections/rails/") !=
         std::string::npos);
     CHECK(profile.rails_last_modified == "2025-12-10");
@@ -570,6 +573,12 @@ void TestHydroRuntimePlan()
     CHECK(plan.runtime_config.response.factor == 0.14);
     CHECK(plan.runtime_config.has_steering_wheel_lock);
     CHECK(plan.runtime_config.steering_wheel_lock == 510.0);
+    CHECK(RoR::IsValidJBeamHydroControlBinding(
+        plan.control_binding, plan.runtime_config));
+    CHECK(plan.control_binding.source_electrics ==
+        RoR::JBEAM_HYDRO_SOURCE_ELECTRICS_STEERING_INPUT);
+    CHECK(plan.control_binding.runtime_control_id ==
+        RoR::JBEAM_HYDRO_RUNTIME_CONTROL_STEERING_COMMAND);
     CHECK(plan.initialized_runtime.valid);
     CHECK(plan.initialized_runtime.runtime_rest_length == 0.75f);
 

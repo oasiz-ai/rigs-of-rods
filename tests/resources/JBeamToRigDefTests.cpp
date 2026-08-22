@@ -1575,6 +1575,9 @@ void TestHydroPlansPublishAllOrNone()
     CHECK(module.hydros[0].beam_defaults->_enable_advanced_deformation);
     CHECK(module.hydros[0]._jbeam_runtime_plan != nullptr);
     CHECK(module.hydros[0]._jbeam_runtime_plan->IsAdmitted());
+    CHECK(RoR::IsValidJBeamHydroControlBinding(
+        module.hydros[0]._jbeam_runtime_plan->control_binding,
+        module.hydros[0]._jbeam_runtime_plan->runtime_config));
     CHECK(module.hydros[0]._jbeam_runtime_plan.get() !=
         &plans.plans[0]);
     CHECK(module.hydros[1].nodes[0].Str() == "left");
@@ -1597,6 +1600,17 @@ void TestHydroPlansPublishAllOrNone()
     wrong_config.plans[1].runtime_config.response.factor = -0.3;
     CHECK(!RoR::BeamNG::ConvertJBeamToRigDefWithHydroRuntimePlans(
         ir, wrong_config, "wrong-hydro-config", diagnostics));
+    CHECK(diagnostics.size() == 1U);
+    CHECK(diagnostics[0].code ==
+        JBeamToRigDefDiagnosticCode::INVALID_HYDRO_RUNTIME_PLAN);
+
+    JBeamHydroRuntimePlanSet wrong_control_binding = plans;
+    wrong_control_binding.plans[0].control_binding.runtime_control_id++;
+    CHECK(!RoR::BeamNG::ConvertJBeamToRigDefWithHydroRuntimePlans(
+        ir,
+        wrong_control_binding,
+        "wrong-hydro-control-binding",
+        diagnostics));
     CHECK(diagnostics.size() == 1U);
     CHECK(diagnostics[0].code ==
         JBeamToRigDefDiagnosticCode::INVALID_HYDRO_RUNTIME_PLAN);

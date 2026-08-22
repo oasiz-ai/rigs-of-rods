@@ -2352,6 +2352,9 @@ bool ValidateHydroRuntimePlans(
             plan.runtime_config.input_route ==
                 JBeamHydroInputRoute::STEERING_INPUT &&
             plan.properties.actuator.input_source == "steering_input" &&
+            IsValidJBeamHydroControlBinding(
+                plan.control_binding,
+                plan.runtime_config) &&
             SameHydroConfig(
                 plan.runtime_config.response,
                 plan.properties.actuator.config) &&

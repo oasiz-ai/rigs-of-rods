@@ -2176,9 +2176,12 @@ steering-direction command. The product loader and opaque importer receipt now
 close the source-to-actor authority chain for the allowlisted ZIP/root subset,
 including immediate current-mounted-snapshot revalidation before actor
 construction. The clean-room product spawn-soak now proves this native carrier
-executes 120,000 accepted finite steps. Explicit source-electrics lineage,
-save/replay integration, source-engine calibration, and representative vehicle
-evidence remain required.
+executes 120,000 accepted finite steps. The exact documented `steering_input`
+route is now bound fail-closed to deterministic vehicle-input schema 1,
+control ID 1 (`steering_command`), on the same Actor target at fixed-step
+start. Custom electrics, fresh combined-runtime input evidence, save/replay
+integration, source-engine calibration, and representative vehicle evidence
+remain required.
 
 A selected-row runtime-plan transaction now rebuilds both advanced and
 structural IR from one resolved graph and joins the admitted hydro to its two
@@ -2190,8 +2193,10 @@ structural join for one row. Batch all-or-none vehicle planning and internal
 RigDef/ActorSpawner/force-loop publication are now implemented. Retained
 package/resolver authority, the product importer call site, and fail-closed
 pre-publication spawn authority are now implemented. Explicit live input
-identity and save/replay state remain open; the clean-room structural/hydro
-spawn-soak closes only the bounded product execution case described above.
+identity for the supported steering route and savegame state are now
+implemented. Custom electrics and fresh combined-runtime input/save/replay
+qualification remain open; the clean-room structural/hydro spawn-soak closes
+only the bounded product execution case described above.
 
 Vehicle-level hydro planning now performs that work once for the full source
 set and publishes plans in stable source order only when every row succeeds.
@@ -2200,7 +2205,7 @@ clears the output and retains the rejected source index/code. The next internal
 transaction validates that exact set and builds an unpublished RigDef document
 containing every hydro or returns no document; ActorSpawner and the force loop
 consume the immutable sidecars. The product importer retains exact package
-authority and ActorManager checks it before spawn publication. Explicit
+authority and ActorManager checks it before spawn publication. Custom
 source-electrics resolution, replay, representative collisions, and a
 rights-cleared third-party spawned actor remain open. The original fixture has
 now supplied the narrower all-or-none end-to-end spawn and actuator execution

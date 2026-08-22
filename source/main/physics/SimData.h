@@ -36,6 +36,7 @@
 #include "BitFlags.h"
 #include "CmdKeyInertia.h"
 #include "InputEngine.h"
+#include "JBeamHydroControlBinding.h"
 #include "JBeamHydroRuntime.h"
 
 #include <cstdint>
@@ -589,6 +590,7 @@ struct hydrobeam_t //!< beams updating length based on simulation variables, gen
     RoR::CmdKeyInertia  hb_inertia;
     bool hb_has_jbeam_runtime{false};
     RoR::JBeamHydroRuntimeConfig hb_jbeam_config;
+    RoR::JBeamHydroControlBinding hb_jbeam_control_binding;
     RoR::JBeamHydroRuntimeState hb_jbeam_state;
 };
 

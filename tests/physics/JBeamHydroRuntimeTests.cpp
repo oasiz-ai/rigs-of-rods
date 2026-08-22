@@ -1,3 +1,5 @@
+#include "DeterministicVehicleInput.h"
+#include "JBeamHydroControlBinding.h"
 #include "JBeamHydroRuntime.h"
 
 #include <cstdint>
@@ -201,6 +203,89 @@ void TestResetPublishesPristineStateAtomically()
     CHECK(runtime_rest_length == 7.0f);
 }
 
+void TestControlBindingIdentityAndResolution()
+{
+    static_assert(
+        RoR::JBEAM_HYDRO_RUNTIME_INPUT_REGISTRY_SCHEMA_VERSION ==
+            RoR::DeterministicVehicleInput::SNAPSHOT_SCHEMA_VERSION,
+        "hydro binding must target deterministic input schema 1");
+    static_assert(
+        RoR::JBEAM_HYDRO_RUNTIME_CONTROL_STEERING_COMMAND ==
+            static_cast<std::uint32_t>(
+                RoR::DeterministicVehicleInput::
+                    CONTROL_STEERING_COMMAND),
+        "hydro binding must target steering control 1");
+
+    const RoR::JBeamHydroRuntimeConfig config = Config();
+    RoR::JBeamHydroControlBinding binding;
+    CHECK(RoR::IsValidJBeamHydroControlBinding(binding, config));
+    const std::string manifest =
+        RoR::JBeamHydroControlBindingManifest();
+    CHECK(manifest.find("source_name=steering_input\n") !=
+        std::string::npos);
+    CHECK(manifest.find("source_electrics_docs=https://documentation.beamng.com/"
+        "modding/vehicle/sections/electrics/\n") != std::string::npos);
+    CHECK(manifest.find("runtime_registry_schema=1\n") !=
+        std::string::npos);
+    CHECK(manifest.find("runtime_control_id=1\n") !=
+        std::string::npos);
+    CHECK(manifest.find("runtime_control_name=steering_command\n") !=
+        std::string::npos);
+    CHECK(manifest.find("sampling=fixed-step-start-applied-control\n") !=
+        std::string::npos);
+
+    RoR::JBeamHydroAppliedControlSample sample;
+    sample.registry_schema_version =
+        RoR::DeterministicVehicleInput::SNAPSHOT_SCHEMA_VERSION;
+    sample.actor_instance_id = 42U;
+    sample.control_id = static_cast<std::uint32_t>(
+        RoR::DeterministicVehicleInput::CONTROL_STEERING_COMMAND);
+    sample.value = -0.25f;
+    double input = 7.0;
+    RoR::JBeamHydroControlBindingStatus status;
+    CHECK(RoR::ResolveJBeamHydroControlInput(
+        binding, config, 42U, sample, input, status));
+    CHECK(status.error == RoR::JBeamHydroControlBindingError::NONE);
+    CHECK(input == -0.25);
+
+    sample.actor_instance_id = 43U;
+    input = 7.0;
+    CHECK(!RoR::ResolveJBeamHydroControlInput(
+        binding, config, 42U, sample, input, status));
+    CHECK(status.error ==
+        RoR::JBeamHydroControlBindingError::INVALID_ACTOR_TARGET);
+    CHECK(input == 7.0);
+    sample.actor_instance_id = 42U;
+
+    sample.registry_schema_version++;
+    CHECK(!RoR::ResolveJBeamHydroControlInput(
+        binding, config, 42U, sample, input, status));
+    CHECK(status.error == RoR::JBeamHydroControlBindingError::
+        REGISTRY_SCHEMA_MISMATCH);
+    sample.registry_schema_version--;
+
+    sample.control_id++;
+    CHECK(!RoR::ResolveJBeamHydroControlInput(
+        binding, config, 42U, sample, input, status));
+    CHECK(status.error ==
+        RoR::JBeamHydroControlBindingError::CONTROL_ID_MISMATCH);
+    sample.control_id--;
+
+    sample.value = 1.01f;
+    CHECK(!RoR::ResolveJBeamHydroControlInput(
+        binding, config, 42U, sample, input, status));
+    CHECK(status.error ==
+        RoR::JBeamHydroControlBindingError::INVALID_VALUE);
+
+    binding.runtime_control_id++;
+    CHECK(!RoR::ResolveJBeamHydroControlInput(
+        binding, config, 42U, sample, input, status));
+    CHECK(status.error ==
+        RoR::JBeamHydroControlBindingError::INVALID_BINDING);
+    CHECK(std::string(RoR::JBeamHydroControlBindingErrorToString(
+        status.error)) == "invalid-binding");
+}
+
 } // namespace
 
 int main()
@@ -209,6 +294,7 @@ int main()
     TestClampingAndFaultLatching();
     TestFailClosedInputs();
     TestResetPublishesPristineStateAtomically();
+    TestControlBindingIdentityAndResolution();
     if (g_failures != 0)
     {
         std::cerr << g_failures << " test(s) failed\n";

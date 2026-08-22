@@ -262,6 +262,7 @@ public:
             candidate.beam_id = source_hydro.hb_beam_index;
             if (!JBeamHydroStateDigest::Populate(
                     source_hydro.hb_jbeam_config,
+                    source_hydro.hb_jbeam_control_binding,
                     source_hydro.hb_jbeam_state,
                     source_hydro.hb_ref_length,
                     actor->ar_beams[source_hydro.hb_beam_index].L,

@@ -21,6 +21,7 @@
 
 #include "JBeamPartResolver.h"
 #include "HydroActuatorResponse.h"
+#include "JBeamHydroControlBinding.h"
 #include "JBeamHydroRuntime.h"
 #include "JBeamStructuralIR.h"
 
@@ -40,6 +41,8 @@ struct JBeamAdvancedDocumentationProfile
     std::string beamng_version;
     std::string hydros_url;
     std::string hydros_last_modified;
+    std::string electrics_url;
+    std::string electrics_last_modified;
     std::string rails_url;
     std::string rails_last_modified;
     std::string thrusters_url;
@@ -380,7 +383,7 @@ enum class JBeamHydroRuntimePlanCode
 
 /// All dependency-light values required immediately before RigDef/runtime
 /// construction. Both IRs are built internally from the same resolved graph.
-/// The plan still lacks current package authority and live electrics identity,
+/// The plan still lacks current package authority and a runtime Actor target,
 /// so its presence alone does not authorize ActorSpawner publication.
 struct JBeamHydroRuntimePlan
 {
@@ -390,6 +393,7 @@ struct JBeamHydroRuntimePlan
     std::size_t node2_source_index;
     JBeamHydroBeamPropertyAdmission properties;
     JBeamHydroRuntimeConfig runtime_config;
+    JBeamHydroControlBinding control_binding;
     double geometric_length;
     double initial_rest_length;
     JBeamHydroRuntimeStep initialized_runtime;

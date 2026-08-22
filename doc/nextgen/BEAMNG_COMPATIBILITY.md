@@ -470,9 +470,15 @@ actor mutation and atomically restore actuator history with the exact ordinary
 beam-array rest length. Deterministic-state digest schema v3 independently
 hashes each native hydro's configuration, original hydro/beam identity,
 reference and resolved solver lengths, ratio, accepted-step counter, and
-canonical fault latch. Fresh combined-runtime save/load and replay-trace
-qualification, explicit source-electrics lineage, and source-engine calibration
-remain open. The clean-room product spawn-soak
+canonical fault latch. The only admitted source route now carries an immutable
+binding from BeamNG electrics `steering_input` to deterministic vehicle-input
+schema 1, control ID 1 (`steering_command`), sampled from the same Actor target
+at fixed-step start. Plan construction, RigDef publication, Actor spawning,
+save staging, deterministic-state capture, and the force loop all revalidate
+that identity. Custom electrics values, Lua expressions, and smoothers remain
+unsupported. Fresh combined-runtime input/save/load and replay-trace
+qualification plus source-engine calibration remain open. The clean-room
+product spawn-soak
 proves the admitted native carrier is constructed and advanced for every
 requested step; it does not establish source-engine behavioral parity.
 
@@ -500,7 +506,7 @@ loader now supplies package authority and the importer call site, while actor
 creation revalidates that authority before publication. The project-original
 spawn-soak closes finite product spawn, bounded node-to-terrain impact,
 settle, and hydro execution for this one structural/hydro fixture. Replay
-qualification, source-electrics identity, representative-vehicle and full
+qualification, custom source-electrics, representative-vehicle and full
 triangle/self/static collision coverage, and third-party vehicle evidence
 remain open.
 
