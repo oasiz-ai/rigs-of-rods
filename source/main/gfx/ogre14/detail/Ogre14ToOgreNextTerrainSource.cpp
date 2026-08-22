@@ -1223,7 +1223,7 @@ struct Ogre14ToOgreNextTerrainSource::State final {
     std::int32_t slot_y = 0;
     const void *native_terrain = nullptr;
     std::vector<Render::GraphicsSceneAssetInput> assets;
-    Render::GraphicsSceneStaticMeshInput instance;
+    std::vector<Render::GraphicsSceneStaticMeshInput> instances;
   };
 
   bool captured = false;
@@ -1246,20 +1246,29 @@ Render::ValidationResult BuildCommittedCapture(
                    "committed terrain capture state is incomplete");
   }
   OgreNextDemoTerrainCapture candidate;
-  candidate.assets.reserve(state.page_owners.size() * 4U);
-  candidate.static_meshes.reserve(state.page_owners.size());
+  std::size_t asset_count = 0U;
+  std::size_t instance_count = 0U;
   for (const auto &entry : state.page_owners) {
-    // A page publishes mesh, base texture, base sampler and material, plus a
-    // texture/sampler pair for the weight mask and for each authored detail
-    // layer. The composite fallback publishes the bare four.
-    constexpr std::size_t kMinimumPageAssets = 4U;
-    constexpr std::size_t kMaximumPageAssets =
-        kMinimumPageAssets + 2U + 2U * Render::kMaterialDetailMapCount;
+    asset_count += entry.second.assets.size();
+    instance_count += entry.second.instances.size();
+  }
+  candidate.assets.reserve(asset_count);
+  candidate.static_meshes.reserve(instance_count);
+  for (const auto &entry : state.page_owners) {
+    // A page publishes one mesh per instance, then one shared base texture,
+    // base sampler and material. Authored density adds a texture/sampler pair
+    // for its weight mask and for each detail layer.
+    const std::size_t minimum_page_assets =
+        entry.second.instances.size() + 3U;
+    const std::size_t maximum_page_assets =
+        minimum_page_assets + 2U +
+        2U * Render::kMaterialDetailMapCount;
     if (state.live_pages.find(entry.first) == state.live_pages.end() ||
         entry.second.native_terrain == nullptr ||
-        entry.second.assets.size() < kMinimumPageAssets ||
-        entry.second.assets.size() > kMaximumPageAssets ||
-        (entry.second.assets.size() - kMinimumPageAssets) % 2U != 0U) {
+        entry.second.instances.empty() ||
+        entry.second.assets.size() < minimum_page_assets ||
+        entry.second.assets.size() > maximum_page_assets ||
+        (entry.second.assets.size() - minimum_page_assets) % 2U != 0U) {
       return Failure(Render::ValidationCode::SEQUENCE_MISMATCH,
                      "ogre_next_demo.terrain.frozen_owner",
                      "committed terrain page owner is incomplete");
@@ -1267,7 +1276,9 @@ Render::ValidationResult BuildCommittedCapture(
     candidate.assets.insert(candidate.assets.end(),
                             entry.second.assets.begin(),
                             entry.second.assets.end());
-    candidate.static_meshes.push_back(entry.second.instance);
+    candidate.static_meshes.insert(candidate.static_meshes.end(),
+                                   entry.second.instances.begin(),
+                                   entry.second.instances.end());
   }
   std::sort(candidate.assets.begin(), candidate.assets.end(),
             [](const auto &first, const auto &second) {
@@ -1461,59 +1472,83 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
                      "a removed terrain page identity may never return",
                      index);
     }
-    if (page.mesh_payload == nullptr ||
-        page.mesh_payload->valueless_by_exception() ||
-        Render::RenderAssetPayloadKind(*page.mesh_payload) !=
-            Render::RenderAssetKind::MESH) {
-      return Failure(Render::ValidationCode::WRONG_ASSET_KIND,
-                     "ogre_next_demo.terrain.mesh_payload",
-                     "terrain page requires one immutable generic mesh",
-                     index);
-    }
-    const Render::MeshResourceDescriptor &captured_mesh =
-        std::get<Render::MeshResourceDescriptor>(*page.mesh_payload);
-    if (captured_mesh.dynamic ||
-        captured_mesh.texture_coordinates_0.size() !=
-            captured_mesh.positions.size()) {
+    if (page.chunks.empty()) {
       return Failure(Render::ValidationCode::MISSING_REFERENCE,
-                     "ogre_next_demo.terrain.mesh.uv0",
-                     "display-domain terrain requires a static mesh with complete authored UV0",
-                     index);
+                     "ogre_next_demo.terrain.chunks",
+                     "terrain page requires immutable native chunks", index);
     }
-    // Terrain remains unlit and shadow-free in this disposable lowering, so
-    // only its authored position/UV geometry is authoritative. Sanitize a
-    // private candidate before the full descriptor/material checks and never
-    // replace the cached OGRE14 CPU payload on failure.
-    Render::MeshResourceDescriptor mesh = captured_mesh;
-    Render::ValidationResult validation =
-        NormalizeOgreNextDemoMatteMesh(mesh);
-    if (!validation) {
-      validation.field = "ogre_next_demo.terrain.mesh." + validation.field;
-      validation.element_index = index;
-      return validation;
+    std::vector<const OgreNextDemoTerrainChunkMesh *> ordered_chunks;
+    ordered_chunks.reserve(page.chunks.size());
+    for (const OgreNextDemoTerrainChunkMesh &chunk : page.chunks) {
+      ordered_chunks.push_back(&chunk);
+    }
+    std::sort(ordered_chunks.begin(), ordered_chunks.end(),
+              [](const auto *first, const auto *second) {
+                if (first->chunk_y != second->chunk_y) {
+                  return first->chunk_y < second->chunk_y;
+                }
+                return first->chunk_x < second->chunk_x;
+              });
+    std::set<std::pair<std::uint32_t, std::uint32_t>> chunk_coordinates;
+    std::vector<Render::MeshResourceDescriptor> meshes;
+    meshes.reserve(ordered_chunks.size());
+    for (std::size_t chunk_index = 0U;
+         chunk_index < ordered_chunks.size(); ++chunk_index) {
+      const OgreNextDemoTerrainChunkMesh &chunk =
+          *ordered_chunks[chunk_index];
+      if (!chunk_coordinates.emplace(chunk.chunk_x, chunk.chunk_y).second ||
+          chunk.mesh_payload == nullptr ||
+          chunk.mesh_payload->valueless_by_exception() ||
+          Render::RenderAssetPayloadKind(*chunk.mesh_payload) !=
+              Render::RenderAssetKind::MESH) {
+        return Failure(Render::ValidationCode::WRONG_ASSET_KIND,
+                       "ogre_next_demo.terrain.chunks.mesh_payload",
+                       "terrain chunk identity or immutable mesh is invalid",
+                       chunk_index);
+      }
+      const Render::MeshResourceDescriptor &captured_mesh =
+          std::get<Render::MeshResourceDescriptor>(*chunk.mesh_payload);
+      if (captured_mesh.dynamic ||
+          captured_mesh.texture_coordinates_0.size() !=
+              captured_mesh.positions.size()) {
+        return Failure(Render::ValidationCode::MISSING_REFERENCE,
+                       "ogre_next_demo.terrain.chunks.mesh.uv0",
+                       "display-domain terrain requires static chunks with complete authored UV0",
+                       chunk_index);
+      }
+      // Sanitize a private candidate before the full descriptor/material
+      // checks and never replace the cached CPU payload on failure.
+      Render::MeshResourceDescriptor mesh = captured_mesh;
+      Render::ValidationResult validation =
+          NormalizeOgreNextDemoMatteMesh(mesh);
+      if (!validation) {
+        validation.field =
+            "ogre_next_demo.terrain.chunks.mesh." + validation.field;
+        validation.element_index = chunk_index;
+        return validation;
+      }
+      meshes.push_back(std::move(mesh));
     }
 
     NativePageReadback native;
-    validation = CaptureNativePage(*terrain_group, page.slot_x, page.slot_y,
-                                   native);
+    Render::ValidationResult validation = CaptureNativePage(
+        *terrain_group, page.slot_x, page.slot_y, native);
     if (!validation) {
       validation.element_index = index;
       return validation;
     }
 
-    std::uint64_t mesh_id = 0U;
     std::uint64_t texture_id = 0U;
     std::uint64_t sampler_id = 0U;
     std::uint64_t material_id = 0U;
-    std::uint64_t object_id = 0U;
-    const std::array<std::pair<std::string_view, std::uint64_t *>, 5U>
+    const std::array<std::pair<std::string_view, std::uint64_t *>, 3U>
         identities{{
-            {kMeshIdDomain, &mesh_id},
             {kTextureIdDomain, &texture_id},
             {kSamplerIdDomain, &sampler_id},
             {kMaterialIdDomain, &material_id},
-            {kObjectIdDomain, &object_id},
         }};
+    std::vector<std::uint64_t> mesh_ids(ordered_chunks.size(), 0U);
+    std::vector<std::uint64_t> object_ids(ordered_chunks.size(), 0U);
     std::uint64_t weight_texture_id = 0U;
     std::uint64_t weight_sampler_id = 0U;
     std::array<std::uint64_t, Render::kMaterialDetailMapCount>
@@ -1535,6 +1570,38 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
       if (!validation) {
         validation.element_index = index;
         return validation;
+      }
+    }
+    for (std::size_t chunk_index = 0U;
+         chunk_index < ordered_chunks.size(); ++chunk_index) {
+      const OgreNextDemoTerrainChunkMesh &chunk =
+          *ordered_chunks[chunk_index];
+      std::string chunk_key(page.exact_page_key);
+      chunk_key.append("/chunk-");
+      chunk_key.append(std::to_string(chunk.chunk_x));
+      chunk_key.push_back('-');
+      chunk_key.append(std::to_string(chunk.chunk_y));
+      const std::array<std::pair<std::string_view, std::uint64_t *>, 2U>
+          chunk_identities{{
+              {kMeshIdDomain, &mesh_ids[chunk_index]},
+              {kObjectIdDomain, &object_ids[chunk_index]},
+          }};
+      for (const auto &identity : chunk_identities) {
+        validation = DeriveOgreNextDemoSourceId(identity.first, chunk_key,
+                                                *identity.second);
+        if (!validation) {
+          validation.element_index = chunk_index;
+          return validation;
+        }
+        std::string exact_identity(identity.first);
+        exact_identity.push_back('\0');
+        exact_identity.append(chunk_key);
+        validation = candidate_state->identities.Register(
+            std::move(exact_identity), *identity.second);
+        if (!validation) {
+          validation.element_index = chunk_index;
+          return validation;
+        }
       }
     }
 
@@ -1642,12 +1709,17 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
       validation.element_index = index;
       return validation;
     }
-    validation = Render::ValidateMaterialMeshCompatibility(material, mesh);
-    if (!validation) {
-      validation.field = "ogre_next_demo.terrain.material_mesh." +
-                         validation.field;
-      validation.element_index = index;
-      return validation;
+    for (std::size_t chunk_index = 0U; chunk_index < meshes.size();
+         ++chunk_index) {
+      validation =
+          Render::ValidateMaterialMeshCompatibility(material,
+                                                    meshes[chunk_index]);
+      if (!validation) {
+        validation.field = "ogre_next_demo.terrain.material_mesh." +
+                           validation.field;
+        validation.element_index = chunk_index;
+        return validation;
+      }
     }
     validation = Render::ValidateMaterialTextureCompatibility(
         Render::MaterialTextureSlot::BASE_COLOR, native.texture,
@@ -1692,15 +1764,20 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
     owner.slot_x = page.slot_x;
     owner.slot_y = page.slot_y;
     owner.native_terrain = native.terrain;
-    owner.assets.reserve(4U + (native.authored_density &&
-                                       !native.detail_layers.empty()
-                                   ? 2U + 2U * native.detail_layers.size()
-                                   : 0U));
-    Render::GraphicsSceneAssetInput mesh_asset;
-    mesh_asset.source_asset_id = mesh_id;
-    mesh_asset.payload = std::make_shared<const Render::RenderAssetPayload>(
-        std::move(mesh));
-    owner.assets.push_back(std::move(mesh_asset));
+    owner.assets.reserve(meshes.size() + 3U +
+                         (native.authored_density &&
+                                  !native.detail_layers.empty()
+                              ? 2U + 2U * native.detail_layers.size()
+                              : 0U));
+    owner.instances.reserve(meshes.size());
+    for (std::size_t chunk_index = 0U; chunk_index < meshes.size();
+         ++chunk_index) {
+      Render::GraphicsSceneAssetInput mesh_asset;
+      mesh_asset.source_asset_id = mesh_ids[chunk_index];
+      mesh_asset.payload = std::make_shared<const Render::RenderAssetPayload>(
+          std::move(meshes[chunk_index]));
+      owner.assets.push_back(std::move(mesh_asset));
+    }
     Render::GraphicsSceneAssetInput texture_asset;
     texture_asset.source_asset_id = texture_id;
     texture_asset.payload = std::make_shared<const Render::RenderAssetPayload>(
@@ -1760,28 +1837,29 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
     }
     owner.assets.push_back(std::move(material_asset));
 
-    owner.instance.source_object_id = object_id;
-    owner.instance.mesh_source_asset_id = mesh_id;
-    owner.instance.material_source_asset_id = material_id;
-    owner.instance.render_from_object.elements[12U] = page.page_world_position.x;
-    owner.instance.render_from_object.elements[13U] = page.page_world_position.y;
-    owner.instance.render_from_object.elements[14U] = page.page_world_position.z;
-    owner.instance.visibility_mask = page.visible ? page.visibility_mask : 0U;
-    // The page is a lit PBS surface with authored normals and tangents, so it
-    // takes the analytic sun's cascaded shadows like any other opaque ground.
-    // Without this the buildings and vehicles standing on the terrain cast
-    // onto nothing, and unshadowed ground reads flatter than it is.
-    //
-    // The page deliberately does not CAST: it is a single ground plane under
-    // everything else, so it can only self-shadow its own skirt and would
-    // otherwise pay a full extra cascade draw for no visible occluder.
-    owner.instance.flags = Render::MESH_INSTANCE_VISIBLE_IN_REFLECTIONS |
-                           Render::MESH_INSTANCE_RECEIVES_SHADOW;
+    for (std::size_t chunk_index = 0U; chunk_index < mesh_ids.size();
+         ++chunk_index) {
+      Render::GraphicsSceneStaticMeshInput instance;
+      instance.source_object_id = object_ids[chunk_index];
+      instance.mesh_source_asset_id = mesh_ids[chunk_index];
+      instance.material_source_asset_id = material_id;
+      instance.render_from_object.elements[12U] = page.page_world_position.x;
+      instance.render_from_object.elements[13U] = page.page_world_position.y;
+      instance.render_from_object.elements[14U] = page.page_world_position.z;
+      instance.visibility_mask = page.visible ? page.visibility_mask : 0U;
+      // Terrain chunks receive the analytic sun's shadows but do not cast:
+      // their only possible occluder is the hidden skirt below the ground.
+      instance.flags = Render::MESH_INSTANCE_VISIBLE_IN_REFLECTIONS |
+                       Render::MESH_INSTANCE_RECEIVES_SHADOW;
+      owner.instances.push_back(std::move(instance));
+    }
 
     for (const Render::GraphicsSceneAssetInput &asset : owner.assets) {
       candidate_capture.assets.push_back(asset);
     }
-    candidate_capture.static_meshes.push_back(owner.instance);
+    candidate_capture.static_meshes.insert(
+        candidate_capture.static_meshes.end(), owner.instances.begin(),
+        owner.instances.end());
     candidate_state->page_owners.emplace(page.exact_page_key,
                                          std::move(owner));
   }

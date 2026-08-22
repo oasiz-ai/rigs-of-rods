@@ -2312,7 +2312,15 @@ RoR::Render::ValidationResult CaptureOgre14TerrainPages(
         page.slot_x = input.identity.slot_x;
         page.slot_y = input.identity.slot_y;
         page.exact_page_key = cache_key;
-        page.mesh_payload = cache_entry.mesh_payload;
+        page.chunks.reserve(cache_entry.chunks.size());
+        for (const auto& cached_chunk : cache_entry.chunks)
+        {
+            RoR::Gfx::Detail::OgreNextDemoTerrainChunkMesh chunk;
+            chunk.chunk_x = cached_chunk.chunk_x;
+            chunk.chunk_y = cached_chunk.chunk_y;
+            chunk.mesh_payload = cached_chunk.mesh_payload;
+            page.chunks.push_back(std::move(chunk));
+        }
         page.page_world_position = input.page_world_position;
         page.visibility_mask = input.visibility_mask;
         page.visible = input.visible;

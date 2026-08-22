@@ -23,15 +23,22 @@ class TerrainGroup;
 
 namespace RoR::Gfx::Detail {
 
-/// Geometry is produced by the existing exact TerrainGroup CPU extraction.
-/// This private record supplies only the generic owner and native page locator
-/// needed to add the display-domain composite material. It is deliberately not
-/// a public terrain receipt, digest, audit, or generalized renderer API.
+struct OgreNextDemoTerrainChunkMesh final {
+  std::uint32_t chunk_x = 0U;
+  std::uint32_t chunk_y = 0U;
+  std::shared_ptr<const Render::RenderAssetPayload> mesh_payload;
+};
+
+/// Geometry is produced by the exact TerrainGroup CPU extraction and split
+/// into bounded immutable chunks before it crosses into Ogre-Next. This
+/// private record supplies those owners and the native page locator needed to
+/// add one page-wide material. It is deliberately not a public terrain
+/// receipt, digest, audit, or generalized renderer API.
 struct OgreNextDemoTerrainPageMesh final {
   std::int32_t slot_x = 0;
   std::int32_t slot_y = 0;
   std::string exact_page_key;
-  std::shared_ptr<const Render::RenderAssetPayload> mesh_payload;
+  std::vector<OgreNextDemoTerrainChunkMesh> chunks;
   Render::Float3 page_world_position{};
   std::uint32_t visibility_mask = 0xFFFFFFFFU;
   bool visible = true;
