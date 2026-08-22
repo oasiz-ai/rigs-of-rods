@@ -1659,12 +1659,12 @@ void TestDirectDispatcherPrologueValidatorsRejectWithoutPoisoning() {
   }
 }
 
-/// F2 lands COUNTED BUT NOT HONOURED on purpose. A frontend failure carrying
-/// RenderOperationRecovery::RETRY_NEXT_FRAME must increment the named counter
-/// and must still poison, until a full session shows the frontend's verdict
-/// firing only where its rollback verified clean. Landing the behaviour change
-/// unmeasured would trade a crash for silent corruption.
-void TestDirectDispatcherCountsButDoesNotHonourRetryNextFrame() {
+/// A frontend failure carrying RenderOperationRecovery::RETRY_NEXT_FRAME is a
+/// measured frame drop, not a terminal session failure, when the dispatcher's
+/// own scene/frame lineage proves that the frontend committed nothing. The
+/// named counters keep the degrade observable and the next valid frame must
+/// reuse the uncommitted frontend frame id.
+void TestDirectDispatcherHonoursMeasuredRetryNextFrame() {
   FakeFrontend frontend;
   frontend.fail_render = true;
   frontend.populate_before_render_failure = true;
@@ -1683,13 +1683,31 @@ void TestDirectDispatcherCountsButDoesNotHonourRetryNextFrame() {
   Require(failed.recoverable_frame_failures == 1U &&
               dispatcher.recoverable_frame_failures() == 1U,
           "a recoverable frontend render failure was not counted");
-  Require(failed.terminal && dispatcher.terminal(),
-          "RETRY_NEXT_FRAME was honoured before it was measured");
-  Require(failed.rejected_frames == 0U,
-          "a frontend failure was miscounted as a prologue rejection");
+  Require(!failed.terminal && !dispatcher.terminal(),
+          "a measured RETRY_NEXT_FRAME poisoned the dispatcher");
+  Require(failed.rejected_frames == 1U &&
+              dispatcher.rejected_frames() == 1U,
+          "a measured RETRY_NEXT_FRAME was not counted as a dropped frame");
   Require(dispatcher.last_consumed_scene_snapshot_id() == 0U &&
               dispatcher.last_frontend_frame_id() == 0U,
           "a failed frontend render advanced dispatcher lineage");
+
+  frontend.fail_render = false;
+  frontend.render_failure_recovery = RenderOperationRecovery::NONE;
+  const RendererFrontendDirectDispatchResult recovered =
+      dispatcher.RenderScene(Scene(601U, registry_id, 1U), Camera(),
+                             PresentedPolicy());
+  RequireDirectStatus(
+      recovered.status,
+      RendererFrontendDirectDispatchStatus::SCENE_FRAME_COMPLETED,
+      "the frame after a measured RETRY_NEXT_FRAME was refused");
+  Require(recovered.frontend_frame_id == 1U &&
+              dispatcher.last_frontend_frame_id() == 1U &&
+              dispatcher.last_consumed_scene_snapshot_id() == 601U,
+          "recovery did not reuse and commit the unadvanced frame lineage");
+  Require(recovered.recoverable_frame_failures == 1U &&
+              recovered.rejected_frames == 1U,
+          "recovery lost the measured frame-drop counters");
 
   // A plain failure carrying no recovery must not touch the counter.
   FakeFrontend plain_frontend;
@@ -1885,7 +1903,7 @@ int main() {
   TestDirectDispatcherTypedLifecycle();
   TestDirectDispatcherRetiresContinuousParticleStateExactlyOnce();
   TestDirectDispatcherPrologueValidatorsRejectWithoutPoisoning();
-  TestDirectDispatcherCountsButDoesNotHonourRetryNextFrame();
+  TestDirectDispatcherHonoursMeasuredRetryNextFrame();
   TestDirectDispatcherFailuresAreTerminal();
   std::cout << "frontend direct and transport dispatcher tests passed\n";
   return EXIT_SUCCESS;
