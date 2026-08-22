@@ -2336,6 +2336,29 @@ void TestNativeMaterialSourceLifecycle() {
   const std::string v2_material_name = v2_input.exact_name;
   source.Commit();
 
+  // A retained scene feeds the exact immutable owner assets back to Apply.
+  // Reusing those owners must preserve their shared payload identities while
+  // still running the fresh reachable-authority validation above them.
+  Require(source.BeginCapture(), "begin exact retained-owner identity reuse");
+  Ogre14GraphicsSceneMaterialCaptureInput retained_identity_input =
+      CaptureInput();
+  bool retained_identity_projected = false;
+  RequireOk(source.TryProject(kSectionKey, native->material, true, true,
+                              retained_identity_input,
+                              retained_identity_projected),
+            "project exact retained-owner identity reuse");
+  std::vector<GraphicsSceneAssetInput> retained_identity_assets = v2_assets;
+  OgreNextDemoMaterialApplyTiming retained_identity_timing;
+  RequireOk(source.Apply(retained_identity_assets, &retained_identity_timing),
+            "apply exact retained-owner identity reuse");
+  Require(retained_identity_projected &&
+              retained_identity_input.exact_name == v2_material_name &&
+              retained_identity_timing.retained_authority_plan_reused &&
+              retained_identity_timing.retained_owner_publication_reused &&
+              SameAssetOwners(retained_identity_assets, v2_assets),
+          "exact retained owner assets were rebuilt or changed identity");
+  source.Commit();
+
   Ogre14SelectedTextureSourceResolution managed_resolution;
   RequireOk(selected_resolver.ResolveSelectedTextureSource(
                 *texture, managed_resolution),

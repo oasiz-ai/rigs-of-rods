@@ -5692,7 +5692,9 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
       if (!existing.payload || !payload ||
           existing.payload->valueless_by_exception() ||
           payload->valueless_by_exception() ||
-          !Render::EquivalentRenderAssetPayload(*existing.payload, *payload) ||
+          (existing.payload != payload &&
+           !Render::EquivalentRenderAssetPayload(*existing.payload,
+                                                 *payload)) ||
           existing.material_bindings != dependency.material_bindings) {
         return Failure(
             Render::ValidationCode::DUPLICATE_IDENTIFIER, field,
@@ -5725,13 +5727,15 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
             "projected material ID collides with a nonmaterial asset");
       }
       const bool exact_placeholder =
-          Render::EquivalentRenderAssetPayload(*material.payload,
-                                               *projection.placeholder_payload) &&
+          (material.payload == projection.placeholder_payload ||
+           Render::EquivalentRenderAssetPayload(
+               *material.payload, *projection.placeholder_payload)) &&
           material.material_bindings ==
               Render::GraphicsSceneAssetInput{}.material_bindings;
       const bool exact_projected =
-          Render::EquivalentRenderAssetPayload(*material.payload,
-                                               *projection.material_payload) &&
+          (material.payload == projection.material_payload ||
+           Render::EquivalentRenderAssetPayload(
+               *material.payload, *projection.material_payload)) &&
           material.material_bindings == projected_material.material_bindings;
       if (!exact_placeholder && !exact_projected) {
         return Failure(
@@ -5739,7 +5743,9 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
             "ogre_next_demo.material.material_collision",
             "projected material ID collides with a different material");
       }
-      material = projected_material;
+      if (!exact_projected) {
+        material = projected_material;
+      }
       return Render::ValidationResult::Success();
     };
 
@@ -5764,6 +5770,7 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
     candidate_timing.retained_owner_publication_reused =
         retained_owner_assets_available;
     std::set<std::uint64_t> retained_owner_asset_ids;
+    std::map<std::uint64_t, const Projection *> owner_material_projections;
     for (const OgreNextDemoCachedProjectionPublicationOwner &owner :
          publication_transaction.owner_catalog) {
       const auto projection =
@@ -5772,6 +5779,14 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
         return Failure(Render::ValidationCode::MISSING_REFERENCE,
                        "ogre_next_demo.material.dependencies",
                        "publication-plan projection disappeared");
+      }
+      const auto indexed_projection = owner_material_projections.emplace(
+          owner.material_source_id, &projection->second);
+      if (!indexed_projection.second &&
+          indexed_projection.first->second != &projection->second) {
+        return Failure(Render::ValidationCode::DUPLICATE_IDENTIFIER,
+                       "ogre_next_demo.material.owner_material_id",
+                       "distinct publication owners share one material ID");
       }
       const auto texture =
           pending_->cache->textures.find(projection->second.texture_key);
@@ -5896,14 +5911,11 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
     if (retained_owner_assets_available) {
       for (const Render::GraphicsSceneAssetInput &asset :
            pending_->cache->retained_owner_assets) {
-        const auto projection = std::find_if(
-            pending_->cache->projections.begin(),
-            pending_->cache->projections.end(), [&](const auto &entry) {
-              return entry.second.material_source_id == asset.source_asset_id;
-            });
+        const auto projection =
+            owner_material_projections.find(asset.source_asset_id);
         Render::ValidationResult validation =
-            projection != pending_->cache->projections.end()
-                ? append_projected_material(projection->second, asset)
+            projection != owner_material_projections.end()
+                ? append_projected_material(*projection->second, asset)
                 : append_dependency(asset.source_asset_id, asset.payload,
                                     "ogre_next_demo.material.retained_owner_collision");
         if (!validation) {
