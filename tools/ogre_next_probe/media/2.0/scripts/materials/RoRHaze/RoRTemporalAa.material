@@ -90,6 +90,31 @@ material RoR/HDR/TaaMotionVectors
 //------------------------
 // Temporal resolve
 //------------------------
+// Vulkan requires both stages in a linked pipeline to use compatible root
+// layouts. Mirror Ogre-Next's own High/Quad pattern locally: reuse every stock
+// quad vertex implementation, but give the Vulkan delegate the same eight-slot
+// layout as the six-input resolve pixel shader. The global stock quad remains
+// untouched for four-slot post-processing materials.
+vertex_program RoR/HDR/TaaResolveQuad_vs_VK glslvk
+{
+	source Quad_vs.glsl
+	root_layout high
+}
+
+vertex_program RoR/HDR/TaaResolveQuad_vs unified
+{
+	delegate Ogre/Compositor/Quad_vs_GLSL
+	delegate Ogre/Compositor/Quad_vs_GLSLES
+	delegate RoR/HDR/TaaResolveQuad_vs_VK
+	delegate Ogre/Compositor/Quad_vs_HLSL
+	delegate Ogre/Compositor/Quad_vs_Metal
+
+	default_params
+	{
+		param_named_auto worldViewProj worldviewproj_matrix
+	}
+}
+
 fragment_program RoR/HDR/TaaResolve_ps_GLSL glsl
 {
 	source RoRTaaResolve_ps.glsl
@@ -145,7 +170,7 @@ material RoR/HDR/TaaResolve
 			depth_write off
 			cull_hardware none
 
-			vertex_program_ref Ogre/Compositor/Quad_vs
+			vertex_program_ref RoR/HDR/TaaResolveQuad_vs
 			{
 			}
 

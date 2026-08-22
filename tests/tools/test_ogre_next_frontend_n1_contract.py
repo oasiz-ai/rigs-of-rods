@@ -324,7 +324,15 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             PROBE_ROOT
             / "media/2.0/scripts/materials/RoRHaze/RoRTemporalAa.material"
         ).read_text(encoding="utf-8")
-        self.assertIn("root_layout high", temporal_material)
+        for token in (
+            "vertex_program RoR/HDR/TaaResolveQuad_vs_VK glslvk",
+            "vertex_program RoR/HDR/TaaResolveQuad_vs unified",
+            "delegate RoR/HDR/TaaResolveQuad_vs_VK",
+            "fragment_program RoR/HDR/TaaResolve_ps_VK glslvk",
+            "vertex_program_ref RoR/HDR/TaaResolveQuad_vs",
+        ):
+            self.assertIn(token, temporal_material)
+        self.assertEqual(temporal_material.count("root_layout high"), 2)
 
     def test_dependency_policy_is_shared_pinned_and_isolated(self) -> None:
         self.assertIn("cmake/PinnedOgreNext.cmake", self.entry_cmake)
