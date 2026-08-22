@@ -2247,6 +2247,44 @@ constexpr const char kOgreNextScreenShadeBlurVMaterial[] =
     "RoR/HDR/ScreenShadeBlurV";
 constexpr const char kOgreNextScreenShadeApplyMaterial[] =
     "RoR/HDR/ScreenShadeApply";
+/// Terms that let a compositor shader recover view-space Z from one depth
+/// sample as `view_z = b / (depth - a)`, plus the depth a background/sky
+/// texel carries. Both depth conventions share the same shader expression;
+/// only these terms differ.
+struct OgreNextDepthLinearization final {
+  float a = 0.0F;
+  float b = 0.0F;
+  float background = 1.0F;
+};
+
+/// Ogre-Next defaults to reverse-Z (RenderSystem::mReverseDepth is
+/// constructed true and RoR never passes reverse_depth=false), which puts
+/// the near plane at depth 1 and the far plane at depth 0. Deriving these
+/// terms from the non-reversed convention against a reverse-Z buffer
+/// collapses every real depth onto the near plane - at near=0.5/far=12000
+/// the entire 5-500 m band linearizes to 0.50-0.56 m - so every depth-driven
+/// screen-space pass silently degrades into a constant. Read the convention
+/// from the render system rather than assuming one.
+[[nodiscard]] bool ResolveOgreNextDepthLinearization(
+    const Ogre::RenderSystem *render_system, float near_plane,
+    float far_plane, OgreNextDepthLinearization &out) noexcept {
+  const float plane_span = far_plane - near_plane;
+  if (render_system == nullptr || !IsFinite(near_plane) ||
+      !IsFinite(far_plane) || near_plane <= 0.0F || !(plane_span > 0.0F)) {
+    return false;
+  }
+  if (render_system->isReverseDepth()) {
+    out.a = -near_plane / plane_span;
+    out.b = (far_plane * near_plane) / plane_span;
+    out.background = 0.0F;
+  } else {
+    out.a = far_plane / plane_span;
+    out.b = -(far_plane * near_plane) / plane_span;
+    out.background = 1.0F;
+  }
+  return IsFinite(out.a) && IsFinite(out.b);
+}
+
 /// Depth-aware blur rejection: taps whose relative linear-depth difference
 /// reaches 1/8 of the centre depth lose ~90% of their Gaussian weight.
 constexpr float kOgreNextScreenShadeBlurDepthReject = 64.0F;
@@ -8540,7 +8578,16 @@ public:
       return HdrBackendFailure(
           "aerial haze cannot linearize a degenerate depth range");
     }
-    // Non-reversed [0, 1] depth: d = A + B / view_z, so view_z = B / (d - A).
+    // KNOWN DEFECT (pre-existing, not fixed here): these terms assume the
+    // non-reversed [0, 1] convention, but Ogre-Next runs reverse-Z, so
+    // view_z collapses onto the near plane and the haze extinction is
+    // effectively constant instead of distance-graded. The correct terms are
+    // a = -near/span, b = far*near/span (see
+    // ResolveOgreNextDepthLinearization), but the haze shader also excludes
+    // the sky with a hard-coded `fDepth >= 1.0` test that is only valid under
+    // the non-reversed convention: correcting the terms alone would give the
+    // sky dome a full 12 km of extinction. Fixing haze therefore needs the
+    // background depth plumbed into its constants as its own change.
     const float projection_a = far_plane / plane_span;
     const float projection_b = -(far_plane * near_plane) / plane_span;
     const Ogre::Vector4 coefficients(
@@ -9054,9 +9101,15 @@ public:
       return HdrBackendFailure(
           "screen shade cannot linearize a degenerate depth range");
     }
-    // Non-reversed [0, 1] depth: d = A + B / view_z, so view_z = B / (d - A).
-    const float projection_a = far_plane / plane_span;
-    const float projection_b = -(far_plane * near_plane) / plane_span;
+    OgreNextDepthLinearization depth_linearization;
+    if (!ResolveOgreNextDepthLinearization(
+            root != nullptr ? root->getRenderSystem() : nullptr, near_plane,
+            far_plane, depth_linearization)) {
+      return HdrBackendFailure(
+          "screen shade cannot resolve the render system depth convention");
+    }
+    const float projection_a = depth_linearization.a;
+    const float projection_b = depth_linearization.b;
 
     // View-space direction toward the committed sun; contact shadows stay
     // inert when the scene carries no directional light.
