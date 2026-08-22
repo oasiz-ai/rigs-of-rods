@@ -2992,6 +2992,16 @@ struct GlowOverlayContentVerdict final {
   GlowOverlayResolvedSource overlay_source;
 };
 
+/// One immutable retained publication owner. Material entries keep the exact
+/// projection key needed to re-run collision semantics; dependency entries
+/// leave it empty. This avoids reconstructing the complete owner catalogue on
+/// every stable frame while preserving fresh authority validation for every
+/// reachable projection.
+struct RetainedOwnerAssetPublication final {
+  Render::GraphicsSceneAssetInput asset;
+  std::string material_projection_key;
+};
+
 struct MaterialCache final {
   OgreNextDemoIdentityRegistry identities;
   std::map<std::string, CapturedTexture, std::less<>> textures;
@@ -3010,7 +3020,7 @@ struct MaterialCache final {
   std::vector<std::string> retained_used_projection_keys;
   OgreNextDemoCachedProjectionPublicationTransaction retained_publication;
   bool retained_owner_assets_valid = false;
-  std::vector<Render::GraphicsSceneAssetInput> retained_owner_assets;
+  std::vector<RetainedOwnerAssetPublication> retained_owner_assets;
   std::size_t retained_owner_asset_count = 0U;
 };
 
@@ -5770,37 +5780,15 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
     candidate_timing.retained_owner_publication_reused =
         retained_owner_assets_available;
     std::set<std::uint64_t> retained_owner_asset_ids;
-    std::map<std::uint64_t, const Projection *> owner_material_projections;
-    for (const OgreNextDemoCachedProjectionPublicationOwner &owner :
-         publication_transaction.owner_catalog) {
-      const auto projection =
-          pending_->cache->projections.find(owner.projection_key);
+    std::map<std::uint64_t, std::string> owner_material_projection_keys;
+    const auto revalidate_reachable_projection =
+        [&](const std::string &projection_key) -> Render::ValidationResult {
+      const auto projection = pending_->cache->projections.find(projection_key);
       if (projection == pending_->cache->projections.end()) {
         return Failure(Render::ValidationCode::MISSING_REFERENCE,
                        "ogre_next_demo.material.dependencies",
                        "publication-plan projection disappeared");
       }
-      const auto indexed_projection = owner_material_projections.emplace(
-          owner.material_source_id, &projection->second);
-      if (!indexed_projection.second &&
-          indexed_projection.first->second != &projection->second) {
-        return Failure(Render::ValidationCode::DUPLICATE_IDENTIFIER,
-                       "ogre_next_demo.material.owner_material_id",
-                       "distinct publication owners share one material ID");
-      }
-      const auto texture =
-          pending_->cache->textures.find(projection->second.texture_key);
-      const auto sampler =
-          pending_->cache->samplers.find(projection->second.sampler_key);
-      if (texture == pending_->cache->textures.end() ||
-          sampler == pending_->cache->samplers.end()) {
-        return Failure(Render::ValidationCode::MISSING_REFERENCE,
-                       "ogre_next_demo.material.dependencies",
-                       "projected texture or sampler disappeared");
-      }
-      retained_owner_asset_ids.insert(owner.material_source_id);
-      retained_owner_asset_ids.insert(owner.texture_source_id);
-      retained_owner_asset_ids.insert(owner.sampler_source_id);
       const auto specular_texture =
           projection->second.managed_specular_texture_key.empty()
               ? pending_->cache->managed_specular_textures.end()
@@ -5811,11 +5799,8 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
               ? pending_->cache->samplers.end()
               : pending_->cache->samplers.find(
                     projection->second.managed_specular_sampler_key);
-      const bool projection_reachable =
-          pending_->used_projections.find(owner.projection_key) !=
-          pending_->used_projections.end();
       const auto owner_authority_started = std::chrono::steady_clock::now();
-      if (projection_reachable && projection->second.curated_cityworld &&
+      if (projection->second.curated_cityworld &&
           (material_script_resolver_ == nullptr ||
            texture_resolver_ == nullptr ||
            ordinary_texture_source_resolver_ == nullptr ||
@@ -5827,8 +5812,7 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
             "ogre_next_demo.material.curated_cityworld.final_authority",
             "reviewed CityWorld declaration, TUS2 pending environment, or texture authority changed before publication");
       }
-      if (projection_reachable &&
-          projection->second.managed_binding.initialized() &&
+      if (projection->second.managed_binding.initialized() &&
           (texture_resolver_ == nullptr ||
            ordinary_texture_source_resolver_ == nullptr ||
            !projection->second.managed_binding.Revalidate(
@@ -5850,74 +5834,35 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
               std::chrono::duration_cast<std::chrono::nanoseconds>(
                   std::chrono::steady_clock::now() - owner_authority_started)
                   .count());
-      if (specular_texture !=
-          pending_->cache->managed_specular_textures.end()) {
-        retained_owner_asset_ids.insert(specular_texture->second.source_id);
-        retained_owner_asset_ids.insert(specular_sampler->second.source_id);
-      }
-      if (retained_owner_assets_available) {
-        continue;
-      }
-      Render::GraphicsSceneAssetInput projected_material;
-      projected_material.source_asset_id =
-          projection->second.material_source_id;
-      projected_material.payload = projection->second.material_payload;
-      projected_material.material_bindings[static_cast<std::size_t>(
-          Render::MaterialTextureSlot::BASE_COLOR)] = {
-          texture->second.source_id, sampler->second.source_id};
-      if (specular_texture !=
-          pending_->cache->managed_specular_textures.end()) {
-        projected_material.material_bindings[static_cast<std::size_t>(
-            Render::MaterialTextureSlot::SPECULAR)] = {
-            specular_texture->second.source_id,
-            specular_sampler->second.source_id};
-      }
-      Render::ValidationResult validation = append_projected_material(
-          projection->second, projected_material);
-      if (!validation) {
-        return validation;
-      }
+      return Render::ValidationResult::Success();
+    };
 
-      validation = append_dependency(
-          texture->second.source_id, texture->second.payload,
-          "ogre_next_demo.material.texture_collision");
-      if (!validation) {
-        return validation;
-      }
-      validation =
-          append_dependency(sampler->second.source_id, sampler->second.payload,
-                            "ogre_next_demo.material.sampler_collision");
-      if (!validation) {
-        return validation;
-      }
-      if (specular_texture !=
-          pending_->cache->managed_specular_textures.end()) {
-        validation = append_dependency(
-            specular_texture->second.source_id,
-            specular_texture->second.payload,
-            "ogre_next_demo.material.specular_texture_collision");
-        if (!validation) {
-          return validation;
-        }
-        validation = append_dependency(
-            specular_sampler->second.source_id,
-            specular_sampler->second.payload,
-            "ogre_next_demo.material.specular_sampler_collision");
-        if (!validation) {
-          return validation;
-        }
-      }
-    }
     if (retained_owner_assets_available) {
-      for (const Render::GraphicsSceneAssetInput &asset :
-           pending_->cache->retained_owner_assets) {
-        const auto projection =
-            owner_material_projections.find(asset.source_asset_id);
+      for (const std::string &projection_key : used_projection_keys) {
         Render::ValidationResult validation =
-            projection != owner_material_projections.end()
-                ? append_projected_material(*projection->second, asset)
-                : append_dependency(asset.source_asset_id, asset.payload,
-                                    "ogre_next_demo.material.retained_owner_collision");
+            revalidate_reachable_projection(projection_key);
+        if (!validation) {
+          return validation;
+        }
+      }
+      for (const RetainedOwnerAssetPublication &publication :
+           pending_->cache->retained_owner_assets) {
+        Render::ValidationResult validation = Render::ValidationResult::Success();
+        if (publication.material_projection_key.empty()) {
+          validation = append_dependency(
+              publication.asset.source_asset_id, publication.asset.payload,
+              "ogre_next_demo.material.retained_owner_collision");
+        } else {
+          const auto projection = pending_->cache->projections.find(
+              publication.material_projection_key);
+          if (projection == pending_->cache->projections.end()) {
+            return Failure(Render::ValidationCode::MISSING_REFERENCE,
+                           "ogre_next_demo.material.dependencies",
+                           "retained material projection disappeared");
+          }
+          validation =
+              append_projected_material(projection->second, publication.asset);
+        }
         if (!validation) {
           return validation;
         }
@@ -5925,6 +5870,109 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
       candidate_timing.retained_owner_asset_count =
           pending_->cache->retained_owner_asset_count;
     } else {
+      for (const OgreNextDemoCachedProjectionPublicationOwner &owner :
+           publication_transaction.owner_catalog) {
+        const auto projection =
+            pending_->cache->projections.find(owner.projection_key);
+        if (projection == pending_->cache->projections.end()) {
+          return Failure(Render::ValidationCode::MISSING_REFERENCE,
+                         "ogre_next_demo.material.dependencies",
+                         "publication-plan projection disappeared");
+        }
+        const auto indexed_projection = owner_material_projection_keys.emplace(
+            owner.material_source_id, owner.projection_key);
+        if (!indexed_projection.second &&
+            indexed_projection.first->second != owner.projection_key) {
+          return Failure(Render::ValidationCode::DUPLICATE_IDENTIFIER,
+                         "ogre_next_demo.material.owner_material_id",
+                         "distinct publication owners share one material ID");
+        }
+        const auto texture =
+            pending_->cache->textures.find(projection->second.texture_key);
+        const auto sampler =
+            pending_->cache->samplers.find(projection->second.sampler_key);
+        if (texture == pending_->cache->textures.end() ||
+            sampler == pending_->cache->samplers.end()) {
+          return Failure(Render::ValidationCode::MISSING_REFERENCE,
+                         "ogre_next_demo.material.dependencies",
+                         "projected texture or sampler disappeared");
+        }
+        retained_owner_asset_ids.insert(owner.material_source_id);
+        retained_owner_asset_ids.insert(owner.texture_source_id);
+        retained_owner_asset_ids.insert(owner.sampler_source_id);
+        const auto specular_texture =
+            projection->second.managed_specular_texture_key.empty()
+                ? pending_->cache->managed_specular_textures.end()
+                : pending_->cache->managed_specular_textures.find(
+                      projection->second.managed_specular_texture_key);
+        const auto specular_sampler =
+            projection->second.managed_specular_sampler_key.empty()
+                ? pending_->cache->samplers.end()
+                : pending_->cache->samplers.find(
+                      projection->second.managed_specular_sampler_key);
+        if (pending_->used_projections.find(owner.projection_key) !=
+            pending_->used_projections.end()) {
+          Render::ValidationResult validation =
+              revalidate_reachable_projection(owner.projection_key);
+          if (!validation) {
+            return validation;
+          }
+        }
+        if (specular_texture !=
+            pending_->cache->managed_specular_textures.end()) {
+          retained_owner_asset_ids.insert(specular_texture->second.source_id);
+          retained_owner_asset_ids.insert(specular_sampler->second.source_id);
+        }
+        Render::GraphicsSceneAssetInput projected_material;
+        projected_material.source_asset_id =
+            projection->second.material_source_id;
+        projected_material.payload = projection->second.material_payload;
+        projected_material.material_bindings[static_cast<std::size_t>(
+            Render::MaterialTextureSlot::BASE_COLOR)] = {
+            texture->second.source_id, sampler->second.source_id};
+        if (specular_texture !=
+            pending_->cache->managed_specular_textures.end()) {
+          projected_material.material_bindings[static_cast<std::size_t>(
+              Render::MaterialTextureSlot::SPECULAR)] = {
+              specular_texture->second.source_id,
+              specular_sampler->second.source_id};
+        }
+        Render::ValidationResult validation = append_projected_material(
+            projection->second, projected_material);
+        if (!validation) {
+          return validation;
+        }
+
+        validation = append_dependency(
+            texture->second.source_id, texture->second.payload,
+            "ogre_next_demo.material.texture_collision");
+        if (!validation) {
+          return validation;
+        }
+        validation = append_dependency(
+            sampler->second.source_id, sampler->second.payload,
+            "ogre_next_demo.material.sampler_collision");
+        if (!validation) {
+          return validation;
+        }
+        if (specular_texture !=
+            pending_->cache->managed_specular_textures.end()) {
+          validation = append_dependency(
+              specular_texture->second.source_id,
+              specular_texture->second.payload,
+              "ogre_next_demo.material.specular_texture_collision");
+          if (!validation) {
+            return validation;
+          }
+          validation = append_dependency(
+              specular_sampler->second.source_id,
+              specular_sampler->second.payload,
+              "ogre_next_demo.material.specular_sampler_collision");
+          if (!validation) {
+            return validation;
+          }
+        }
+      }
       EnsurePendingCachePrivateForDerivedState();
       pending_->cache->retained_owner_assets.clear();
       pending_->cache->retained_owner_assets.reserve(
@@ -5932,7 +5980,15 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
       for (const Render::GraphicsSceneAssetInput &asset : candidate) {
         if (retained_owner_asset_ids.find(asset.source_asset_id) !=
             retained_owner_asset_ids.end()) {
-          pending_->cache->retained_owner_assets.push_back(asset);
+          RetainedOwnerAssetPublication publication;
+          publication.asset = asset;
+          const auto projection =
+              owner_material_projection_keys.find(asset.source_asset_id);
+          if (projection != owner_material_projection_keys.end()) {
+            publication.material_projection_key = projection->second;
+          }
+          pending_->cache->retained_owner_assets.push_back(
+              std::move(publication));
         }
       }
       pending_->cache->retained_owner_asset_count =
