@@ -92,7 +92,15 @@ enum class OgreNextDemoTextureProjectionExclusion : std::uint8_t {
   /// Alpha-tested admissions are separable because a discarding fragment
   /// shader is evaluated once per PSSM cascade as well as in the main pass.
   MATERIAL_ALPHA_TESTED_OVERLAY_PASS_UNSUPPORTED = 31U,
-  COUNT = 32U,
+  /// A cached projection's re-derived native authority (pointer identity,
+  /// sampler/pass observation, colour factors, or the resolved roughness
+  /// authority) no longer matches what was stored at capture. The
+  /// disagreement costs exactly this object for this capture: the section
+  /// goes matte under this name, every other object keeps presenting, and
+  /// the object re-admits on a later capture once the stored and re-derived
+  /// state agree again. It must never fail the frame or the session.
+  PROJECTION_AUTHORITY_CHANGED = 32U,
+  COUNT = 33U,
 };
 
 /// Hard cap on the texture units one admitted legacy pass may declare. Unit 0

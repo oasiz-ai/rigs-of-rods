@@ -654,7 +654,8 @@ std::string_view OgreNextDemoTextureProjectionExclusionName(
                "material_texture_unit_layer_unsupported",
                "material_blended_overlay_pass_unsupported",
                "material_additive_overlay_pass_unsupported",
-               "material_alpha_tested_overlay_pass_unsupported"};
+               "material_alpha_tested_overlay_pass_unsupported",
+               "projection_authority_changed"};
   const std::size_t index = static_cast<std::size_t>(exclusion);
   return index < names.size() ? names[index] : std::string_view{"invalid"};
 }
@@ -2067,6 +2068,67 @@ Render::ValidationResult DeriveOgreNextDemoSourceId(std::string_view domain,
 }
 
 Render::ValidationResult
+BuildOgreNextDemoMatteNormalTangent(
+    const Render::Float3 &authored_normal,
+    Render::Float3 &sanitized_normal,
+    Render::Float4 &tangent) {
+  constexpr Render::Float3 kFallbackNormal{0.0F, 1.0F, 0.0F};
+  Render::Float3 candidate_normal = authored_normal;
+  const float normal_length_squared =
+      candidate_normal.x * candidate_normal.x +
+      candidate_normal.y * candidate_normal.y +
+      candidate_normal.z * candidate_normal.z;
+  if (std::isfinite(candidate_normal.x) &&
+      std::isfinite(candidate_normal.y) &&
+      std::isfinite(candidate_normal.z) &&
+      std::isfinite(normal_length_squared) && normal_length_squared > 0.0F) {
+    const float inverse_length = 1.0F / std::sqrt(normal_length_squared);
+    candidate_normal = {candidate_normal.x * inverse_length,
+                        candidate_normal.y * inverse_length,
+                        candidate_normal.z * inverse_length};
+    const float sanitized_length_squared =
+        candidate_normal.x * candidate_normal.x +
+        candidate_normal.y * candidate_normal.y +
+        candidate_normal.z * candidate_normal.z;
+    if (!std::isfinite(sanitized_length_squared) ||
+        std::fabs(sanitized_length_squared - 1.0F) > 1.0e-3F) {
+      candidate_normal = kFallbackNormal;
+    }
+  } else {
+    candidate_normal = kFallbackNormal;
+  }
+
+  // Cross the normal with the least-parallel fixed axis. The tangent has no
+  // material-space consumer in the matte path; it only provides the exact,
+  // deterministic RT4 vertex layout while staying orthogonal as a FlexBody
+  // normal deforms from frame to frame.
+  const Render::Float3 axis = std::fabs(candidate_normal.z) < 0.875F
+                                  ? Render::Float3{0.0F, 0.0F, 1.0F}
+                                  : Render::Float3{0.0F, 1.0F, 0.0F};
+  const Render::Float3 crossed{
+      axis.y * candidate_normal.z - axis.z * candidate_normal.y,
+      axis.z * candidate_normal.x - axis.x * candidate_normal.z,
+      axis.x * candidate_normal.y - axis.y * candidate_normal.x};
+  const float tangent_length_squared =
+      crossed.x * crossed.x + crossed.y * crossed.y + crossed.z * crossed.z;
+  if (!std::isfinite(tangent_length_squared) ||
+      tangent_length_squared <= 0.0F) {
+    return Failure(Render::ValidationCode::VALUE_OUT_OF_RANGE,
+                   "ogre_next_demo.matte_mesh.tangents",
+                   "an authored normal cannot produce a finite matte tangent");
+  }
+  const float inverse_tangent_length =
+      1.0F / std::sqrt(tangent_length_squared);
+  const Render::Float4 candidate_tangent{
+      crossed.x * inverse_tangent_length,
+      crossed.y * inverse_tangent_length,
+      crossed.z * inverse_tangent_length, 1.0F};
+  sanitized_normal = candidate_normal;
+  tangent = candidate_tangent;
+  return Render::ValidationResult::Success();
+}
+
+Render::ValidationResult
 BuildOgreNextDemoMatteTangents(std::size_t vertex_count,
                                std::vector<Render::Float3> &normals,
                                std::vector<Render::Float4> &tangents) {
@@ -2089,46 +2151,16 @@ BuildOgreNextDemoMatteTangents(std::size_t vertex_count,
   std::vector<Render::Float4> candidate_tangents;
   candidate_tangents.reserve(vertex_count);
   for (std::size_t index = 0U; index < vertex_count; ++index) {
-    Render::Float3 &normal = candidate_normals[index];
-    const float normal_length_squared =
-        normal.x * normal.x + normal.y * normal.y + normal.z * normal.z;
-    if (std::isfinite(normal.x) && std::isfinite(normal.y) &&
-        std::isfinite(normal.z) && std::isfinite(normal_length_squared) &&
-        normal_length_squared > 0.0F) {
-      const float inverse_length = 1.0F / std::sqrt(normal_length_squared);
-      normal = {normal.x * inverse_length, normal.y * inverse_length,
-                normal.z * inverse_length};
-      const float sanitized_length_squared =
-          normal.x * normal.x + normal.y * normal.y + normal.z * normal.z;
-      if (!std::isfinite(sanitized_length_squared) ||
-          std::fabs(sanitized_length_squared - 1.0F) > 1.0e-3F) {
-        normal = kFallbackNormal;
-      }
-    } else {
-      normal = kFallbackNormal;
+    Render::Float4 candidate_tangent;
+    Render::ValidationResult validation =
+        BuildOgreNextDemoMatteNormalTangent(
+            candidate_normals[index], candidate_normals[index],
+            candidate_tangent);
+    if (!validation) {
+      validation.element_index = index;
+      return validation;
     }
-    // Cross the normal with the least-parallel fixed axis. The tangent has no
-    // material-space consumer in the matte path; it only provides the exact,
-    // deterministic RT4 vertex layout while staying orthogonal as a FlexBody
-    // normal deforms from frame to frame.
-    const Render::Float3 axis = std::fabs(normal.z) < 0.875F
-                                    ? Render::Float3{0.0F, 0.0F, 1.0F}
-                                    : Render::Float3{0.0F, 1.0F, 0.0F};
-    const Render::Float3 crossed{axis.y * normal.z - axis.z * normal.y,
-                                 axis.z * normal.x - axis.x * normal.z,
-                                 axis.x * normal.y - axis.y * normal.x};
-    const float length_squared =
-        crossed.x * crossed.x + crossed.y * crossed.y + crossed.z * crossed.z;
-    if (!std::isfinite(length_squared) || length_squared <= 0.0F) {
-      return Failure(Render::ValidationCode::VALUE_OUT_OF_RANGE,
-                     "ogre_next_demo.matte_mesh.tangents",
-                     "an authored normal cannot produce a finite matte tangent",
-                     index);
-    }
-    const float inverse_length = 1.0F / std::sqrt(length_squared);
-    candidate_tangents.push_back({crossed.x * inverse_length,
-                                  crossed.y * inverse_length,
-                                  crossed.z * inverse_length, 1.0F});
+    candidate_tangents.push_back(candidate_tangent);
   }
   normals = std::move(candidate_normals);
   tangents = std::move(candidate_tangents);

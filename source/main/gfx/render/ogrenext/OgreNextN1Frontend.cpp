@@ -98,6 +98,7 @@ using N1RendererPlugin = Ogre::VulkanPlugin;
 #endif
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -1894,6 +1895,37 @@ constexpr const char kOgreNextHdrSubtractMaterial[] =
 constexpr const char kOgreNextHdrClampMaterial[] = "RoR/HDR/SunDirectClamp";
 constexpr std::uint8_t kOgreNextHdrSplitExecutionMask = 0x01U;
 constexpr std::uint8_t kOgreNextHdrPostExecutionMask = 0x02U;
+/// RoR-owned shadow-protected auto-exposure metering material, replacing
+/// HDR/DownScale01_SumLumStart on the stock post node's first metering
+/// target. Same reduction, with each sample's log luminance winsorized at
+/// kOgreNextHdrMeteringLogLuminanceCeiling.
+constexpr const char kOgreNextHdrMeteringMaterial[] =
+    "RoR/HDR/MeteringSumLumStart";
+/// Winsorization headroom for one metered sample, in natural-log luminance
+/// units above the scene's currently adapted average (recovered on the CPU
+/// from the committed R16 exposure history each frame). Content within
+/// three stops of the adapted average meters exactly as upstream; only
+/// emitters beyond that - the sun disc at 24x sun colour, mirror-like
+/// specular glints - are winsorized down to average + headroom, so they
+/// stop dragging auto-exposure and crushing shadow detail. Anchoring the
+/// ceiling to the adapted average keeps the bound scene-independent: it
+/// follows absolute scene radiance instead of assuming one calibration.
+constexpr float kOgreNextHdrMeteringCeilingHeadroom = 2.0F;
+/// Ceiling value that renders the winsorization numerically inert (no
+/// plausible scene sample reaches e^30/1024 luminance). Used until a
+/// finite adapted history exists and by the temporary A/B override.
+constexpr float kOgreNextHdrMeteringCeilingInert = 30.0F;
+/// Output-relative bloom target extent per axis. The stock upstream targets
+/// were a fixed square 256x256, which on a widescreen output stretches one
+/// blur texel further horizontally than vertically and therefore makes the
+/// bloom anisotropic even with a balanced blur ladder. One-eighth of the
+/// output per axis keeps the total texel budget at the 2560x1664 interactive
+/// backing within two percent of the historical 256x256 budget while making
+/// the blur isotropic in screen space at any aspect. One-quarter was
+/// evaluated live on this machine (2026-08-21, 2560x1664): +0.53 ms p50 and
+/// +1.63 ms mean over one eighth - beyond the 0.3 ms Stage-1 budget - so it
+/// was refused.
+constexpr float kOgreNextHdrBloomResolutionFactor = 0.125F;
 constexpr std::uint8_t kOgreNextThinSlabRenderQueue = 200U;
 constexpr std::uint32_t kOgreNextHdrBaseScenePassIdentifier = 0x524f5201U;
 constexpr std::uint32_t kOgreNextHdrSunFullScenePassIdentifier = 0x524f5202U;
@@ -2706,6 +2738,141 @@ void ConfigureAndVerifyHdrPostExecutionMask(
   if (configured != 15U) {
     throw std::runtime_error(
         "Ogre-Next HDR post execution-mask closure is incomplete");
+  }
+}
+
+/// Swaps the stock post node's first metering pass onto the RoR-owned
+/// shadow-protected reduction. Auto-exposure previously adapted to the
+/// unprotected full-frame log-average, so the same shadowed street metered
+/// darker or brighter depending on what else was in frame (the permanently
+/// visible sun disc, a parked bright vehicle). The replacement is the same
+/// reduction with per-sample winsorization; the exposure adaptation stage,
+/// its uniforms, and the CPU history oracle are unchanged because the oracle
+/// consumes the GPU's reduced log-average rather than re-deriving this pass.
+void ConfigureAndVerifyHdrMeteringGraph(
+    Ogre::CompositorManager2 &compositors) {
+  Ogre::CompositorNodeDef *post = compositors.getNodeDefinitionNonConst(
+      Ogre::IdString(kOgreNextHdrPostprocessingNode));
+  if (post == nullptr || post->getNumTargetPasses() != 15U) {
+    throw std::runtime_error(
+        "Ogre-Next stock HDR post node topology changed before metering swap");
+  }
+  Ogre::CompositorTargetDef *target = post->getTargetPass(0U);
+  if (target == nullptr ||
+      target->getRenderTargetName() != Ogre::IdString("rtIter0") ||
+      target->getCompositorPasses().size() != 1U) {
+    throw std::runtime_error(
+        "Ogre-Next stock HDR metering target changed before metering swap");
+  }
+  auto *quad = dynamic_cast<Ogre::CompositorPassQuadDef *>(
+      target->getCompositorPasses().front());
+  if (quad == nullptr || quad->mMaterialIsHlms ||
+      quad->mMaterialName != "HDR/DownScale01_SumLumStart") {
+    throw std::runtime_error(
+        "Ogre-Next stock HDR metering material changed before metering swap");
+  }
+  quad->mMaterialName = kOgreNextHdrMeteringMaterial;
+  quad->mProfilingId = "Start Luminance (RoR shadow-protected)";
+  if (quad->mMaterialName != kOgreNextHdrMeteringMaterial) {
+    throw std::runtime_error(
+        "Ogre-Next HDR metering material failed native readback");
+  }
+}
+
+/// Stage-1 imaging-chain corrections applied once to the stock parsed
+/// HdrPostprocessingNode definition, before any workspace instantiates it.
+///
+/// 1) The upstream blur ladder runs H,V,H,V,H,H,H,H - six horizontal and two
+///    vertical box passes (an upstream copy-paste slip). Multiplied by the
+///    square 256x256 target stretched over a widescreen output this made the
+///    bloom skirt three to five times wider than tall. The ladder becomes
+///    strictly alternating H,V,H,V,H,V,H,V with the same pass count and the
+///    same final rtBlur0 output feeding HDR/FinalToneMapping.
+/// 2) The fixed square 256x256 targets become output-relative so one blur
+///    texel spans the same screen distance on both axes at any aspect, and
+///    the bloom resolution follows the output instead of a fixed 2012-era
+///    budget.
+/// 3) The targets become PFG_RGBA16_FLOAT. The gamma-2 encode into RGB10A2
+///    hard-clipped any source above 16x exposure-normalized radiance (the
+///    sun disc clips there); the chain's sqrt/square encode is
+///    format-agnostic, so binary16 storage removes the clip while the tone
+///    map's decode (x*x*16) is unchanged.
+void ConfigureAndVerifyHdrBloomGraph(Ogre::CompositorManager2 &compositors) {
+  Ogre::CompositorNodeDef *post = compositors.getNodeDefinitionNonConst(
+      Ogre::IdString(kOgreNextHdrPostprocessingNode));
+  if (post == nullptr || post->getNumTargetPasses() != 15U ||
+      post->calculateNumPasses() != 15U) {
+    throw std::runtime_error(
+        "Ogre-Next stock HDR post node topology changed before bloom repair");
+  }
+  struct ExpectedBlurPass final {
+    std::size_t target_index;
+    const char *render_target;
+    const char *parsed_material;
+    const char *corrected_material;
+  };
+  // The stock ladder exactly as parsed from the pinned HDR.compositor. Any
+  // upstream drift fails closed here instead of silently compounding.
+  constexpr std::array<ExpectedBlurPass, 9U> ladder{{
+      {5U, "rtBlur0", "HDR/BrightPass_Start", "HDR/BrightPass_Start"},
+      {6U, "rtBlur1", "HDR/BoxBlurH", "HDR/BoxBlurH"},
+      {7U, "rtBlur0", "HDR/BoxBlurV", "HDR/BoxBlurV"},
+      {8U, "rtBlur1", "HDR/BoxBlurH", "HDR/BoxBlurH"},
+      {9U, "rtBlur0", "HDR/BoxBlurV", "HDR/BoxBlurV"},
+      {10U, "rtBlur1", "HDR/BoxBlurH", "HDR/BoxBlurH"},
+      {11U, "rtBlur0", "HDR/BoxBlurH", "HDR/BoxBlurV"},
+      {12U, "rtBlur1", "HDR/BoxBlurH", "HDR/BoxBlurH"},
+      {13U, "rtBlur0", "HDR/BoxBlurH", "HDR/BoxBlurV"},
+  }};
+  for (const ExpectedBlurPass &expected : ladder) {
+    Ogre::CompositorTargetDef *target =
+        post->getTargetPass(expected.target_index);
+    if (target == nullptr ||
+        target->getRenderTargetName() !=
+            Ogre::IdString(expected.render_target) ||
+        target->getCompositorPasses().size() != 1U) {
+      throw std::runtime_error(
+          "Ogre-Next stock HDR bloom ladder targets changed before repair");
+    }
+    auto *quad = dynamic_cast<Ogre::CompositorPassQuadDef *>(
+        target->getCompositorPasses().front());
+    if (quad == nullptr || quad->mMaterialIsHlms ||
+        quad->mMaterialName != expected.parsed_material) {
+      throw std::runtime_error(
+          "Ogre-Next stock HDR bloom ladder materials changed before repair");
+    }
+    if (quad->mMaterialName != expected.corrected_material) {
+      quad->mMaterialName = expected.corrected_material;
+      quad->mProfilingId = "Bloom (Blur Vertical)";
+    }
+    if (quad->mMaterialName != expected.corrected_material) {
+      throw std::runtime_error(
+          "Ogre-Next HDR bloom ladder material failed native readback");
+    }
+  }
+  const float resolution_factor = kOgreNextHdrBloomResolutionFactor;
+  std::size_t corrected_textures = 0U;
+  for (Ogre::TextureDefinitionBase::TextureDefinition &texture :
+       post->getLocalTextureDefinitionsNonConst()) {
+    if (texture.getName() != Ogre::IdString("rtBlur0") &&
+        texture.getName() != Ogre::IdString("rtBlur1")) {
+      continue;
+    }
+    if (texture.width != 256U || texture.height != 256U ||
+        texture.format != Ogre::PFG_R10G10B10A2_UNORM) {
+      throw std::runtime_error(
+          "Ogre-Next stock HDR bloom target definition changed before repair");
+    }
+    texture.width = 0U;
+    texture.height = 0U;
+    texture.widthFactor = resolution_factor;
+    texture.heightFactor = resolution_factor;
+    texture.format = Ogre::PFG_RGBA16_FLOAT;
+    ++corrected_textures;
+  }
+  if (corrected_textures != 2U) {
+    throw std::runtime_error(
+        "Ogre-Next HDR bloom targets failed aspect-correct rebinding");
   }
 }
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
@@ -6355,7 +6522,8 @@ public:
   [[nodiscard]] RenderOperationResult ConfigureHdrParameters(
       float ogre_exposure, float minimum_auto_exposure,
       float maximum_auto_exposure, float bloom_minimum_threshold,
-      float bloom_inverse_transition_width, float delta_seconds) {
+      float bloom_inverse_transition_width, float delta_seconds,
+      float previous_inverse_luminance) {
     Ogre::MaterialPtr luminance_material =
         std::static_pointer_cast<Ogre::Material>(
             Ogre::MaterialManager::getSingleton().load(
@@ -6396,6 +6564,43 @@ public:
         observed_delta != delta_seconds) {
       return HdrBackendFailure(
           "native exposure or simulation-delta constant changed after binding");
+    }
+
+    Ogre::MaterialPtr metering_material =
+        std::static_pointer_cast<Ogre::Material>(
+            Ogre::MaterialManager::getSingleton().load(
+                kOgreNextHdrMeteringMaterial,
+                Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME));
+    Ogre::Pass *metering_pass =
+        metering_material->getTechnique(0U)->getPass(0U);
+    Ogre::GpuProgramParametersSharedPtr metering_parameters =
+        metering_pass->getFragmentProgramParameters();
+    // Recover the scene's adapted average log-luminance from the committed
+    // exposure history: stored_inverse_luminance = numerator / exp(avgLog),
+    // so avgLog = log(numerator / stored). Winsorize the next metering pass
+    // at that average plus the fixed headroom. Until a finite positive
+    // history exists the ceiling stays inert.
+    float adaptive_ceiling = kOgreNextHdrMeteringCeilingInert;
+    if (std::isfinite(previous_inverse_luminance) &&
+        previous_inverse_luminance > 0.0F) {
+      const float adapted_average_log_luminance =
+          std::log(exposure_numerator / previous_inverse_luminance);
+      if (std::isfinite(adapted_average_log_luminance)) {
+        adaptive_ceiling = adapted_average_log_luminance +
+                           kOgreNextHdrMeteringCeilingHeadroom;
+      }
+    }
+    const float metering_ceiling = adaptive_ceiling;
+    metering_parameters->setNamedConstant("meteringCeiling",
+                                          metering_ceiling);
+    float observed_ceiling = -1.0F;
+    const Ogre::GpuConstantDefinition &ceiling_definition =
+        metering_parameters->getConstantDefinition("meteringCeiling");
+    metering_parameters->_readRawConstants(
+        ceiling_definition.physicalIndex, 1U, &observed_ceiling);
+    if (observed_ceiling != metering_ceiling) {
+      return HdrBackendFailure(
+          "native metering ceiling changed after deterministic binding");
     }
 
     Ogre::MaterialPtr bloom_material =
@@ -7172,6 +7377,12 @@ public:
         ConfigureAndVerifyHdrPostExecutionMask(
             *root->getCompositorManager2());
       }
+      // Stage-1 bloom repair on the shared stock post node: balanced blur
+      // ladder, aspect-correct output-relative targets, unclipped binary16
+      // bloom storage. Applies to both production topologies.
+      ConfigureAndVerifyHdrBloomGraph(*root->getCompositorManager2());
+      // Stage-1 exposure repair: shadow-protected metering on the same node.
+      ConfigureAndVerifyHdrMeteringGraph(*root->getCompositorManager2());
     } else {
       Ogre::CompositorManager2 *compositors =
           root->getCompositorManager2();
@@ -7550,7 +7761,8 @@ public:
     const RenderOperationResult parameters = ConfigureHdrParameters(
         0.0F, hdr_configuration.minimum_auto_exposure,
         hdr_configuration.maximum_auto_exposure,
-        hdr_configuration.bloom_minimum_threshold, inverse_width, 0.0F);
+        hdr_configuration.bloom_minimum_threshold, inverse_width, 0.0F,
+        history_seed.decoded);
     if (!parameters) {
       return parameters;
     }
@@ -11159,7 +11371,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
     const RenderOperationResult configured = impl_->ConfigureHdrParameters(
         hdr_plan.ogre_exposure, hdr_plan.minimum_auto_exposure,
         hdr_plan.maximum_auto_exposure, hdr_plan.bloom_minimum_threshold,
-        hdr_plan.bloom_inverse_transition_width, hdr_plan.delta_seconds);
+        hdr_plan.bloom_inverse_transition_width, hdr_plan.delta_seconds,
+        hdr_plan.previous_inverse_luminance_r16.decoded);
     if (!configured) {
       impl_->faulted = true;
       return configured;

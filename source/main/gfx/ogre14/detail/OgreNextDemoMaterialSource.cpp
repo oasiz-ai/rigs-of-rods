@@ -5000,9 +5000,16 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
             static_cast<float>(native_emissive.a) ||
         projection->second.vertex_colour_tracking_token !=
             static_cast<std::uint8_t>(pass->getVertexColourTracking())) {
-      failure = Failure(Render::ValidationCode::REVISION_MISMATCH,
-                        "ogre_next_demo.material.projection.native",
-                        "projected native material authority changed");
+      // The comparison above is authoritative and stays exact; what changed
+      // is the blast radius. A live disagreement between the stored and the
+      // re-derived native authority (a roughness rule revision, an edited
+      // pass) costs exactly this object: it goes matte under
+      // PROJECTION_AUTHORITY_CHANGED for this capture, the cached projection
+      // stays unused, and the object re-admits on a later capture once both
+      // derivations agree again. It must never become a terminal snapshot
+      // rejection - that would stop the whole session's publication.
+      exclusion = OgreNextDemoTextureProjectionExclusion::
+          PROJECTION_AUTHORITY_CHANGED;
       return false;
     }
   }
@@ -5183,7 +5190,10 @@ Render::ValidationResult OgreNextDemoMaterialSource::TryProject(
                 OgreNextDemoTextureProjectionExclusion::SOURCE_UNAVAILABLE ||
             decision->second.exclusion ==
                 OgreNextDemoTextureProjectionExclusion::
-                    ORDINARY_SELECTED_SOURCE_UNAVAILABLE;
+                    ORDINARY_SELECTED_SOURCE_UNAVAILABLE ||
+            decision->second.exclusion ==
+                OgreNextDemoTextureProjectionExclusion::
+                    PROJECTION_AUTHORITY_CHANGED;
         if (retryable) {
           EnsurePendingCacheWritable();
           decision = pending_->cache->decisions.find(decision_key);
@@ -5244,10 +5254,25 @@ Render::ValidationResult OgreNextDemoMaterialSource::TryProject(
                          "cache promotion transactional");
         }
       }
-      if (!TryProjectCurrent(native_material, has_authored_uv0,
-                             managed_binding, allow_continuous_dust, input,
-                             current_projection_key, false, current_exclusion,
-                             current_failure) ||
+      const bool current_projected = TryProjectCurrent(
+          native_material, has_authored_uv0, managed_binding,
+          allow_continuous_dust, input, current_projection_key, false,
+          current_exclusion, current_failure);
+      if (!current_projected && current_failure &&
+          current_exclusion == OgreNextDemoTextureProjectionExclusion::
+                                   PROJECTION_AUTHORITY_CHANGED) {
+        // Per-object refusal: the frozen decision stays projected so the
+        // object re-admits automatically once the disagreement clears; this
+        // capture presents the section matte under its own named reason and
+        // every other object is untouched.
+        Render::ValidationResult authority_accounting =
+            record_candidate_outcome(false, current_exclusion);
+        if (!authority_accounting) {
+          return authority_accounting;
+        }
+        return Render::ValidationResult::Success();
+      }
+      if (!current_projected ||
           current_projection_key != decision->second.projection_key) {
         if (!current_failure) {
           return current_failure;

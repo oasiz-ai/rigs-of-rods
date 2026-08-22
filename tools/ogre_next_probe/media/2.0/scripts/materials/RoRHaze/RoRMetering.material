@@ -1,0 +1,96 @@
+// RoR shadow-protected auto-exposure metering.
+//
+// Replaces HDR/DownScale01_SumLumStart on the stock HDR post node's first
+// metering target. The pass is byte-for-byte the pinned upstream reduction
+// with one change: each of the 16 Morton-ordered samples contributes
+// min(log(luminance * 1024), meteringCeiling) to the frame's log-average.
+// Extreme emitters (the sun disc at 24x sun colour, mirror-like specular
+// glints) are winsorized at the ceiling so they stop dragging auto-exposure
+// down and crushing shadow detail; ordinary content below the ceiling meters
+// exactly as upstream.
+//
+// The vertex program is the stock Ogre/Compositor/Quad_vs from the pinned
+// Common media closure; only the fragment programs are RoR-owned.
+// meteringCeiling is bound per frame by the presenter with a
+// _readRawConstants readback, so a silent binding drift fails closed there.
+
+//------------------------
+//OpenGL GLSL Definitions
+//------------------------
+fragment_program RoR/HDR/MeteringSumLumStart_ps_GLSL glsl
+{
+	source RoRMeteringSumLumStart_ps.glsl
+	default_params
+	{
+		param_named rt0			int 0
+	}
+}
+
+//------------------------
+//Vulkan GLSL Definitions
+//------------------------
+fragment_program RoR/HDR/MeteringSumLumStart_ps_VK glslvk
+{
+	source RoRMeteringSumLumStart_ps.glsl
+}
+
+//------------------------
+//HLSL Definitions
+//------------------------
+fragment_program RoR/HDR/MeteringSumLumStart_ps_HLSL hlsl
+{
+	source RoRMeteringSumLumStart_ps.hlsl
+	entry_point main
+	target ps_5_0 ps_4_0
+}
+
+//------------------------
+//Metal Definitions
+//------------------------
+fragment_program RoR/HDR/MeteringSumLumStart_ps_Metal metal
+{
+	source RoRMeteringSumLumStart_ps.metal
+	shader_reflection_pair_hint Ogre/Compositor/Quad_vs
+}
+
+fragment_program RoR/HDR/MeteringSumLumStart_ps unified
+{
+	delegate RoR/HDR/MeteringSumLumStart_ps_GLSL
+	delegate RoR/HDR/MeteringSumLumStart_ps_VK
+	delegate RoR/HDR/MeteringSumLumStart_ps_HLSL
+	delegate RoR/HDR/MeteringSumLumStart_ps_Metal
+
+	default_params
+	{
+		param_named_auto	tex0Size				packed_texture_size 0
+		param_named_auto	viewportSize			viewport_size
+		param_named			meteringCeiling			float 30.0
+	}
+}
+
+material RoR/HDR/MeteringSumLumStart
+{
+	technique
+	{
+		pass
+		{
+			depth_check off
+			depth_write off
+			cull_hardware none
+
+			vertex_program_ref Ogre/Compositor/Quad_vs
+			{
+			}
+
+			fragment_program_ref RoR/HDR/MeteringSumLumStart_ps
+			{
+			}
+
+			texture_unit rt0
+			{
+				tex_address_mode	clamp
+				filtering none
+			}
+		}
+	}
+}

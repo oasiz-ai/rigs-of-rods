@@ -23,6 +23,10 @@ option(
     "Stage the real OgreNext child and its exact relocatable runtime closure"
     OFF)
 option(
+    ROR_OGRE_NEXT_ALLOW_DIRTY_DEVELOPMENT_BUILD
+    "Allow a manifest-bound dirty development build without qualification eligibility"
+    OFF)
+option(
     ROR_OGRE_NEXT_EMBEDDED_NAMESPACE
     "Build the pinned OgreNext fork in the private RoROgreNext namespace"
     OFF)
@@ -539,7 +543,11 @@ set(ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_RELATIVE
     "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/RoRAerialHaze.material"
     "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/GLSL/RoRAerialHaze_ps.glsl"
     "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/HLSL/RoRAerialHaze_ps.hlsl"
-    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/Metal/RoRAerialHaze_ps.metal")
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/Metal/RoRAerialHaze_ps.metal"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/RoRMetering.material"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/GLSL/RoRMeteringSumLumStart_ps.glsl"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/HLSL/RoRMeteringSumLumStart_ps.hlsl"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/Metal/RoRMeteringSumLumStart_ps.metal")
 set(ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_SOURCE_ROOT
     "${CMAKE_CURRENT_SOURCE_DIR}/media")
 set(ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_SOURCES "")
@@ -3578,10 +3586,18 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
                 "Could not inspect Metal N2 relevant source state: "
                 "${_ror_n2_status_error}")
         endif ()
-        if (NOT _ror_n2_status STREQUAL "")
+        if (NOT _ror_n2_status STREQUAL "" AND
+                NOT ROR_OGRE_NEXT_ALLOW_DIRTY_DEVELOPMENT_BUILD)
             message(FATAL_ERROR
                 "Metal N2 provenance requires a clean relevant source set:\n"
                 "${_ror_n2_status}")
+        endif ()
+        if (_ror_n2_status STREQUAL "")
+            set(_ror_n2_relevant_source_clean 1)
+        else ()
+            set(_ror_n2_relevant_source_clean 0)
+            message(STATUS
+                "Metal N2 is a dirty development build and is not qualification evidence")
         endif ()
         add_executable(
             ror_ogre_next_metal_n2_smoke
@@ -3596,7 +3612,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
                 ROR_OGRE_NEXT_N2_SOURCE_REPOSITORY="${ROR_SOURCE_REPOSITORY}"
                 ROR_OGRE_NEXT_N2_SOURCE_COMMIT="${ROR_SOURCE_COMMIT}"
                 ROR_OGRE_NEXT_N2_SOURCE_REF="${ROR_SOURCE_REF}"
-                ROR_OGRE_NEXT_N2_RELEVANT_SOURCE_CLEAN=1
+                ROR_OGRE_NEXT_N2_RELEVANT_SOURCE_CLEAN=${_ror_n2_relevant_source_clean}
                 ROR_OGRE_NEXT_N2_SOURCE_MANIFEST_SHA256="${ROR_SOURCE_MANIFEST_SHA256}")
         target_link_libraries(
             ror_ogre_next_metal_n2_smoke
