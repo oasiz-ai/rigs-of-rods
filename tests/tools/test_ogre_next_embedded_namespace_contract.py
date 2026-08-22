@@ -102,6 +102,9 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
             '"sha256": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_SHA256@"',
             '"path": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP_PATH@"',
             '"sha256": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP_SHA256@"',
+            '"path": "@ROR_OGRE_NEXT_VULKAN_SKY_PATCH_PATH@"',
+            '"sha256": "@ROR_OGRE_NEXT_VULKAN_SKY_PATCH_SHA256@"',
+            '"patched_sha256": "@ROR_OGRE_NEXT_VULKAN_SKY_PATCHED_SHA256@"',
             '"full_n1_link_evidence": "not_evaluated"',
         ):
             with self.subTest(token=token):
