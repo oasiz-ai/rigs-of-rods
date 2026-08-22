@@ -166,6 +166,14 @@ REVIEWED_GLOBAL_INTERSECTION_ALLOWLIST = (
     "__ZNSt3__119piecewise_constructE",
 )
 
+# Independent copy of the audit's toolchain-owned collision policy
+# (tools/ogre_next_probe/audit_embedded_namespace.py): Itanium-mangled std
+# namespace definitions emitted weakly by both runtime closures are
+# toolchain-owned; every other recorded collision fails closed here.
+REVIEWED_TOOLCHAIN_STD_SYMBOL_PATTERN = re.compile(
+    r"^_+Z(?:N[KVRrO]*St|St|TISt|TSSt|ZNSt)"
+)
+
 STB_IMAGE_SOURCE_SCHEMA = "ror.ogre14_source_image_codec.v1"
 STB_IMAGE_UPSTREAM_COMMIT = "2c980bb59875b0d32144a71867fbdebb2f77cd20"
 STB_IMAGE_SOURCE_FILES = {
@@ -1364,8 +1372,19 @@ def main() -> int:
             if not isinstance(collision_record, dict):
                 raise ValueError("namespace audit collision record is invalid")
             intersection = collision_record.get("intersection")
-            reviewed_allowlist = collision_record.get("reviewed_allowlist")
+            toolchain_owned = collision_record.get(
+                "toolchain_owned_intersections"
+            )
             archive_path = collision_record.get("modern_archive")
+            linkage_partitions = tuple(
+                collision_record.get(field)
+                for field in (
+                    "toolchain_owned_modern_weak",
+                    "toolchain_owned_modern_strong",
+                    "toolchain_owned_legacy_weak",
+                    "toolchain_owned_legacy_strong",
+                )
+            )
             if (
                 not isinstance(archive_path, str)
                 or archive_path in collision_archive_paths
@@ -1374,10 +1393,19 @@ def main() -> int:
                 or not all(isinstance(symbol, str) for symbol in intersection)
                 or any(
                     symbol not in REVIEWED_GLOBAL_INTERSECTION_ALLOWLIST
+                    and REVIEWED_TOOLCHAIN_STD_SYMBOL_PATTERN.match(symbol)
+                    is None
                     for symbol in intersection
                 )
-                or reviewed_allowlist
-                != list(REVIEWED_GLOBAL_INTERSECTION_ALLOWLIST)
+                or toolchain_owned != intersection
+                or any(
+                    not isinstance(partition, list)
+                    or partition != sorted(set(partition))
+                    or any(
+                        symbol not in intersection for symbol in partition
+                    )
+                    for partition in linkage_partitions
+                )
                 or not isinstance(
                     collision_record.get("modern_defined_globals"), int
                 )
