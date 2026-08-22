@@ -17,12 +17,14 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <utility>
 #include <vector>
 
 namespace RoR {
 namespace JBeamHydroSavegame {
 
 static const std::uint32_t PAYLOAD_SCHEMA_VERSION = 1U;
+static const std::uint32_t MAX_HYDRO_COUNT = 65535U;
 
 /// Spawned identity plus the rest length already decoded from the ordinary
 /// version-3 beam array. The latter prevents two savegame members from
@@ -35,6 +37,7 @@ struct LiveHydro
     float reference_length = 0.0f;
     float saved_runtime_rest_length = 0.0f;
     JBeamHydroRuntimeConfig config;
+    JBeamHydroRuntimeState runtime_state;
 };
 
 struct HydroRecord
@@ -65,6 +68,7 @@ enum class Error
 {
     NONE,
     UNSUPPORTED_SCHEMA,
+    HYDRO_COUNT_LIMIT,
     HYDRO_COUNT_MISMATCH,
     RECORD_COUNT_MISMATCH,
     RECORD_ORDER,
@@ -77,7 +81,8 @@ enum class Error
     INVALID_FAULT,
     REST_LENGTH_REJECTED,
     FLOAT_NARROWING,
-    SAVED_REST_LENGTH_MISMATCH
+    SAVED_REST_LENGTH_MISMATCH,
+    MALFORMED_PAYLOAD
 };
 
 struct Result
@@ -174,6 +179,11 @@ inline Result TryStage(
 {
     if (payload.schema_version != PAYLOAD_SCHEMA_VERSION)
         return Failure(Error::UNSUPPORTED_SCHEMA, 0U);
+    if (payload.hydro_count > MAX_HYDRO_COUNT ||
+        live_hydros.size() > MAX_HYDRO_COUNT)
+    {
+        return Failure(Error::HYDRO_COUNT_LIMIT, 0U);
+    }
     if (payload.hydro_count != live_hydros.size())
         return Failure(Error::HYDRO_COUNT_MISMATCH, 0U);
 
@@ -317,6 +327,47 @@ inline Result TryStage(
     }
 
     staged.swap(candidate);
+    return Result();
+}
+
+/// Captures every enabled actuator and validates the resulting payload against
+/// the same live snapshot before publishing it. Failure leaves `payload`
+/// untouched, including failures discovered in a late actuator.
+inline Result TryCapture(
+    const std::vector<LiveHydro>& live_hydros,
+    ActorPayload& payload)
+{
+    if (live_hydros.size() > MAX_HYDRO_COUNT)
+        return Failure(Error::HYDRO_COUNT_LIMIT, 0U);
+
+    ActorPayload candidate;
+    candidate.hydro_count =
+        static_cast<std::uint32_t>(live_hydros.size());
+    candidate.records.reserve(live_hydros.size());
+    for (std::size_t index = 0U;
+         index < live_hydros.size();
+         ++index)
+    {
+        const LiveHydro& live = live_hydros[index];
+        if (!live.enabled)
+            continue;
+        HydroRecord record;
+        record.hydro_index = live.hydro_index;
+        record.beam_index = live.beam_index;
+        record.reference_length = live.reference_length;
+        record.config = live.config;
+        record.state = live.runtime_state;
+        candidate.records.push_back(record);
+    }
+
+    std::vector<StagedHydro> staged;
+    const Result validation = TryStage(
+        candidate,
+        live_hydros,
+        staged);
+    if (!validation.IsValid())
+        return validation;
+    payload = std::move(candidate);
     return Result();
 }
 

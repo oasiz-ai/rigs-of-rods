@@ -48,6 +48,12 @@ add_test(
         "${ROR_REPOSITORY_ROOT}/tests/tools/test_deterministic_scenario_identity_contract.py"
 )
 add_test(
+    NAME jbeam_hydro_savegame_integration
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_jbeam_hydro_savegame_integration.py"
+)
+add_test(
     NAME deterministic_savegame_resume_tool
     COMMAND
         "${Python3_EXECUTABLE}"
@@ -63,6 +69,7 @@ add_test(
 set_tests_properties(
     deterministic_input_live_runtime_contract
     deterministic_scenario_identity_contract
+    jbeam_hydro_savegame_integration
     deterministic_savegame_resume_tool
     deterministic_savegame_resume_tool_optimized
     PROPERTIES

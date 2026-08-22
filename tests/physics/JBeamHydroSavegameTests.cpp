@@ -246,6 +246,60 @@ void TestRequiresEveryEnabledHydroExactlyOnce()
         RoR::JBeamHydroSavegame::Error::ENABLEMENT_MISMATCH);
 }
 
+void TestCaptureValidatesBeforePublishing()
+{
+    const RoR::JBeamHydroRuntimeConfig config = Config(0.5);
+    const RoR::JBeamHydroRuntimeStep initialized =
+        RoR::InitializeJBeamHydroRuntime(config, 2.0);
+    const RoR::JBeamHydroRuntimeStep advanced =
+        RoR::AdvanceJBeamHydroRuntime(
+            config,
+            initialized.state,
+            2.0,
+            1.0,
+            0.25,
+            false);
+    CHECK(advanced.valid);
+
+    std::vector<RoR::JBeamHydroSavegame::LiveHydro> live;
+    live.push_back(Live(0U, 4U, config, 3.0f));
+    live[0].runtime_state = advanced.state;
+    live.push_back(Live(1U, 7U, config, 0.0f));
+    live[1].enabled = false;
+
+    RoR::JBeamHydroSavegame::ActorPayload captured;
+    CHECK(RoR::JBeamHydroSavegame::TryCapture(
+        live, captured).IsValid());
+    CHECK(captured.hydro_count == 2U);
+    CHECK(captured.records.size() == 1U);
+    CHECK(captured.records[0].hydro_index == 0U);
+    CHECK(captured.records[0].beam_index == 4U);
+    CHECK(captured.records[0].state.accepted_step_count == 1U);
+    CHECK(captured.records[0].state.response.length_ratio == 1.5);
+
+    RoR::JBeamHydroSavegame::ActorPayload untouched;
+    untouched.schema_version = 77U;
+    untouched.hydro_count = 88U;
+    untouched.records.resize(1U);
+    untouched.records[0].hydro_index = 99U;
+    live[0].saved_runtime_rest_length = 2.5f;
+    CHECK(RoR::JBeamHydroSavegame::TryCapture(
+        live, untouched).error ==
+        RoR::JBeamHydroSavegame::Error::SAVED_REST_LENGTH_MISMATCH);
+    CHECK(untouched.schema_version == 77U);
+    CHECK(untouched.hydro_count == 88U);
+    CHECK(untouched.records.size() == 1U);
+    CHECK(untouched.records[0].hydro_index == 99U);
+
+    std::vector<RoR::JBeamHydroSavegame::LiveHydro> excessive(
+        static_cast<std::size_t>(
+            RoR::JBeamHydroSavegame::MAX_HYDRO_COUNT) + 1U);
+    CHECK(RoR::JBeamHydroSavegame::TryCapture(
+        excessive, untouched).error ==
+        RoR::JBeamHydroSavegame::Error::HYDRO_COUNT_LIMIT);
+    CHECK(untouched.schema_version == 77U);
+}
+
 } // namespace
 
 int main()
@@ -254,6 +308,7 @@ int main()
     TestLateFailureIsAtomic();
     TestRejectsConflictsAndMalformedState();
     TestRequiresEveryEnabledHydroExactlyOnce();
+    TestCaptureValidatesBeforePublishing();
     if (g_failures != 0)
     {
         std::cerr << g_failures << " test(s) failed\n";

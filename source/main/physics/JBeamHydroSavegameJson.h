@@ -21,8 +21,6 @@
 namespace RoR {
 namespace JBeamHydroSavegame {
 
-static const std::uint32_t MAX_HYDRO_COUNT = 65535U;
-
 inline bool HasExactJsonMembers(
     const rapidjson::Value& value,
     const char* const* names,
