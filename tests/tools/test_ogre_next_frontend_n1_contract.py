@@ -697,7 +697,10 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             self.assertIn(token, self.frontend)
         self.assertLess(
             self.frontend.index("record.node->attachObject(record.light)"),
-            self.frontend.index("light->setDirection(Ogre::Vector3"),
+            # Stage 2: light direction is applied as an absolute node
+            # orientation (the incremental Light::setDirection accumulates
+            # quaternion drift on per-frame direction changes).
+            self.frontend.index("Ogre::Vector3::NEGATIVE_UNIT_Z.getRotationTo("),
         )
         self.assertIn(
             '"directional_lux_to_native_power_scale"',

@@ -12480,9 +12480,17 @@ RenderOperationResult OgreNextN1Frontend::Render(
         light->setType(Ogre::Light::LT_DIRECTIONAL);
         light->setVisible(true);
         retained_light.node->setPosition(Ogre::Vector3::ZERO);
-        light->setDirection(Ogre::Vector3(descriptor.direction.x,
-                                          descriptor.direction.y,
-                                          descriptor.direction.z));
+        // Absolute orientation, never Light::setDirection: that setter
+        // multiplies an incremental correction onto the node's current
+        // orientation, so a direction that changes every frame accumulates
+        // quaternion drift without bound (a constant sun never drifts, a
+        // vehicle headlight failed readback ~40 s after toggle-on live).
+        retained_light.node->setOrientation(
+            Ogre::Vector3::NEGATIVE_UNIT_Z.getRotationTo(
+                Ogre::Vector3(descriptor.direction.x,
+                              descriptor.direction.y,
+                              descriptor.direction.z),
+                Ogre::Vector3::UNIT_Y));
         light->setCastShadows(shadow_plan.enabled);
         if (shadow_plan.enabled) {
           light->setShadowFarDistance(kOgreNextPssmFarMeters);
@@ -12545,7 +12553,12 @@ RenderOperationResult OgreNextN1Frontend::Render(
           const Ogre::Vector3 expected_direction(descriptor.direction.x,
                                                  descriptor.direction.y,
                                                  descriptor.direction.z);
-          light->setDirection(expected_direction);
+          // Same absolute-orientation rule as the directional branch: the
+          // incremental Light::setDirection drifts on per-frame direction
+          // changes.
+          retained_light.node->setOrientation(
+              Ogre::Vector3::NEGATIVE_UNIT_Z.getRotationTo(
+                  expected_direction, Ogre::Vector3::UNIT_Y));
           exact_native_light = exact_native_light &&
               NearlyEqual(light->getSpotlightInnerAngle().valueRadians(),
                           expected_inner.valueRadians()) &&
