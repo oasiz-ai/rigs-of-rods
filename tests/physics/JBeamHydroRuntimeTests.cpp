@@ -148,6 +148,59 @@ void TestFailClosedInputs()
         "step-counter-exhausted");
 }
 
+void TestResetPublishesPristineStateAtomically()
+{
+    const RoR::JBeamHydroRuntimeConfig config = Config();
+    const RoR::JBeamHydroRuntimeStep initialized =
+        RoR::InitializeJBeamHydroRuntime(config, 2.0);
+    CHECK(initialized.valid);
+    const RoR::JBeamHydroRuntimeStep advanced =
+        RoR::AdvanceJBeamHydroRuntime(
+            config, initialized.state, 2.0, 1.0, 0.25, false);
+    CHECK(advanced.valid);
+    CHECK(advanced.state.accepted_step_count == 1U);
+    CHECK(advanced.state.response.length_ratio == 1.5);
+
+    RoR::JBeamHydroRuntimeState published = advanced.state;
+    float runtime_rest_length = advanced.runtime_rest_length;
+    CHECK(RoR::ResetJBeamHydroRuntime(
+        config, 2.0, published, runtime_rest_length));
+    CHECK(!published.fault_latched);
+    CHECK(published.fault == RoR::JBeamHydroRuntimeFault::NONE);
+    CHECK(published.accepted_step_count == 0U);
+    CHECK(published.response.length_ratio == 1.0);
+    CHECK(runtime_rest_length == 2.0f);
+
+    const double quiet_nan = Binary64FromBits(
+        UINT64_C(0x7ff8000000000001));
+    const RoR::JBeamHydroRuntimeStep faulted =
+        RoR::AdvanceJBeamHydroRuntime(
+            config, advanced.state, 2.0, quiet_nan, 0.25, false);
+    CHECK(!faulted.valid);
+    CHECK(faulted.state.fault_latched);
+    published = faulted.state;
+    runtime_rest_length = 3.0f;
+    CHECK(RoR::ResetJBeamHydroRuntime(
+        config, 2.0, published, runtime_rest_length));
+    CHECK(!published.fault_latched);
+    CHECK(published.fault == RoR::JBeamHydroRuntimeFault::NONE);
+    CHECK(published.accepted_step_count == 0U);
+    CHECK(published.response.length_ratio == 1.0);
+    CHECK(runtime_rest_length == 2.0f);
+
+    RoR::JBeamHydroRuntimeConfig invalid = config;
+    invalid.response.input_in_limit = 1.0;
+    published = advanced.state;
+    runtime_rest_length = 7.0f;
+    CHECK(!RoR::ResetJBeamHydroRuntime(
+        invalid, 2.0, published, runtime_rest_length));
+    CHECK(published.fault_latched);
+    CHECK(published.fault ==
+        RoR::JBeamHydroRuntimeFault::INVALID_CONFIG);
+    CHECK(published.accepted_step_count == 0U);
+    CHECK(runtime_rest_length == 7.0f);
+}
+
 } // namespace
 
 int main()
@@ -155,6 +208,7 @@ int main()
     TestInitializationAndProgress();
     TestClampingAndFaultLatching();
     TestFailClosedInputs();
+    TestResetPublishesPristineStateAtomically();
     if (g_failures != 0)
     {
         std::cerr << g_failures << " test(s) failed\n";
