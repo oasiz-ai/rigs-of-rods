@@ -740,6 +740,28 @@ bool NearlyEqual(const Ogre::Vector3 &lhs,
          NearlyEqual(lhs.z, rhs.z);
 }
 
+/// Light::setDirection stores a shortest-arc quaternion on the parent node
+/// and getDirection recovers -zAxis(); one round trip costs a few float32
+/// ulps scaled by the arc construction. The generic 1.0e-6 NearlyEqual sits
+/// at that noise floor: a constant sun direction happens to hold it, but a
+/// vehicle headlight whose direction moves every physics frame samples the
+/// whole rounding distribution and failed readback within seconds live -
+/// and one aborted present is enough to wedge downstream continuity. This
+/// bound stays far below any authored-direction defect (a wrong axis or a
+/// stale pose moves components by >= 1e-2) while admitting pure rounding.
+constexpr float kOgreNextLightDirectionRoundTripTolerance = 1.0e-4F;
+
+bool NearlyEqualLightDirection(const Ogre::Vector3 &lhs,
+                               const Ogre::Vector3 &rhs) noexcept {
+  const auto near_component = [](float lhs_value, float rhs_value) noexcept {
+    return std::isfinite(lhs_value) && std::isfinite(rhs_value) &&
+           std::fabs(lhs_value - rhs_value) <=
+               kOgreNextLightDirectionRoundTripTolerance;
+  };
+  return near_component(lhs.x, rhs.x) && near_component(lhs.y, rhs.y) &&
+         near_component(lhs.z, rhs.z);
+}
+
 /// A camera basis reaches the frame consumers through
 /// Matrix4::inverseAffine(), which inverts by cofactors rather than by
 /// transposing the rotation, so even an exactly rigid view matrix comes back
@@ -12471,7 +12493,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
         exact_native_light =
             light->getType() == Ogre::Light::LT_DIRECTIONAL &&
             light->getVisible() &&
-            NearlyEqual(light->getDirection(), expected_direction) &&
+            NearlyEqualLightDirection(light->getDirection(),
+                                      expected_direction) &&
             light->getCastShadows() == shadow_plan.enabled &&
             (!shadow_plan.enabled ||
              (NearlyEqual(light->getShadowFarDistance(),
@@ -12528,7 +12551,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
                           expected_inner.valueRadians()) &&
               NearlyEqual(light->getSpotlightOuterAngle().valueRadians(),
                           expected_outer.valueRadians()) &&
-              NearlyEqual(light->getDirection(), expected_direction);
+              NearlyEqualLightDirection(light->getDirection(),
+                                        expected_direction);
           ++lighting_candidate.last_spot_lights;
         } else {
           ++lighting_candidate.last_point_lights;
