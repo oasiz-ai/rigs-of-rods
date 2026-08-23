@@ -1205,6 +1205,7 @@ def main() -> int:
         ]
         require(stb_target_entries, "stb_image decoder target has no compile entries")
         stb_implementation_entries: list[dict[str, object]] = []
+        stb_implementation_sources: set[Path] = set()
         for entry in stb_target_entries:
             entry_source = Path(str(entry.get("file", "")))
             require(
@@ -1235,17 +1236,36 @@ def main() -> int:
                 )
             if STB_IMAGE_IMPLEMENTATION_PATTERN.search(entry_source.read_bytes()):
                 stb_implementation_entries.append(entry)
+                stb_implementation_sources.add(entry_source.resolve())
         require(
-            len(stb_implementation_entries) == 1,
-            "combined target must compile exactly one stb_image implementation owner",
+            stb_implementation_sources == {stb_decoder_source},
+            "combined target stb_image implementation source ownership changed: "
+            + ", ".join(
+                sorted(str(path) for path in stb_implementation_sources)
+            ),
         )
-        stb_implementation_entry = stb_implementation_entries[0]
         require(
-            Path(str(stb_implementation_entry.get("file", ""))).resolve()
-            == stb_decoder_source,
-            "combined target stb_image implementation owner is not the reviewed decoder",
+            len(
+                STB_IMAGE_IMPLEMENTATION_PATTERN.findall(
+                    stb_decoder_source.read_bytes()
+                )
+            ) == 1,
+            "reviewed stb_image decoder must define its implementation once",
         )
-        stb_decoder_command = command_text(stb_implementation_entry)
+        stb_decoder_commands = sorted(
+            {
+                command_text(entry)
+                for entry in stb_implementation_entries
+                if Path(str(entry.get("file", ""))).resolve()
+                    == stb_decoder_source
+            }
+        )
+        require(
+            len(stb_decoder_commands) == 1,
+            "combined target must have one unique stb_image owner compile command, got "
+            + str(len(stb_decoder_commands)),
+        )
+        stb_decoder_command = stb_decoder_commands[0]
         require_strict_fp_compile_command(
             stb_decoder_command, str(stb_decoder_source)
         )
@@ -1253,7 +1273,9 @@ def main() -> int:
             "source": str(stb_decoder_source),
             "target": str(args.stb_decoder_target_name),
             "target_compile_entries": len(stb_target_entries),
-            "implementation_compile_entries": 1,
+            "implementation_compile_entries": len(stb_implementation_entries),
+            "implementation_unique_sources": 1,
+            "implementation_unique_compile_commands": 1,
             "compile_command_sha256": hashlib.sha256(
                 stb_decoder_command.encode("utf-8")
             ).hexdigest(),

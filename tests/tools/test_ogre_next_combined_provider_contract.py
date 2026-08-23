@@ -1081,6 +1081,23 @@ class CombinedProviderContractTests(unittest.TestCase):
             PROVIDER,
         )
 
+    def test_stb_owner_audit_deduplicates_only_identical_compile_metadata(self) -> None:
+        for token in (
+            "stb_implementation_sources == {stb_decoder_source}",
+            "len(stb_decoder_commands) == 1",
+            '"implementation_unique_sources": 1',
+            '"implementation_unique_compile_commands": 1',
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, NAMESPACE_AUDIT)
+        windows_start = COMBINED_WORKFLOW.index(
+            "- name: Upload Windows combined-build diagnostics"
+        )
+        windows_diagnostics = COMBINED_WORKFLOW[windows_start:]
+        self.assertIn(
+            "ror-combined-build/compile_commands.json", windows_diagnostics
+        )
+
     def test_dirty_development_build_is_explicit_and_unqualified(self) -> None:
         self.assertIn(
             "ROR_OGRE_NEXT_ALLOW_DIRTY_DEVELOPMENT_BUILD", PROVIDER
