@@ -1106,6 +1106,7 @@ class CombinedProviderContractTests(unittest.TestCase):
         self.assertIn(
             "ogre-next-combined-provider-sources.txt", windows_diagnostics
         )
+        self.assertIn("ogre14-runtime-manifest.txt", windows_diagnostics)
 
     def test_windows_contract_paths_are_compared_as_resolved_paths(self) -> None:
         for token in (
@@ -1287,14 +1288,24 @@ class CombinedProviderContractTests(unittest.TestCase):
             contract = {
                 "ogre14_runtime_package_root": str(package),
                 "ogre14_runtime_library_count": len(paths),
+                "ogre14_runtime_manifest": str(
+                    Path(temporary) / "ogre14-runtime-manifest.txt"
+                ),
                 "ogre14_runtime_manifest_sha256": hashlib.sha256(
                     serialized.encode("utf-8")
                 ).hexdigest(),
                 "ogre14_main_runtime": str(paths[0]),
                 "ogre14_sdl_provider_runtime": str(paths[1]),
             }
+            Path(contract["ogre14_runtime_manifest"]).write_text(
+                serialized, encoding="utf-8", newline="\n"
+            )
             report = module._verify_ogre14_runtime_manifest(contract, records)
             self.assertEqual(report["library_count"], 3)
+            self.assertEqual(
+                report["manifest"],
+                str(Path(contract["ogre14_runtime_manifest"]).resolve()),
+            )
             self.assertEqual(
                 report["codec_freeimage"], str(paths[2].resolve(strict=True))
             )
@@ -1664,6 +1675,17 @@ class CombinedProviderContractTests(unittest.TestCase):
             'file(SHA256 "${ROR_SOURCE_MANIFEST}"'
         )
         self.assertLess(provider_manifest_write, provider_manifest_hash)
+        runtime_manifest_write = PROVIDER.index(
+            'file(WRITE "${ROR_ROOT_OGRE14_RUNTIME_MANIFEST}"'
+        )
+        runtime_manifest_hash = PROVIDER.index(
+            'file(SHA256 "${ROR_ROOT_OGRE14_RUNTIME_MANIFEST}"'
+        )
+        self.assertLess(runtime_manifest_write, runtime_manifest_hash)
+        self.assertIn(
+            '"ogre14_runtime_manifest": "@ROR_ROOT_OGRE14_RUNTIME_MANIFEST@"',
+            PROVIDER_CONTRACT,
+        )
         selected_manifest_write = MAIN_CMAKE.index(
             'file(WRITE\n        "${ROR_OGRE_NEXT_COMBINED_EXECUTABLE_SELECTED_SOURCE_MANIFEST}"'
         )

@@ -314,6 +314,8 @@ foreach (_ror_root_ogre14_runtime IN LISTS
     file(RELATIVE_PATH _ror_root_ogre14_runtime_relative
         "${ogre3d_PACKAGE_FOLDER_RELEASE}"
         "${_ror_root_ogre14_runtime}")
+    file(TO_CMAKE_PATH "${_ror_root_ogre14_runtime_relative}"
+        _ror_root_ogre14_runtime_relative)
     file(SIZE "${_ror_root_ogre14_runtime}"
         _ror_root_ogre14_runtime_size)
     file(SHA256 "${_ror_root_ogre14_runtime}"
@@ -321,8 +323,13 @@ foreach (_ror_root_ogre14_runtime IN LISTS
     string(APPEND _ror_root_ogre14_runtime_manifest
         "${_ror_root_ogre14_runtime_relative}|${_ror_root_ogre14_runtime_size}|${_ror_root_ogre14_runtime_sha256}\n")
 endforeach ()
-string(SHA256 ROR_ROOT_OGRE14_RUNTIME_MANIFEST_SHA256
+set(ROR_ROOT_OGRE14_RUNTIME_MANIFEST
+    "${CMAKE_CURRENT_BINARY_DIR}/ogre14-runtime-manifest.txt"
+    CACHE INTERNAL "Exact OGRE14 host runtime manifest for RoR-Combined" FORCE)
+file(WRITE "${ROR_ROOT_OGRE14_RUNTIME_MANIFEST}"
     "${_ror_root_ogre14_runtime_manifest}")
+file(SHA256 "${ROR_ROOT_OGRE14_RUNTIME_MANIFEST}"
+    ROR_ROOT_OGRE14_RUNTIME_MANIFEST_SHA256)
 set(ROR_ROOT_OGRE14_RUNTIME_PACKAGE_ROOT
     "${ogre3d_PACKAGE_FOLDER_RELEASE}"
     CACHE INTERNAL "Exact OGRE14 runtime package root for RoR-Combined" FORCE)
@@ -1677,4 +1684,5 @@ add_custom_target(ror_ogre_next_embedded_provider_contract ALL
         ror_ogre_next_root_provider_link_smoke
         ror_ogre_next_combined_resources
         "${ROR_SOURCE_MANIFEST}"
+        "${ROR_ROOT_OGRE14_RUNTIME_MANIFEST}"
         "${ROR_OGRE_NEXT_COMBINED_PROVIDER_CONTRACT}")

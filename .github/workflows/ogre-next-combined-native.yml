@@ -328,6 +328,9 @@ jobs:
             "$build/ogre-next-embedded/ogre-next-combined-provider-contract.json" \
             "$stage/qualification/ogre-next-combined-provider-contract.json"
           cmake -E copy \
+            "$build/ogre-next-embedded/ogre14-runtime-manifest.txt" \
+            "$stage/qualification/ogre14-runtime-manifest.txt"
+          cmake -E copy \
             "$build/bin/resources/ogrenext/.complete.json" \
             "$stage/qualification/ogre-next-combined-resources.complete.json"
 
@@ -756,6 +759,7 @@ jobs:
               @('source/main/RoR-Combined.binary-closure.json', 'RoR-Combined.binary-closure.json'),
               @('ogre-next-embedded/ogre-next-combined-namespace-audit.json', 'ogre-next-combined-namespace-audit.json'),
               @('ogre-next-embedded/ogre-next-combined-provider-contract.json', 'ogre-next-combined-provider-contract.json'),
+              @('ogre-next-embedded/ogre14-runtime-manifest.txt', 'ogre14-runtime-manifest.txt'),
               @('bin/resources/ogrenext/.complete.json', 'ogre-next-combined-resources.complete.json')
           )) {
             Copy-Item -LiteralPath (Join-Path $build $pair[0]) `
@@ -925,6 +929,7 @@ jobs:
             ${{ runner.temp }}/ror-combined-build/source/main/ogre-next-combined-executable-contract.json
             ${{ runner.temp }}/ror-combined-build/ogre-next-embedded/ogre-next-combined-namespace-audit.json
             ${{ runner.temp }}/ror-combined-build/ogre-next-embedded/ogre-next-combined-provider-sources.txt
+            ${{ runner.temp }}/ror-combined-build/ogre-next-embedded/ogre14-runtime-manifest.txt
             ${{ runner.temp }}/ror-combined-build/conan/generators/SDL2*.cmake
             ${{ runner.temp }}/ror-combined-build/conan/generators/cmakedeps_macros.cmake
             ${{ runner.temp }}/ror-combined-build/ogre-next-embedded/*.json

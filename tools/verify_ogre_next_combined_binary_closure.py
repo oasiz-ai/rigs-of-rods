@@ -767,6 +767,10 @@ def _verify_ogre14_runtime_manifest(
         "OGRE14 runtime package root",
     )
     expected_count = provider_contract.get("ogre14_runtime_library_count")
+    runtime_manifest = _regular_absolute(
+        str(provider_contract.get("ogre14_runtime_manifest", "")),
+        "OGRE14 runtime manifest",
+    )
     expected_manifest_sha256 = provider_contract.get(
         "ogre14_runtime_manifest_sha256"
     )
@@ -778,11 +782,23 @@ def _verify_ogre14_runtime_manifest(
         or not re.fullmatch(r"[0-9a-f]{64}", expected_manifest_sha256)
     ):
         raise ValueError("provider OGRE14 runtime manifest authority is invalid")
+    observed_manifest_sha256 = _sha256(runtime_manifest)
+    if observed_manifest_sha256 != expected_manifest_sha256:
+        raise ValueError("configured OGRE14 runtime manifest bytes changed")
+    configured_lines = runtime_manifest.read_text(
+        encoding="utf-8", errors="strict"
+    ).splitlines()
+    if (
+        len(configured_lines) != expected_count
+        or len(configured_lines) != len(set(configured_lines))
+        or configured_lines != sorted(configured_lines)
+    ):
+        raise ValueError("configured OGRE14 runtime manifest is not exact and sorted")
 
     paths = [Path(record["path"]).resolve(strict=True) for record in audited_records]
     if len(paths) != len(set(paths)):
         raise ValueError("provider OGRE14 runtime manifest contains duplicates")
-    serialized = ""
+    observed_lines: list[str] = []
     entries: list[dict[str, object]] = []
     for path in sorted(paths):
         try:
@@ -805,7 +821,7 @@ def _verify_ogre14_runtime_manifest(
         )
         if sha256 != audited_sha256:
             raise ValueError("provider OGRE14 runtime changed after namespace audit")
-        serialized += f"{relative_text}|{size}|{sha256}\n"
+        observed_lines.append(f"{relative_text}|{size}|{sha256}")
         entries.append(
             {
                 "relative_path": relative_text,
@@ -814,10 +830,7 @@ def _verify_ogre14_runtime_manifest(
                 "sha256": sha256,
             }
         )
-    observed_manifest_sha256 = hashlib.sha256(
-        serialized.encode("utf-8")
-    ).hexdigest()
-    if observed_manifest_sha256 != expected_manifest_sha256:
+    if observed_lines != configured_lines:
         raise ValueError(
             "current OGRE14 runtime closure differs from its configured manifest"
         )
@@ -840,6 +853,7 @@ def _verify_ogre14_runtime_manifest(
         raise ValueError("configured OGRE14 closure lacks one exact Codec_FreeImage")
     return {
         "package_root": str(package_root),
+        "manifest": str(runtime_manifest),
         "manifest_sha256": observed_manifest_sha256,
         "library_count": len(entries),
         "libraries": entries,

@@ -57,6 +57,7 @@
   "sdl_package_identity_sha256": "@ROR_ROOT_SDL_PACKAGE_IDENTITY_SHA256@",
   "ogre14_runtime_library_count": @ROR_ROOT_OGRE14_RUNTIME_LIBRARY_COUNT@,
   "ogre14_runtime_package_root": "@ROR_ROOT_OGRE14_RUNTIME_PACKAGE_ROOT@",
+  "ogre14_runtime_manifest": "@ROR_ROOT_OGRE14_RUNTIME_MANIFEST@",
   "ogre14_runtime_manifest_sha256": "@ROR_ROOT_OGRE14_RUNTIME_MANIFEST_SHA256@",
   "ogre14_main_runtime": "@ROR_ROOT_OGRE14_MAIN_RUNTIME@",
   "ogre14_sdl_provider_runtime": "@ROR_ROOT_OGRE14_SDL_PROVIDER_RUNTIME@",
