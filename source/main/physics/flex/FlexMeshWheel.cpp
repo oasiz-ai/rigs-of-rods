@@ -273,10 +273,7 @@ Vector3 FlexMeshWheel::flexitFinal()
     return m_flexit_center;
 }
 
-bool FlexMeshWheel::copyJoinedCpuStaging(
-    std::vector<Ogre::Vector3>& positions,
-    std::vector<Ogre::Vector3>& normals,
-    std::vector<Ogre::Vector2>& texcoords0) const
+bool FlexMeshWheel::viewJoinedCpuStaging(JoinedCpuStagingView& view) const
 {
     if (!m_mesh || m_tire_entity == nullptr || m_vertices.empty() ||
         m_hw_vbuf.isNull())
@@ -284,20 +281,19 @@ bool FlexMeshWheel::copyJoinedCpuStaging(
         return false;
     }
 
-    std::vector<Ogre::Vector3> candidate_positions;
-    std::vector<Ogre::Vector3> candidate_normals;
-    std::vector<Ogre::Vector2> candidate_texcoords;
-    candidate_positions.reserve(m_vertices.size());
-    candidate_normals.reserve(m_vertices.size());
-    candidate_texcoords.reserve(m_vertices.size());
-    for (const FlexMeshWheelVertex& vertex : m_vertices)
-    {
-        candidate_positions.push_back(vertex.position);
-        candidate_normals.push_back(vertex.normal);
-        candidate_texcoords.push_back(vertex.texcoord);
-    }
-    positions = std::move(candidate_positions);
-    normals = std::move(candidate_normals);
-    texcoords0 = std::move(candidate_texcoords);
+    JoinedCpuStagingView candidate;
+    candidate.position_data = reinterpret_cast<const unsigned char*>(
+        &m_vertices.front().position);
+    candidate.normal_data = reinterpret_cast<const unsigned char*>(
+        &m_vertices.front().normal);
+    candidate.texcoord0_data = reinterpret_cast<const unsigned char*>(
+        &m_vertices.front().texcoord);
+    candidate.vertex_count = m_vertices.size();
+    candidate.normal_count = m_vertices.size();
+    candidate.texcoord0_count = m_vertices.size();
+    candidate.position_stride = sizeof(FlexMeshWheelVertex);
+    candidate.normal_stride = sizeof(FlexMeshWheelVertex);
+    candidate.texcoord0_stride = sizeof(FlexMeshWheelVertex);
+    view = candidate;
     return true;
 }

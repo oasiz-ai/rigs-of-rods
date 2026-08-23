@@ -6,11 +6,14 @@
     published by the Free Software Foundation.
 */
 
+#include "Flexable.h"
+
 #include <Ogre.h>
 #include <OgreDefaultHardwareBufferManager.h>
 #include <OgreMeshSerializer.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -28,6 +31,56 @@ void Require(bool condition, const char* message)
                   << '\n';
         std::exit(EXIT_FAILURE);
     }
+}
+
+void TestJoinedCpuStagingViewReadsInterleavedAndPlanarStreams()
+{
+    struct InterleavedVertex
+    {
+        Ogre::Vector3 position;
+        float position_guard = 0.0F;
+        Ogre::Vector3 normal;
+        Ogre::Vector2 texcoord;
+    };
+    const std::array<InterleavedVertex, 2U> interleaved = {{
+        {{1.0F, 2.0F, 3.0F}, 17.0F, {0.0F, 1.0F, 0.0F}, {0.25F, 0.5F}},
+        {{4.0F, 5.0F, 6.0F}, 23.0F, {1.0F, 0.0F, 0.0F}, {0.75F, 1.0F}},
+    }};
+    RoR::JoinedCpuStagingView view;
+    view.position_data = reinterpret_cast<const unsigned char*>(
+        &interleaved.front().position);
+    view.normal_data = reinterpret_cast<const unsigned char*>(
+        &interleaved.front().normal);
+    view.texcoord0_data = reinterpret_cast<const unsigned char*>(
+        &interleaved.front().texcoord);
+    view.vertex_count = interleaved.size();
+    view.normal_count = interleaved.size();
+    view.texcoord0_count = interleaved.size();
+    view.position_stride = sizeof(InterleavedVertex);
+    view.normal_stride = sizeof(InterleavedVertex);
+    view.texcoord0_stride = sizeof(InterleavedVertex);
+    Require(view.hasTexcoords0() && view.position(1U).x == 4.0F &&
+                view.normal(1U).x == 1.0F &&
+                view.texcoord0(1U).y == 1.0F,
+            "interleaved joined staging view ignored a stream stride");
+
+    const std::array<Ogre::Vector3, 2U> positions = {
+        Ogre::Vector3{-1.0F, -2.0F, -3.0F},
+        Ogre::Vector3{-4.0F, -5.0F, -6.0F}};
+    const std::array<Ogre::Vector3, 2U> normals = {
+        Ogre::Vector3{0.0F, 0.0F, 1.0F},
+        Ogre::Vector3{0.0F, 1.0F, 0.0F}};
+    RoR::JoinedCpuStagingView planar;
+    planar.position_data = reinterpret_cast<const unsigned char*>(
+        positions.data());
+    planar.normal_data = reinterpret_cast<const unsigned char*>(normals.data());
+    planar.vertex_count = positions.size();
+    planar.normal_count = normals.size();
+    planar.position_stride = sizeof(Ogre::Vector3);
+    planar.normal_stride = sizeof(Ogre::Vector3);
+    Require(!planar.hasTexcoords0() && planar.position(1U).z == -6.0F &&
+                planar.normal(1U).y == 1.0F,
+            "planar joined staging view changed stream contents");
 }
 
 class PrivateReadTrapBuffer final : public Ogre::HardwareBuffer
@@ -245,6 +298,7 @@ void ProveShadowLockAvoidsPrivateDelegate(const Ogre::MeshPtr& mesh)
 
 int main(int argc, char** argv)
 {
+    TestJoinedCpuStagingViewReadsInterleavedAndPlanarStreams();
     Require(argc == 2, "expected repository mesh fixture directory");
     Ogre::Root root("", "", "");
     ShadowAwareHardwareBufferManager hardware_buffers;

@@ -58,11 +58,9 @@ public:
     Ogre::SceneNode* GetRimSceneNode() { return m_rim_scene_node; }
 
     Ogre::Vector3 updateVertices();
-    /// Copies only the completed graphics staging arrays. Call only after
+    /// Borrows only completed graphics staging. Call after
     /// GfxActor::FinishWheelUpdates(); this never exposes NodeSB/solver data.
-    bool copyJoinedCpuStaging(std::vector<Ogre::Vector3>& positions,
-                              std::vector<Ogre::Vector3>& normals,
-                              std::vector<Ogre::Vector2>& texcoords0) const;
+    bool viewJoinedCpuStaging(JoinedCpuStagingView& view) const;
     const std::vector<FlexMeshTopologySection>& getCpuTopologySections() const
     {
         return m_cpu_topology_sections;

@@ -903,10 +903,7 @@ void FlexBody::updateFlexbodyVertexBuffers()
     m_scene_node->setPosition(m_flexit_center);
 }
 
-bool FlexBody::copyJoinedCpuStaging(
-    std::vector<Ogre::Vector3>& positions,
-    std::vector<Ogre::Vector3>& normals,
-    std::vector<Ogre::Vector2>& texcoords0) const
+bool FlexBody::viewJoinedCpuStaging(JoinedCpuStagingView& view) const
 {
     if (m_scene_entity == nullptr || m_scene_node == nullptr ||
         m_vertex_count == 0U || m_dst_pos == nullptr ||
@@ -914,15 +911,25 @@ bool FlexBody::copyJoinedCpuStaging(
     {
         return false;
     }
-    std::vector<Ogre::Vector3> candidate_positions(
-        m_dst_pos, m_dst_pos + m_vertex_count);
-    std::vector<Ogre::Vector3> candidate_normals(
-        m_dst_normals, m_dst_normals + m_vertex_count);
     if (m_has_texture && m_src_texcoords0.size() != m_vertex_count)
         return false;
-    positions = std::move(candidate_positions);
-    normals = std::move(candidate_normals);
-    texcoords0 = m_src_texcoords0;
+    JoinedCpuStagingView candidate;
+    candidate.position_data = reinterpret_cast<const unsigned char*>(
+        m_dst_pos);
+    candidate.normal_data = reinterpret_cast<const unsigned char*>(
+        m_dst_normals);
+    candidate.vertex_count = m_vertex_count;
+    candidate.normal_count = m_vertex_count;
+    candidate.position_stride = sizeof(Ogre::Vector3);
+    candidate.normal_stride = sizeof(Ogre::Vector3);
+    if (!m_src_texcoords0.empty())
+    {
+        candidate.texcoord0_data = reinterpret_cast<const unsigned char*>(
+            m_src_texcoords0.data());
+        candidate.texcoord0_count = m_src_texcoords0.size();
+        candidate.texcoord0_stride = sizeof(Ogre::Vector2);
+    }
+    view = candidate;
     return true;
 }
 void FlexBody::reset()

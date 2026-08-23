@@ -63,9 +63,7 @@ public:
     ~FlexMesh();
 
     Ogre::Vector3 updateVertices();
-    bool copyJoinedCpuStaging(std::vector<Ogre::Vector3>& positions,
-                              std::vector<Ogre::Vector3>& normals,
-                              std::vector<Ogre::Vector2>& texcoords0) const;
+    bool viewJoinedCpuStaging(JoinedCpuStagingView& view) const;
     const std::vector<FlexMeshTopologySection>& getCpuTopologySections() const
     {
         return m_cpu_topology_sections;

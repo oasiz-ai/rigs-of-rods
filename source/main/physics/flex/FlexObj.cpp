@@ -250,28 +250,24 @@ Vector3 FlexObj::UpdateFlexObj()
     return center;
 }
 
-bool FlexObj::copyJoinedCpuStaging(
-    std::vector<Ogre::Vector3>& positions,
-    std::vector<Ogre::Vector3>& normals,
-    std::vector<Ogre::Vector2>& texcoords0) const
+bool FlexObj::viewJoinedCpuStaging(JoinedCpuStagingView& view) const
 {
     if (!m_mesh || m_vertex_count == 0U || m_vertices == nullptr)
         return false;
-    std::vector<Ogre::Vector3> candidate_positions;
-    std::vector<Ogre::Vector3> candidate_normals;
-    std::vector<Ogre::Vector2> candidate_texcoords;
-    candidate_positions.reserve(m_vertex_count);
-    candidate_normals.reserve(m_vertex_count);
-    candidate_texcoords.reserve(m_vertex_count);
-    for (std::size_t index = 0U; index < m_vertex_count; ++index)
-    {
-        candidate_positions.push_back(m_vertices[index].position);
-        candidate_normals.push_back(m_vertices[index].normal);
-        candidate_texcoords.push_back(m_vertices[index].texcoord);
-    }
-    positions = std::move(candidate_positions);
-    normals = std::move(candidate_normals);
-    texcoords0 = std::move(candidate_texcoords);
+    JoinedCpuStagingView candidate;
+    candidate.position_data = reinterpret_cast<const unsigned char*>(
+        &m_vertices[0].position);
+    candidate.normal_data = reinterpret_cast<const unsigned char*>(
+        &m_vertices[0].normal);
+    candidate.texcoord0_data = reinterpret_cast<const unsigned char*>(
+        &m_vertices[0].texcoord);
+    candidate.vertex_count = m_vertex_count;
+    candidate.normal_count = m_vertex_count;
+    candidate.texcoord0_count = m_vertex_count;
+    candidate.position_stride = sizeof(FlexObjVertex);
+    candidate.normal_stride = sizeof(FlexObjVertex);
+    candidate.texcoord0_stride = sizeof(FlexObjVertex);
+    view = candidate;
     return true;
 }
 

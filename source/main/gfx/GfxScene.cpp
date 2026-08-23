@@ -2749,9 +2749,7 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
     Ogre::Entity* entity,
     RoR::Render::Ogre14GraphicsSceneDynamicSectionIdentity identity,
     RoR::GfxActorCaptureLifecycle actor_lifecycle,
-    const std::vector<Ogre::Vector3>& joined_positions,
-    const std::vector<Ogre::Vector3>& joined_normals,
-    const std::vector<Ogre::Vector2>& joined_texcoords0,
+    const RoR::JoinedCpuStagingView& joined_staging,
     const std::vector<RoR::FlexMeshTopologySection>& topology_sections,
     bool has_dynamic_vertex_colors,
     const RoR::Actor* managed_material_owner,
@@ -2795,10 +2793,17 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
             "soft-body capture cannot also preserve skeletal/vertex animation");
     }
     if (entity->getRenderingDistance() != 0.0F ||
-        joined_positions.empty() ||
-        joined_positions.size() != joined_normals.size() ||
-        (!joined_texcoords0.empty() &&
-         joined_texcoords0.size() != joined_positions.size()))
+        joined_staging.vertex_count == 0U ||
+        joined_staging.position_data == nullptr ||
+        joined_staging.normal_data == nullptr ||
+        joined_staging.position_stride < sizeof(Ogre::Vector3) ||
+        joined_staging.normal_stride < sizeof(Ogre::Vector3) ||
+        joined_staging.vertex_count != joined_staging.normal_count ||
+        ((joined_staging.texcoord0_data == nullptr) !=
+         (joined_staging.texcoord0_count == 0U)) ||
+        (joined_staging.hasTexcoords0() &&
+         (joined_staging.texcoord0_count != joined_staging.vertex_count ||
+          joined_staging.texcoord0_stride < sizeof(Ogre::Vector2))))
     {
         return NativeStaticFailure(
             RoR::Render::ValidationCode::SIZE_MISMATCH,
@@ -2808,7 +2813,7 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
     std::map<const Ogre::VertexData*, JoinedVertexRange> vertex_ranges;
     RoR::Render::ValidationResult validation =
         BuildOgre14JoinedVertexRanges(
-            *mesh, joined_positions.size(), vertex_ranges);
+            *mesh, joined_staging.vertex_count, vertex_ranges);
     if (!validation)
         return validation;
 
@@ -2898,7 +2903,7 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
             used_demo_matte);
         if (!validation)
             return validation;
-        const bool has_authored_uv0 = !joined_texcoords0.empty() &&
+        const bool has_authored_uv0 = joined_staging.hasTexcoords0() &&
             operation.vertexData->vertexDeclaration != nullptr &&
             operation.vertexData->vertexDeclaration->
                 findElementBySemantic(
@@ -2989,9 +2994,9 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
         for (std::size_t index = 0U; index < count; ++index)
         {
             const Ogre::Vector3& source_position =
-                joined_positions[offset + index];
+                joined_staging.position(offset + index);
             const Ogre::Vector3& source_normal =
-                joined_normals[offset + index];
+                joined_staging.normal(offset + index);
             const RoR::Render::Float3 position{
                 static_cast<float>(source_position.x),
                 static_cast<float>(source_position.y),
@@ -3047,13 +3052,13 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
             base.positions = state->positions;
             base.normals = state->normals;
             base.tangents = state->tangents;
-            if (!joined_texcoords0.empty())
+            if (joined_staging.hasTexcoords0())
             {
                 base.texture_coordinates_0.reserve(count);
                 for (std::size_t index = 0U; index < count; ++index)
                 {
                     const Ogre::Vector2& uv =
-                        joined_texcoords0[offset + index];
+                        joined_staging.texcoord0(offset + index);
                     base.texture_coordinates_0.push_back({
                         static_cast<float>(uv.x), static_cast<float>(uv.y)});
                 }
@@ -4695,9 +4700,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                 "dynamic_meshes." + managed_snapshot_validation.field;
             return managed_snapshot_validation;
         }
-        std::vector<Ogre::Vector3> positions;
-        std::vector<Ogre::Vector3> normals;
-        std::vector<Ogre::Vector2> texcoords0;
+        JoinedCpuStagingView staging;
         std::vector<Render::Ogre14ManagedMaterialDeclarationBinding>
             projected_managed_material_bindings;
         // Materials this actor rewrites at runtime. The projection is a frozen
@@ -4722,8 +4725,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
         }
         if (actor->m_cab_mesh != nullptr)
         {
-            if (!actor->m_cab_mesh->copyJoinedCpuStaging(
-                    positions, normals, texcoords0))
+            if (!actor->m_cab_mesh->viewJoinedCpuStaging(staging))
             {
                 return Render::ValidationResult::Failure(
                     Render::ValidationCode::EMPTY_PAYLOAD,
@@ -4737,7 +4739,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                 CaptureOgre14DynamicEntitySections(
                     actor->m_cab_entity, identity,
                     actor_record.second.lifecycle,
-                    positions, normals, texcoords0,
+                    staging,
                     actor->m_cab_mesh->getCpuTopologySections(), false,
                     managed_material_owner.GetRef(), &managed_material_snapshot,
                     projected_managed_material_bindings,
@@ -4770,8 +4772,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                     "dynamic_meshes.flexbody_id",
                     "FlexBody has no stable uint32 creation ID");
             }
-            if (!flexbody->copyJoinedCpuStaging(
-                    positions, normals, texcoords0))
+            if (!flexbody->viewJoinedCpuStaging(staging))
             {
                 return Render::ValidationResult::Failure(
                     Render::ValidationCode::EMPTY_PAYLOAD,
@@ -4785,7 +4786,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                 CaptureOgre14DynamicEntitySections(
                     flexbody->getEntity(), identity,
                     actor_record.second.lifecycle,
-                    positions, normals, texcoords0,
+                    staging,
                     flexbody->getCpuTopologySections(),
                     flexbody->hasDynamicTextureBlend(),
                     managed_material_owner.GetRef(), &managed_material_snapshot,
@@ -4814,8 +4815,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
             if (FlexMesh* const flexmesh =
                     dynamic_cast<FlexMesh*>(wheel.wx_flex_mesh))
             {
-                if (!flexmesh->copyJoinedCpuStaging(
-                        positions, normals, texcoords0) ||
+                if (!flexmesh->viewJoinedCpuStaging(staging) ||
                     wheel.wx_scenenode == nullptr ||
                     wheel.wx_scenenode->numAttachedObjects() != 1U)
                 {
@@ -4833,8 +4833,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
             else if (FlexMeshWheel* const meshwheel =
                          dynamic_cast<FlexMeshWheel*>(wheel.wx_flex_mesh))
             {
-                if (!meshwheel->copyJoinedCpuStaging(
-                        positions, normals, texcoords0))
+                if (!meshwheel->viewJoinedCpuStaging(staging))
                 {
                     return Render::ValidationResult::Failure(
                         Render::ValidationCode::EMPTY_PAYLOAD,
@@ -4857,7 +4856,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
             Render::ValidationResult validation =
                 CaptureOgre14DynamicEntitySections(
                     entity, identity, actor_record.second.lifecycle,
-                    positions, normals, texcoords0,
+                    staging,
                     *topology,
                     false, managed_material_owner.GetRef(),
                     &managed_material_snapshot,
@@ -6104,9 +6103,9 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             std::vector<Render::GraphicsSceneAssetInput> dynamic_assets;
             Render::ValidationResult dynamic_validation;
             {
-                // The section timer must end with the joined staging copy it
-                // names. Left unbraced it lived to the end of the enclosing
-                // scene-manager block, so `dynamic=` also billed the merges,
+                // The section timer must end with the joined staging
+                // consumption it names. Left unbraced it lived to the end of
+                // the enclosing scene-manager block, so `dynamic=` also billed
                 // the particle walk, the duplicate set, the terrain append,
                 // the sort, lights, and the environment.
                 Ogre14CaptureSectionTimer dynamic_timer(

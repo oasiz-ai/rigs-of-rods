@@ -98,12 +98,10 @@ public:
     void computeFlexbody(); //!< Updates mesh deformation; works on CPU using local copy of vertex data.
     void updateFlexbodyVertexBuffers();
 
-    /// Copies only the fully computed graphics staging arrays. Callers must
+    /// Borrows only the fully computed graphics staging arrays. Callers must
     /// invoke this after GfxActor::FinishFlexbodyTasks(); no NodeSB/solver
-    /// memory is exposed.
-    bool copyJoinedCpuStaging(std::vector<Ogre::Vector3>& positions,
-                              std::vector<Ogre::Vector3>& normals,
-                              std::vector<Ogre::Vector2>& texcoords0) const;
+    /// memory is exposed, and the view must not outlive this joined frame.
+    bool viewJoinedCpuStaging(JoinedCpuStagingView& view) const;
     const std::vector<FlexMeshTopologySection>& getCpuTopologySections() const
     {
         return m_cpu_topology_sections;

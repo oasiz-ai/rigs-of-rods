@@ -22,9 +22,52 @@
 
 #include "FlexMeshTopology.h"
 
+#include <OgreVector2.h>
 #include <OgreVector3.h>
 
+#include <cstddef>
+
 namespace RoR {
+
+/// Borrowed, read-only view of one completed deformable graphics-staging
+/// allocation. The streams may be interleaved or contiguous; callers consume
+/// the view synchronously after the graphics update join and before any owner
+/// can mutate the staging again. This never references solver/NodeSB memory.
+struct JoinedCpuStagingView
+{
+    const unsigned char* position_data = nullptr;
+    const unsigned char* normal_data = nullptr;
+    const unsigned char* texcoord0_data = nullptr;
+    std::size_t vertex_count = 0U;
+    std::size_t normal_count = 0U;
+    std::size_t texcoord0_count = 0U;
+    std::size_t position_stride = 0U;
+    std::size_t normal_stride = 0U;
+    std::size_t texcoord0_stride = 0U;
+
+    const Ogre::Vector3& position(std::size_t index) const noexcept
+    {
+        return *reinterpret_cast<const Ogre::Vector3*>(
+            position_data + index * position_stride);
+    }
+
+    const Ogre::Vector3& normal(std::size_t index) const noexcept
+    {
+        return *reinterpret_cast<const Ogre::Vector3*>(
+            normal_data + index * normal_stride);
+    }
+
+    const Ogre::Vector2& texcoord0(std::size_t index) const noexcept
+    {
+        return *reinterpret_cast<const Ogre::Vector2*>(
+            texcoord0_data + index * texcoord0_stride);
+    }
+
+    bool hasTexcoords0() const noexcept
+    {
+        return texcoord0_data != nullptr && texcoord0_count != 0U;
+    }
+};
 
 /// @addtogroup Gfx
 /// @{

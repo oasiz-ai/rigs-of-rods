@@ -1928,6 +1928,7 @@ if (ROR_OGRE14 AND TARGET RoR)
     )
     target_include_directories(
         ror_ogre14_flex_shadow_load_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/physics/flex"
         SYSTEM PRIVATE ${OGRE_INCLUDE_DIRS}
     )
     if (TARGET OgreMain)
