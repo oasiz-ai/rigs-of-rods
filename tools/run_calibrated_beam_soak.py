@@ -87,6 +87,18 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def canonical_lf_text(payload: bytes, label: str) -> bytes:
+    """Return the platform-independent bytes of an authenticated text input."""
+    canonical = payload.replace(b"\r\n", b"\n")
+    if b"\r" in canonical:
+        raise SoakFailure(f"{label} contains a non-CRLF carriage return")
+    try:
+        canonical.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise SoakFailure(f"{label} is not canonical UTF-8") from error
+    return canonical
+
+
 def decode_output(payload: bytes | str | None) -> str:
     if payload is None:
         return ""
@@ -171,6 +183,7 @@ def derive_fixture_payload(source: bytes) -> bytes:
 
 
 def generate_fixture(source: bytes) -> bytes:
+    source = canonical_lf_text(source, "DAF source")
     if sha256_bytes(source) != SOURCE_SHA256:
         raise SoakFailure("DAF source SHA-256 does not match the pinned fixture")
     fixture = derive_fixture_payload(source)
@@ -199,7 +212,7 @@ def verify_source(repository: Path) -> tuple[Path, bytes]:
     source = content / SOURCE_RELATIVE
     if not source.is_file() or source.is_symlink():
         raise SoakFailure(f"pinned DAF source is missing: {source}")
-    payload = source.read_bytes()
+    payload = canonical_lf_text(source.read_bytes(), "DAF source")
     return content, payload
 
 
@@ -215,7 +228,7 @@ def verify_runtime_source(runtime_content: Path, source: bytes) -> None:
         raise SoakFailure(
             f"runtime DAF archive is invalid: {archive_path}"
         ) from error
-    if payload != source:
+    if canonical_lf_text(payload, "runtime DAF source") != source:
         raise SoakFailure("runtime DAF source differs from pinned content")
 
     terrain_archive = runtime_content / "simple2-terrain.zip"

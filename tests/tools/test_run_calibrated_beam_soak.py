@@ -70,6 +70,18 @@ def comparison(
 
 
 class CalibratedBeamSoakTests(unittest.TestCase):
+    def test_pinned_source_is_platform_eol_invariant(self) -> None:
+        source = (
+            REPOSITORY_ROOT / "content" / SOAK.SOURCE_RELATIVE
+        ).read_bytes()
+        expected = SOAK.generate_fixture(source)
+        self.assertEqual(
+            SOAK.generate_fixture(source.replace(b"\n", b"\r\n")),
+            expected,
+        )
+        with self.assertRaises(SOAK.SoakFailure):
+            SOAK.canonical_lf_text(b"invalid\rsource", "test source")
+
     def test_derived_fixture_is_exactly_scoped(self) -> None:
         fixture = SOAK.derive_fixture_payload(minimal_source())
         text = fixture.decode("utf-8")

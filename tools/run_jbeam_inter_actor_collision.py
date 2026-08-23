@@ -104,8 +104,11 @@ def read_profile(repository: Path) -> tuple[dict[str, object], bytes, bytes]:
         profile = json.loads(profile_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise CollisionGateFailure("fixture profile is not canonical JSON") from error
-    jbeam = jbeam_path.read_bytes()
-    script = script_path.read_bytes()
+    try:
+        jbeam = support.canonical_lf_text(jbeam_path.read_bytes(), "JBeam source")
+        script = support.canonical_lf_text(script_path.read_bytes(), "scenario script")
+    except support.SoakFailure as error:
+        raise CollisionGateFailure(str(error)) from error
     expected_keys = {
         "authorship",
         "documentationProfile",

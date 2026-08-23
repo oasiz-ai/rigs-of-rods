@@ -76,6 +76,13 @@ class ImpactFailure(RuntimeError):
     """Fail-closed diagnostic for an invalid Agora impact artifact."""
 
 
+def canonical_text(payload: bytes, label: str) -> bytes:
+    try:
+        return support.canonical_lf_text(payload, label)
+    except support.SoakFailure as error:
+        raise ImpactFailure(str(error)) from error
+
+
 def derive_fixture_payload(source: bytes) -> bytes:
     try:
         text = source.decode("utf-8")
@@ -117,6 +124,7 @@ def derive_fixture_payload(source: bytes) -> bytes:
 
 
 def generate_fixture(source: bytes) -> bytes:
+    source = canonical_text(source, "Agora source")
     if support.sha256_bytes(source) != SOURCE_SHA256:
         raise ImpactFailure("Agora source SHA-256 does not match the pin")
     fixture = derive_fixture_payload(source)
@@ -144,7 +152,7 @@ def verify_source(repository: Path) -> bytes:
     source = content / SOURCE_RELATIVE
     if not source.is_file() or source.is_symlink():
         raise ImpactFailure(f"pinned Agora source is missing: {source}")
-    return source.read_bytes()
+    return canonical_text(source.read_bytes(), "Agora source")
 
 
 def verify_runtime_source(runtime_content: Path, source: bytes) -> None:
@@ -156,7 +164,7 @@ def verify_runtime_source(runtime_content: Path, source: bytes) -> None:
             payload = archive.read(SOURCE_RELATIVE.name)
     except (OSError, KeyError, zipfile.BadZipFile) as error:
         raise ImpactFailure("runtime Agora archive is invalid") from error
-    if payload != source:
+    if canonical_text(payload, "runtime Agora source") != source:
         raise ImpactFailure("runtime Agora source differs from pinned content")
 
 

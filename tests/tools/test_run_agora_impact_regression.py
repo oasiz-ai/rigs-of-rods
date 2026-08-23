@@ -101,7 +101,12 @@ class AgoraImpactRegressionTests(unittest.TestCase):
 
     def test_full_source_derives_pinned_fixture(self) -> None:
         source = REPOSITORY_ROOT / "content" / IMPACT.SOURCE_RELATIVE
-        payload = IMPACT.generate_fixture(source.read_bytes())
+        source_bytes = source.read_bytes()
+        payload = IMPACT.generate_fixture(source_bytes)
+        self.assertEqual(
+            IMPACT.generate_fixture(source_bytes.replace(b"\n", b"\r\n")),
+            payload,
+        )
         self.assertEqual(len(payload), IMPACT.FIXTURE_SIZE)
         self.assertEqual(IMPACT.support.sha256_bytes(payload), IMPACT.FIXTURE_SHA256)
         start = payload.index(b"set_calibrated_beam_material 1, on,")

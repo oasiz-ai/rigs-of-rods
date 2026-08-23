@@ -139,8 +139,11 @@ def read_profile(repository: Path) -> tuple[dict[str, object], bytes, bytes]:
         "schema",
     }:
         raise SpawnSoakFailure("fixture profile schema drifted")
-    jbeam = jbeam_path.read_bytes()
-    script = script_path.read_bytes()
+    try:
+        jbeam = support.canonical_lf_text(jbeam_path.read_bytes(), "JBeam source")
+        script = support.canonical_lf_text(script_path.read_bytes(), "scenario script")
+    except support.SoakFailure as error:
+        raise SpawnSoakFailure(str(error)) from error
     jbeam_record = profile.get("jbeamSource")
     script_record = profile.get("scenarioScript")
     expected = profile.get("expectedRuntime")
