@@ -4862,11 +4862,21 @@ public:
       total += triangles;
       return true;
     };
-    for (const auto &entry : retained_instances) {
-      const RetainedInstance &record = entry.second;
-      if (!record.has_distance_lod) {
-        continue;
+    // Membership is rebuilt transactionally with the retained reflection and
+    // bounds views.  The selected native level is still read back for every
+    // LOD Item after every render, but non-LOD records never enter this hot
+    // post-render walk.
+    if (retained_instance_views_dirty ||
+        retained_distance_lod_instances.size() >
+            (std::numeric_limits<std::uint32_t>::max)()) {
+      return false;
+    }
+    for (const RetainedInstance *const retained_record :
+         retained_distance_lod_instances) {
+      if (retained_record == nullptr || !retained_record->has_distance_lod) {
+        return false;
       }
+      const RetainedInstance &record = *retained_record;
       const auto native = meshes.find(record.descriptor.mesh.id);
       const NativeMesh *const render_mesh =
           record.deformed_mesh.mesh
@@ -6910,6 +6920,7 @@ public:
     }
     retained_instances.clear();
     retained_reflection_items.clear();
+    retained_distance_lod_instances.clear();
     shadow_audit.last_native_bounds_observations.clear();
     retained_instance_views_dirty = true;
     retained_material_descriptor_version = 0U;
@@ -12042,6 +12053,10 @@ public:
   /// the vectors once in retained-map order.
   std::vector<OgreNextReflectionProbeItemBinding>
       retained_reflection_items;
+  /// LOD-only retained view used by the exact post-render selection audit.
+  /// Pointers target stable std::map nodes and are rebuilt before use whenever
+  /// membership changes, alongside retained_reflection_items.
+  std::vector<const RetainedInstance *> retained_distance_lod_instances;
   bool retained_instance_views_dirty = true;
   std::uint32_t retained_material_descriptor_version = 0U;
   bool retained_material_descriptor_version_dirty = true;
@@ -16531,6 +16546,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->retained_reflection_items.clear();
       impl_->retained_reflection_items.reserve(
           impl_->retained_instances.size());
+      impl_->retained_distance_lod_instances.clear();
+      impl_->retained_distance_lod_instances.reserve(
+          impl_->retained_instances.size());
       if (shadow_plan.enabled) {
         impl_->shadow_audit.last_native_bounds_observations.clear();
         impl_->shadow_audit.last_native_bounds_observations.reserve(
@@ -16550,6 +16568,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
         impl_->retained_material_descriptor_version = std::max(
             impl_->retained_material_descriptor_version,
             record.material_descriptor_version);
+        if (record.has_distance_lod) {
+          impl_->retained_distance_lod_instances.push_back(&record);
+        }
         if (shadow_plan.enabled) {
           if (!record.bounds_valid) {
             throw std::logic_error(
@@ -16574,6 +16595,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
         impl_->retained_instances.size()) {
       throw std::logic_error(
           "Ogre-Next retained reflection cache diverged from scene membership");
+    }
+    if (impl_->retained_distance_lod_instances.size() >
+        impl_->retained_instances.size()) {
+      throw std::logic_error(
+          "Ogre-Next retained distance-LOD cache diverged from scene membership");
     }
     if (shadow_plan.enabled &&
         impl_->shadow_audit.last_native_bounds_observations.size() !=
