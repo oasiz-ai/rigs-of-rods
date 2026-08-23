@@ -169,9 +169,9 @@ void TestMeshValidation() {
           "valid generated distance-LOD ladder was rejected");
 
   descriptor.dynamic = true;
-  RequireCode(ValidateMeshResourceDescriptor(descriptor),
-              ValidationCode::UNSUPPORTED_FEATURE,
-              "dynamic mesh accepted an immutable generated LOD ladder");
+  Require(ValidateMeshResourceDescriptor(descriptor).ok(),
+          "dynamic vertex storage rejected an immutable index-only LOD "
+          "ladder");
 
   descriptor = MakeMesh();
   descriptor.distance_lod_levels = {

@@ -3549,9 +3549,11 @@ SmokeResult::DistanceLodEvidence
 RunDistanceLodSelectionProof(const std::string &media_root) {
   SmokeResult::DistanceLodEvidence evidence;
   RenderAssetDelta catalog = MakeCatalog(false, nullptr);
+  catalog.registry_id = kDynamicRegistryId;
   MeshResourceDescriptor &mesh =
       std::get<MeshResourceDescriptor>(catalog.mutations.front().payload);
-  mesh.debug_name = "N1 native distance-LOD workload quad";
+  mesh.debug_name = "N1 moving-actor distance-LOD workload quad";
+  mesh.dynamic = true;
   mesh.local_bounds.minimum = {-1.15F, -0.85F, 0.0F};
   mesh.local_bounds.maximum = {1.15F, 0.95F, 0.0F};
   mesh.positions = {
@@ -3572,7 +3574,38 @@ RunDistanceLodSelectionProof(const std::string &media_root) {
   OgreNextN1Frontend frontend(OgreNextN1Configuration{
       media_root, OgreNextRasterFeatureTier::STATIC_PBR_N1});
   InitializeAndSync(frontend, catalog);
-  const auto scene = MakeScene(875U, false, false);
+  SceneSnapshotDescriptor scene_descriptor;
+  scene_descriptor.snapshot_id = 875U;
+  scene_descriptor.asset_registry_id = kDynamicRegistryId;
+  scene_descriptor.asset_sequence = 1U;
+  scene_descriptor.simulation_tick = 875U;
+  scene_descriptor.simulation_time_seconds = 875.0 / 48.0;
+  scene_descriptor.environment.ambient_radiance = {0.03F, 0.04F, 0.055F};
+  MeshInstanceDescriptor instance;
+  instance.instance_id = 1U;
+  instance.mesh = AssetRef(RenderAssetKind::MESH, 1U);
+  instance.material = AssetRef(RenderAssetKind::MATERIAL, 2U);
+  instance.deformation_revision = 2U;
+  instance.local_bounds = mesh.local_bounds;
+  scene_descriptor.mesh_instances.push_back(instance);
+  DynamicMeshUpdateDescriptor update;
+  update.update_sequence = 1U;
+  update.instance_id = instance.instance_id;
+  update.mesh = instance.mesh;
+  update.topology_revision = instance.topology_revision;
+  update.deformation_revision = instance.deformation_revision;
+  update.positions = mesh.positions;
+  update.normals = mesh.normals;
+  update.tangents = mesh.tangents;
+  update.velocities = mesh.velocities;
+  update.has_updated_bounds = true;
+  update.updated_local_bounds = mesh.local_bounds;
+  scene_descriptor.dynamic_mesh_updates.push_back(std::move(update));
+  SceneSnapshotCreateResult created_scene =
+      CreateSceneSnapshot(std::move(scene_descriptor));
+  Require(created_scene.ok(),
+          "moving-actor distance LOD scene is invalid");
+  const std::shared_ptr<const SceneSnapshot> scene = created_scene.snapshot;
 
   RenderFrameRequest near_frame =
       MakeFrame(1U, scene, PixelFormat::RGBA8_SRGB);
@@ -3594,7 +3627,7 @@ RunDistanceLodSelectionProof(const std::string &media_root) {
               near_audit.last_distance_lod_selected_level_sum == 0U &&
               near_audit.last_base_triangles == 2U &&
               near_audit.last_selected_triangles == 2U,
-          "near camera did not select the exact native base LOD");
+          "near camera did not select the moving actor's native base LOD");
   evidence.portable_level_count = near.portable_level_count;
   evidence.native_level_count = near.native_level_count;
   evidence.near_level = near.current_level;
@@ -3623,7 +3656,7 @@ RunDistanceLodSelectionProof(const std::string &media_root) {
               far_audit.last_distance_lod_selected_level_sum == 2U &&
               far_audit.last_base_triangles == 2U &&
               far_audit.last_selected_triangles == 1U,
-          "far camera did not select the exact terminal native LOD");
+          "far camera did not select the moving actor's terminal native LOD");
   evidence.far_level = far.current_level;
   evidence.far_selected_triangles = far_audit.last_selected_triangles;
 
@@ -3642,7 +3675,8 @@ RunDistanceLodSelectionProof(const std::string &media_root) {
               restored_audit.last_distance_lod_selected_level_sum == 0U &&
               restored_audit.last_base_triangles == 2U &&
               restored_audit.last_selected_triangles == 2U,
-          "near camera replay did not restore the native base LOD");
+          "near camera replay did not restore the moving actor's native base "
+          "LOD");
   evidence.restored_near_level = restored.current_level;
   evidence.restored_near_selected_triangles =
       restored_audit.last_selected_triangles;

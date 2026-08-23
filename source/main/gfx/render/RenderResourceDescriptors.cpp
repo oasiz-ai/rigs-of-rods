@@ -316,11 +316,10 @@ ValidateMeshResourceDescriptor(const MeshResourceDescriptor &descriptor) {
         "mesh generated-LOD count exceeds the portable limit");
   }
   if (!descriptor.distance_lod_levels.empty() &&
-      (descriptor.dynamic ||
-       descriptor.topology != MeshPrimitiveTopology::TRIANGLE_LIST)) {
+      descriptor.topology != MeshPrimitiveTopology::TRIANGLE_LIST) {
     return ValidationResult::Failure(
         ValidationCode::UNSUPPORTED_FEATURE, "distance_lod_levels",
-        "index-only distance LODs require an immutable triangle-list mesh");
+        "index-only distance LODs require triangle-list topology");
   }
 
   std::size_t primitive_width = 1U;

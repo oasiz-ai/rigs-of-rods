@@ -4628,9 +4628,9 @@ public:
     std::uint32_t material_descriptor_version = 0U;
     /// Immutable portable LOD accounting captured by the same native-state
     /// verification that admits this record. Catalog replacement destroys
-    /// the record, while deformation cannot carry index-only distance LODs.
-    /// This lets the per-frame audit inspect only meshes whose selected LOD
-    /// can actually change instead of resolving every retained asset again.
+    /// the record. A deformation revision rebuilds the vertex owner and
+    /// reattaches the same immutable index-only ladder, so the audit resolves
+    /// whichever native mesh the retained Item currently owns.
     std::uint64_t base_triangle_count = 0U;
     bool has_distance_lod = false;
     /// Retained PSSM evidence, refreshed on create, update, and native
@@ -4868,24 +4868,28 @@ public:
         continue;
       }
       const auto native = meshes.find(record.descriptor.mesh.id);
-      if (native == meshes.end() ||
-          native->second.asset != record.descriptor.mesh ||
-          record.deformed_mesh.mesh || !native->second.mesh ||
-          !native->second.exact_distance_lod_ladder ||
-          native->second.triangle_counts_by_lod.size() < 2U ||
-          native->second.triangle_counts_by_lod.front() !=
+      const NativeMesh *const render_mesh =
+          record.deformed_mesh.mesh
+              ? &record.deformed_mesh
+              : native != meshes.end() ? &native->second : nullptr;
+      if (render_mesh == nullptr ||
+          render_mesh->asset != record.descriptor.mesh ||
+          !render_mesh->mesh ||
+          !render_mesh->exact_distance_lod_ladder ||
+          render_mesh->triangle_counts_by_lod.size() < 2U ||
+          render_mesh->triangle_counts_by_lod.front() !=
               record.base_triangle_count ||
           record.item == nullptr ||
-          record.item->getMesh() != native->second.mesh ||
-          native->second.mesh->getNumSubMeshes() != 1U ||
-          native->second.mesh->getNumLodLevels() !=
-              native->second.triangle_counts_by_lod.size()) {
+          record.item->getMesh() != render_mesh->mesh ||
+          render_mesh->mesh->getNumSubMeshes() != 1U ||
+          render_mesh->mesh->getNumLodLevels() !=
+              render_mesh->triangle_counts_by_lod.size()) {
         return false;
       }
 
       const std::uint32_t current_level =
           record.item->getCurrentMeshLod();
-      if (current_level >= native->second.triangle_counts_by_lod.size() ||
+      if (current_level >= render_mesh->triangle_counts_by_lod.size() ||
           audit.last_distance_lod_items ==
               (std::numeric_limits<std::uint32_t>::max)()) {
         return false;
@@ -4908,8 +4912,7 @@ public:
         ++audit.last_distance_lod_reduced_items;
       }
       if (!add_triangles(audit.last_selected_triangles,
-                         native->second
-                             .triangle_counts_by_lod[current_level])) {
+                         render_mesh->triangle_counts_by_lod[current_level])) {
         return false;
       }
     }

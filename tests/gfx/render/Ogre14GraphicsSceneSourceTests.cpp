@@ -250,7 +250,7 @@ RoR::Render::Ogre14GraphicsSceneDynamicSectionCaptureInput MakeDynamicSection(
     RoR::Render::Ogre14GraphicsSceneDynamicComponentKind kind =
         RoR::Render::Ogre14GraphicsSceneDynamicComponentKind::FLEXBODY,
     std::uint32_t component_id = 2U, std::uint32_t section_index = 0U,
-    float x_offset = 0.0F) {
+    float x_offset = 0.0F, bool with_distance_lod = false) {
   using namespace RoR::Render;
   Ogre14GraphicsSceneDynamicSectionCaptureInput input;
   input.identity.actor_instance_id = actor_id;
@@ -261,6 +261,11 @@ RoR::Render::Ogre14GraphicsSceneDynamicSectionCaptureInput MakeDynamicSection(
   input.material = MakeStaticMaterial("Vehicle/Paint");
   Ogre14GraphicsSceneCpuMeshSectionInput mesh =
       MakeCpuTriangle("actor-41-flexbody-2");
+  if (with_distance_lod) {
+    mesh.distance_lod_levels = {
+        MeshDistanceLodLevelDescriptor{25.0F, {0U, 2U, 1U}},
+    };
+  }
   const ValidationResult validation =
       BuildOgre14GraphicsSceneDynamicMeshPayload(mesh, input.mesh_payload);
   Require(validation.ok(), "dynamic-section fixture mesh was rejected");
@@ -2029,6 +2034,29 @@ void TestDynamicIdentityPayloadRevisionAndLifecycle() {
               meshes.size() == 1U &&
               meshes.front().state->deformation_revision == 2U,
           "initial dynamic inventory did not own base assets and revision two");
+
+  Ogre14GraphicsSceneDynamicIdentityRegistry lod_registry;
+  std::vector<Ogre14GraphicsSceneDynamicSectionCaptureInput> lod_inputs{
+      MakeDynamicSection(42,
+                         Ogre14GraphicsSceneDynamicComponentKind::PROP,
+                         3U, 0U, 0.0F, true)};
+  std::vector<GraphicsSceneAssetInput> lod_assets;
+  std::vector<GraphicsSceneDynamicMeshInput> lod_meshes;
+  result = BuildOgre14GraphicsSceneDynamicInventory(
+      lod_inputs, lod_registry, lod_assets, lod_meshes);
+  const auto lod_mesh_asset = std::find_if(
+      lod_assets.begin(), lod_assets.end(),
+      [](const GraphicsSceneAssetInput &asset) {
+        return RenderAssetPayloadKind(*asset.payload) == RenderAssetKind::MESH;
+      });
+  Require(result.ok() && lod_meshes.size() == 1U &&
+              lod_mesh_asset != lod_assets.end() &&
+              std::get<MeshResourceDescriptor>(*lod_mesh_asset->payload)
+                      .dynamic &&
+              std::get<MeshResourceDescriptor>(*lod_mesh_asset->payload)
+                      .distance_lod_levels.size() == 1U,
+          "moving actor inventory dropped its immutable index-only LOD "
+          "ladder");
   const std::shared_ptr<const GraphicsSceneDynamicMeshState> first_state =
       meshes.front().state;
   const auto first_mesh_asset = std::find_if(

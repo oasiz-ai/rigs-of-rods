@@ -3476,9 +3476,10 @@ RoR::Render::ValidationResult CaptureOgre14RigidActorEntitySections(
                 return RoR::Render::ValidationResult::Success();
             }
             // ExtractOgre14CpuMeshSection() already normalized the section to
-            // the one RT4 vertex layout; only the dynamic-storage flag differs,
-            // and it is required because this section republishes a full state
-            // every frame just as a deformable does.
+            // the one RT4 vertex layout. Dynamic vertex storage is required
+            // because this section republishes a full state every frame, while
+            // its topology and generated distance-LOD index ladders remain
+            // immutable across those states.
             RoR::Render::MeshResourceDescriptor candidate_mesh =
                 std::get<RoR::Render::MeshResourceDescriptor>(
                     *candidate_payload);
