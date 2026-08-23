@@ -88,6 +88,17 @@
 #include <memory>
 #include <string>
 
+#if defined(_WIN32) && defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <DbgHelp.h>
+#include <windows.h>
+#endif
+
 #if defined(ROR_OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_NATIVE_TESTING)
 namespace RoR {
 int RunOgre14AuthenticatedMaterialScriptNativeIntegrationTests(
@@ -105,6 +116,63 @@ int RunOgre14AuthenticatedMaterialScriptNativeIntegrationTests(
 
 namespace
 {
+
+#if defined(_WIN32) && defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+constexpr wchar_t kWindowsCrashDumpEnvironment[] =
+    L"ROR_WINDOWS_CRASH_DUMP_PATH";
+std::array<wchar_t, 32768U> g_windows_crash_dump_path{};
+
+LONG WINAPI RetainWindowsCrashDump(EXCEPTION_POINTERS* exception) noexcept
+{
+    HANDLE file = ::CreateFileW(
+        g_windows_crash_dump_path.data(), GENERIC_WRITE, 0, nullptr,
+        CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file != INVALID_HANDLE_VALUE)
+    {
+        MINIDUMP_EXCEPTION_INFORMATION information{};
+        information.ThreadId = ::GetCurrentThreadId();
+        information.ExceptionPointers = exception;
+        information.ClientPointers = FALSE;
+        (void)::MiniDumpWriteDump(
+            ::GetCurrentProcess(), ::GetCurrentProcessId(), file,
+            MiniDumpNormal, exception == nullptr ? nullptr : &information,
+            nullptr, nullptr);
+        (void)::FlushFileBuffers(file);
+        (void)::CloseHandle(file);
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+void ConfigureWindowsCrashDump() noexcept
+{
+    const DWORD capacity =
+        static_cast<DWORD>(g_windows_crash_dump_path.size());
+    const DWORD length = ::GetEnvironmentVariableW(
+        kWindowsCrashDumpEnvironment, g_windows_crash_dump_path.data(),
+        capacity);
+    if (length == 0U || length >= capacity)
+    {
+        g_windows_crash_dump_path[0] = L'\0';
+        return;
+    }
+    const bool drive_absolute =
+        length >= 3U && g_windows_crash_dump_path[1] == L':' &&
+        (g_windows_crash_dump_path[2] == L'\\' ||
+         g_windows_crash_dump_path[2] == L'/');
+    const bool unc_absolute =
+        length >= 3U &&
+        (g_windows_crash_dump_path[0] == L'\\' ||
+         g_windows_crash_dump_path[0] == L'/') &&
+        (g_windows_crash_dump_path[1] == L'\\' ||
+         g_windows_crash_dump_path[1] == L'/');
+    if (!drive_absolute && !unc_absolute)
+    {
+        g_windows_crash_dump_path[0] = L'\0';
+        return;
+    }
+    (void)::SetUnhandledExceptionFilter(&RetainWindowsCrashDump);
+}
+#endif
 
 void ReleaseWindowBoundRuntime(
     Ogre::OverlaySystem*& overlay_system) noexcept
@@ -735,6 +803,9 @@ extern "C" {
 
 int main(int argc, char *argv[])
 {
+#if defined(_WIN32) && defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    ConfigureWindowsCrashDump();
+#endif
     using namespace RoR;
 
 #if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)

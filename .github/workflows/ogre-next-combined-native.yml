@@ -794,6 +794,8 @@ jobs:
           $events = Join-Path $smoke 'renderer-smoke.windows-events.log'
           $dumps = Join-Path $smoke 'crash-dumps'
           New-Item -ItemType Directory -Force -Path $dumps | Out-Null
+          $env:ROR_WINDOWS_CRASH_DUMP_PATH =
+            Join-Path $dumps 'RoR-Combined.dmp'
           $werKey = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\RoR-Combined.exe'
           try {
             New-Item -Path $werKey -Force | Out-Null

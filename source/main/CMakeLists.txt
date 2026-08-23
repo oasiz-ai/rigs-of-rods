@@ -1195,6 +1195,10 @@ else ()
 endif ()
 target_link_libraries(${BINNAME} PRIVATE ${OS_LIBS} version_info)
 
+if (WIN32 AND ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    target_link_libraries(${BINNAME} PRIVATE Dbghelp)
+endif ()
+
 
 target_link_libraries(${BINNAME} PRIVATE
         Threads::Threads

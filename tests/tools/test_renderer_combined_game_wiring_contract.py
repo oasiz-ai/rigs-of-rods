@@ -69,6 +69,25 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         self.assertIn("argv = renderer_combined_demo_arguments.data();", block)
         self.assertEqual(block.count("renderer_combined_demo_arguments ="), 1)
 
+    def test_windows_combined_crash_dump_is_explicit_and_opt_in(self) -> None:
+        for token in (
+            "ROR_WINDOWS_CRASH_DUMP_PATH",
+            "RetainWindowsCrashDump",
+            "MiniDumpWriteDump",
+            "SetUnhandledExceptionFilter",
+            "CREATE_NEW",
+            "EXCEPTION_CONTINUE_SEARCH",
+        ):
+            self.assertIn(token, self.main)
+        self.assertIn(
+            "if (WIN32 AND ROR_OGRE_NEXT_COMBINED_RUNTIME)",
+            self.main_cmake,
+        )
+        self.assertIn(
+            "target_link_libraries(${BINNAME} PRIVATE Dbghelp)",
+            self.main_cmake,
+        )
+
     def test_hud_overlay_capture_rides_the_joined_scene_boundary(self) -> None:
         # The transported menu/HUD is read back between UpdateScene (which
         # builds the complete DearIMGUI frame) and the joined-scene post, so
