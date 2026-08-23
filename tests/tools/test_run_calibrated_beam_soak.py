@@ -74,9 +74,10 @@ class CalibratedBeamSoakTests(unittest.TestCase):
         source = (
             REPOSITORY_ROOT / "content" / SOAK.SOURCE_RELATIVE
         ).read_bytes()
-        expected = SOAK.generate_fixture(source)
+        canonical = SOAK.canonical_lf_text(source, "DAF source")
+        expected = SOAK.generate_fixture(canonical)
         self.assertEqual(
-            SOAK.generate_fixture(source.replace(b"\n", b"\r\n")),
+            SOAK.generate_fixture(canonical.replace(b"\n", b"\r\n")),
             expected,
         )
         with self.assertRaises(SOAK.SoakFailure):

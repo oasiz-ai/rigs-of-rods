@@ -102,9 +102,10 @@ class AgoraImpactRegressionTests(unittest.TestCase):
     def test_full_source_derives_pinned_fixture(self) -> None:
         source = REPOSITORY_ROOT / "content" / IMPACT.SOURCE_RELATIVE
         source_bytes = source.read_bytes()
-        payload = IMPACT.generate_fixture(source_bytes)
+        canonical = IMPACT.canonical_text(source_bytes, "Agora source")
+        payload = IMPACT.generate_fixture(canonical)
         self.assertEqual(
-            IMPACT.generate_fixture(source_bytes.replace(b"\n", b"\r\n")),
+            IMPACT.generate_fixture(canonical.replace(b"\n", b"\r\n")),
             payload,
         )
         self.assertEqual(len(payload), IMPACT.FIXTURE_SIZE)
