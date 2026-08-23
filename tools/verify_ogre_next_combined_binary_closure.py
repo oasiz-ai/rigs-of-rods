@@ -732,6 +732,10 @@ def _direct_dynamic_load_evidence(
     }
 
 
+def _ogre14_runtime_manifest_sort_key(path: Path, package_root: Path) -> str:
+    return path.relative_to(package_root).as_posix()
+
+
 def _verify_ogre14_runtime_manifest(
     provider_contract: dict[str, object],
     audited_records: list[dict[str, str]],
@@ -800,7 +804,12 @@ def _verify_ogre14_runtime_manifest(
         raise ValueError("provider OGRE14 runtime manifest contains duplicates")
     observed_lines: list[str] = []
     entries: list[dict[str, object]] = []
-    for path in sorted(paths):
+    for path in sorted(
+        paths,
+        key=lambda candidate: _ogre14_runtime_manifest_sort_key(
+            candidate, package_root
+        ),
+    ):
         try:
             relative = path.relative_to(package_root)
         except ValueError as error:

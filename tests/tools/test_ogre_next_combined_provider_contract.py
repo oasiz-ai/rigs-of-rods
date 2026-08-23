@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import re
 import subprocess
 import sys
@@ -1313,6 +1313,19 @@ class CombinedProviderContractTests(unittest.TestCase):
             paths[2].write_bytes(b"post-config replacement")
             with self.assertRaisesRegex(ValueError, "changed after namespace audit"):
                 module._verify_ogre14_runtime_manifest(contract, records)
+
+        windows_root = PureWindowsPath("D:/package")
+        windows_pcz = windows_root / "bin/Plugin_PCZSceneManager.dll"
+        windows_particle = windows_root / "bin/Plugin_ParticleFX.dll"
+        self.assertEqual(
+            sorted(
+                (windows_particle, windows_pcz),
+                key=lambda candidate: module._ogre14_runtime_manifest_sort_key(
+                    candidate, windows_root
+                ),
+            ),
+            [windows_pcz, windows_particle],
+        )
 
     def test_structural_link_map_requires_exact_archives_and_one_stb_owner(
         self,
