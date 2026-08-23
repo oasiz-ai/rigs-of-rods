@@ -269,10 +269,21 @@ def _verify_contracts(
         != "ror.ogre_next_combined_executable.v1"
         or executable.get("target") != "RoR-Combined"
         or executable.get("transport_or_bridge_sources_linked") is not False
-        or executable.get("provider_contract") != str(provider_contract)
-        or executable.get("namespace_audit_report") != str(namespace_report)
     ):
         raise ValueError("combined executable contract is not fail-closed")
+    executable_provider_contract = common._regular_absolute(
+        str(executable.get("provider_contract", "")),
+        "executable-recorded provider contract",
+    )
+    executable_namespace_report = common._regular_absolute(
+        str(executable.get("namespace_audit_report", "")),
+        "executable-recorded namespace audit",
+    )
+    if (
+        executable_provider_contract != provider_contract
+        or executable_namespace_report != namespace_report
+    ):
+        raise ValueError("combined executable contract paths changed")
 
     provider_source_root = common._directory_absolute(
         str(executable.get("provider_source_root", "")),
@@ -316,10 +327,21 @@ def _verify_contracts(
         or provider.get("rapidjson_namespace") != "RoROgreNextRapidJson"
         or provider.get("rapidjson_namespace_private") is not True
         or provider.get("sdl_target") != "SDL2::SDL2"
-        or provider.get("ror_source_root") != str(provider_source_root)
-        or provider.get("ror_source_manifest") != str(provider_manifest)
     ):
         raise ValueError("Windows combined provider contract changed")
+    provider_recorded_source_root = common._directory_absolute(
+        str(provider.get("ror_source_root", "")),
+        "provider-recorded source root",
+    )
+    provider_recorded_source_manifest = common._regular_absolute(
+        str(provider.get("ror_source_manifest", "")),
+        "provider-recorded source manifest",
+    )
+    if (
+        provider_recorded_source_root != provider_source_root
+        or provider_recorded_source_manifest != provider_manifest
+    ):
+        raise ValueError("Windows combined provider source paths changed")
     authenticated_decoder = common._verify_authenticated_source_image_decoder(
         provider, provider_manifest, provider_source_root
     )

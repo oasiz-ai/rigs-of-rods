@@ -1097,6 +1097,26 @@ class CombinedProviderContractTests(unittest.TestCase):
         self.assertIn(
             "ror-combined-build/compile_commands.json", windows_diagnostics
         )
+        self.assertIn(
+            "ogre-next-combined-executable-contract.json", windows_diagnostics
+        )
+        self.assertIn(
+            "ogre-next-combined-namespace-audit.json", windows_diagnostics
+        )
+
+    def test_windows_contract_paths_are_compared_as_resolved_paths(self) -> None:
+        for token in (
+            '"executable-recorded provider contract"',
+            '"executable-recorded namespace audit"',
+            "executable_provider_contract != provider_contract",
+            "executable_namespace_report != namespace_report",
+            '"provider-recorded source root"',
+            '"provider-recorded source manifest"',
+            "provider_recorded_source_root != provider_source_root",
+            "provider_recorded_source_manifest != provider_manifest",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, PE_VERIFIER)
 
     def test_dirty_development_build_is_explicit_and_unqualified(self) -> None:
         self.assertIn(
