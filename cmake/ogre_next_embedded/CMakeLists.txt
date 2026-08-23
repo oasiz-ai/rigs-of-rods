@@ -1451,8 +1451,17 @@ else ()
         "${ogre_next_SOURCE_DIR}/RenderSystems/Vulkan/src"
         "${ogre_next_SOURCE_DIR}/RenderSystems/Vulkan/include")
 endif ()
-add_library(ror_ogre_next_root_plugin_export_probe OBJECT
-    "${_ror_ogre_next_plugin_export_source}")
+if (WIN32)
+    add_library(ror_ogre_next_root_plugin_export_probe STATIC
+        "${_ror_ogre_next_plugin_export_source}")
+    set(_ror_ogre_next_plugin_export_audit_input
+        "$<TARGET_FILE:ror_ogre_next_root_plugin_export_probe>")
+else ()
+    add_library(ror_ogre_next_root_plugin_export_probe OBJECT
+        "${_ror_ogre_next_plugin_export_source}")
+    set(_ror_ogre_next_plugin_export_audit_input
+        "$<TARGET_OBJECTS:ror_ogre_next_root_plugin_export_probe>")
+endif ()
 target_include_directories(ror_ogre_next_root_plugin_export_probe PRIVATE
     ${_ror_ogre_next_plugin_export_include_dirs}
     "${ogre_next_SOURCE_DIR}/OgreMain/include"
@@ -1566,7 +1575,7 @@ add_custom_target(ror_ogre_next_root_namespace_audit
         --direct-contract-archive
             "$<TARGET_FILE:ror_ogre_next_embedded_direct_contract>"
         --plugin-object
-            "$<TARGET_OBJECTS:ror_ogre_next_root_plugin_export_probe>"
+            "${_ror_ogre_next_plugin_export_audit_input}"
         --next-plugin-linkage static
         --legacy-main-library "${ROR_ROOT_OGRE14_MAIN_RUNTIME}"
         ${_ror_namespace_audit_legacy_arguments}

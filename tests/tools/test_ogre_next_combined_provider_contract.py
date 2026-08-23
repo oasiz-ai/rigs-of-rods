@@ -1059,6 +1059,20 @@ class CombinedProviderContractTests(unittest.TestCase):
         self.assertIn("cpp_symbol_present", NAMESPACE_AUDIT)
         self.assertIn("@RoROgreNext@@", NAMESPACE_AUDIT)
 
+    def test_windows_plugin_export_probe_uses_archive_symbol_index(self) -> None:
+        for token in (
+            "if (WIN32)",
+            "add_library(ror_ogre_next_root_plugin_export_probe STATIC",
+            '"$<TARGET_FILE:ror_ogre_next_root_plugin_export_probe>"',
+            '"${_ror_ogre_next_plugin_export_audit_input}"',
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, PROVIDER)
+        self.assertIn(
+            "add_library(ror_ogre_next_root_plugin_export_probe OBJECT",
+            PROVIDER,
+        )
+
     def test_dirty_development_build_is_explicit_and_unqualified(self) -> None:
         self.assertIn(
             "ROR_OGRE_NEXT_ALLOW_DIRTY_DEVELOPMENT_BUILD", PROVIDER
