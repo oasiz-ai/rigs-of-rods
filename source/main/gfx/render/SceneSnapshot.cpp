@@ -1131,7 +1131,7 @@ private:
     constexpr std::uint64_t kOffset = 1469598103934665603ULL;
     constexpr std::uint64_t kPrime = 1099511628211ULL;
     std::uint64_t hash = kOffset;
-    const auto add = [&hash, kPrime](std::uint64_t value) noexcept {
+    const auto add = [&hash](std::uint64_t value) noexcept {
       hash ^= value;
       hash *= kPrime;
     };
