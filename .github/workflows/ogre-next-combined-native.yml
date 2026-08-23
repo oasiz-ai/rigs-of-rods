@@ -707,7 +707,7 @@ jobs:
               "platform_policy": "windows-x64-d3d11",
               "qualification_eligible": True,
               "bridge_or_transport_symbols_present": False,
-              "root_sdl_symbols_present": False,
+              "root_sdl_symbols_present": True,
               "ogre14_host_imports_present": True,
           }
           for field, value in expected.items():

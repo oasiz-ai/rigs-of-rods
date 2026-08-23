@@ -42,6 +42,14 @@ FORBIDDEN_ROOT_CODEC_ARCHIVES = (
     "jpeg-static.lib",
 )
 
+REVIEWED_ROOT_PNG_ARCHIVE = "libpng16_static.lib"
+
+REQUIRED_STATIC_SDL_SYMBOL_TOKENS = (
+    "SDL_InitSubSystem",
+    "SDL_PollEvent",
+    "SDL_CreateWindow",
+)
+
 
 def _run(argv: list[str], label: str) -> str:
     completed = subprocess.run(
@@ -85,21 +93,6 @@ def _dependent_names(payload: str) -> list[str]:
     return names
 
 
-def _exported_sdl_names(payload: str) -> set[str]:
-    names: set[str] = set()
-    for line in payload.splitlines():
-        match = re.fullmatch(
-            r"\s*[0-9]+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+"
-            r"([^\s=]+)(?:\s+=.*)?\s*",
-            line,
-        )
-        if match is not None:
-            name = match.group(1)
-            if name.startswith(("SDL_", "_SDL_")):
-                names.add(name.removeprefix("_"))
-    return names
-
-
 def _decode_link_map(path: Path) -> str:
     payload = path.read_bytes()
     if payload.startswith((b"\xff\xfe", b"\xfe\xff")):
@@ -140,17 +133,28 @@ def _public_symbol_rows(payload: str, binary: Path) -> list[tuple[str, str]]:
 
 def _owner_mentions_archive(owner: str, archive_name: str) -> bool:
     normalized = owner.replace("\\", "/")
-    return re.search(
-        rf"(?:^|/){re.escape(archive_name)}(?::|\()",
-        normalized,
-        flags=re.IGNORECASE,
-    ) is not None
+    name = Path(archive_name).name
+    aliases = (
+        (name, Path(name).stem)
+        if name.casefold().endswith(".lib")
+        else (name,)
+    )
+    return any(
+        re.search(
+            rf"(?:^|/){re.escape(alias)}(?::|\()",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        is not None
+        for alias in aliases
+    )
 
 
 def _link_map_evidence(
     payload: str,
     binary: Path,
     required_archives: list[Path],
+    sdl_archive: Path,
 ) -> dict[str, object]:
     rows = _public_symbol_rows(payload, binary)
     archive_counts = {
@@ -195,22 +199,43 @@ def _link_map_evidence(
         )
 
     owners = [owner for _symbol, owner in rows]
-    extracted_sdl = any(
-        _owner_mentions_archive(owner, "SDL2-static.lib")
-        for owner in owners
+    sdl_symbol_owners = {
+        token: sorted(
+            {
+                owner
+                for symbol, owner in rows
+                if symbol.removeprefix("_") == token
+                and _owner_mentions_archive(owner, sdl_archive.name)
+            }
+        )
+        for token in REQUIRED_STATIC_SDL_SYMBOL_TOKENS
+    }
+    missing_sdl_symbols = sorted(
+        token for token, owners_for_token in sdl_symbol_owners.items()
+        if not owners_for_token
     )
+    foreign_sdl_owners = sorted(
+        {
+            owner
+            for symbol, owner in rows
+            if symbol.removeprefix("_") in REQUIRED_STATIC_SDL_SYMBOL_TOKENS
+            and not _owner_mentions_archive(owner, sdl_archive.name)
+        }
+    )
+    if missing_sdl_symbols or foreign_sdl_owners:
+        raise ValueError(
+            "Windows static SDL ownership changed: "
+            + ", ".join(missing_sdl_symbols + foreign_sdl_owners)
+        )
     codec_archives = sorted(
         archive
         for archive in FORBIDDEN_ROOT_CODEC_ARCHIVES
         if any(_owner_mentions_archive(owner, archive) for owner in owners)
     )
-    if extracted_sdl or codec_archives:
+    if codec_archives:
         raise ValueError(
             "Windows root static dependency closure changed: "
-            + ", ".join(
-                (["SDL2-static.lib"] if extracted_sdl else [])
-                + codec_archives
-            )
+            + ", ".join(codec_archives)
         )
 
     decoder_owners = sorted(
@@ -223,16 +248,28 @@ def _link_map_evidence(
     if not decoder_owners:
         raise ValueError("Windows binary lacks private stb_image owner evidence")
 
-    codec_symbols = sorted(
-        symbol
+    reviewed_png_symbols = sorted(
+        (symbol, owner)
         for symbol, owner in rows
         if re.search(r"(?:^|[?@_])(?:png|jpeg|stbi)_", symbol)
         and "Ogre14SourceTextureDecoder.cpp.obj" not in owner
+        and re.search(r"(?:^|[?@_])png_", symbol)
+        and _owner_mentions_archive(owner, REVIEWED_ROOT_PNG_ARCHIVE)
     )
-    if codec_symbols:
+    codec_symbol_violations = sorted(
+        (symbol, owner)
+        for symbol, owner in rows
+        if re.search(r"(?:^|[?@_])(?:png|jpeg|stbi)_", symbol)
+        and "Ogre14SourceTextureDecoder.cpp.obj" not in owner
+        and (symbol, owner) not in reviewed_png_symbols
+    )
+    if not reviewed_png_symbols or codec_symbol_violations:
         raise ValueError(
-            "Windows binary has an external image-codec symbol owner: "
-            + ", ".join(codec_symbols)
+            "Windows binary image-codec ownership changed: "
+            + ", ".join(
+                f"{symbol} ({owner})"
+                for symbol, owner in codec_symbol_violations
+            )
         )
 
     host_rapidjson = sorted(
@@ -249,7 +286,16 @@ def _link_map_evidence(
     return {
         "required_archive_member_counts": archive_counts,
         "forbidden_renderer_objects_present": False,
-        "root_sdl_static_archive_members_extracted": False,
+        "root_sdl_static_archive_members_extracted": True,
+        "root_sdl_archive": {
+            "path": str(sdl_archive),
+            "sha256": common._sha256(sdl_archive),
+            "required_symbol_owners": sdl_symbol_owners,
+        },
+        "reviewed_root_image_codec_archive": {
+            "owner": Path(REVIEWED_ROOT_PNG_ARCHIVE).stem,
+            "defined_symbol_count": len(reviewed_png_symbols),
+        },
         "private_stb_image_owner_objects": decoder_owners,
         "host_rapidjson_symbol_count": len(host_rapidjson),
         "ogre_next_rapidjson_symbol_count": len(next_rapidjson),
@@ -431,6 +477,22 @@ def main() -> int:
         provider = contracts["provider"]
         namespace = contracts["namespace"]
 
+        sdl_archive = common._regular_absolute(
+            str(provider.get("sdl_imported_artifact", "")),
+            "provider-recorded static SDL archive",
+        )
+        sdl_artifact_target = provider.get("sdl_imported_artifact_target")
+        if (
+            sdl_archive.suffix.casefold() != ".lib"
+            or not isinstance(sdl_artifact_target, str)
+            or "SDL2-static" not in sdl_artifact_target
+            or provider.get("sdl_imported_artifact_size")
+            != sdl_archive.stat().st_size
+            or provider.get("sdl_imported_artifact_sha256")
+            != common._sha256(sdl_archive)
+        ):
+            raise ValueError("Windows static SDL provider contract changed")
+
         required_archives = [
             common._regular_absolute(value, "required combined archive")
             for value in arguments.required_archive
@@ -525,22 +587,8 @@ def main() -> int:
                 + ", ".join(missing_imports + unexpected_ogre)
             )
 
-        sdl_exports = _exported_sdl_names(
-            _dumpbin(dumpbin, "/exports", sdl_provider)
-        )
-        missing_sdl = sorted(
-            token
-            for token in common.REQUIRED_SDL_PROVIDER_SYMBOL_TOKENS
-            if token not in sdl_exports
-        )
-        if missing_sdl:
-            raise ValueError(
-                "OGRE14 SDL provider lacks required exports: "
-                + ", ".join(missing_sdl)
-            )
-
         link_map_evidence = _link_map_evidence(
-            _decode_link_map(link_map), binary, required_archives
+            _decode_link_map(link_map), binary, required_archives, sdl_archive
         )
 
         source_checkout = contracts["source_checkout"]
@@ -584,8 +632,9 @@ def main() -> int:
                 "missing_required_symbols": [],
                 "bridge_or_transport_symbols_present": False,
                 "bridge_or_transport_objects_present": False,
-                "external_image_codec_symbols_present": False,
-                "root_sdl_symbols_present": False,
+                "external_image_codec_symbols_present": True,
+                "unreviewed_external_image_codec_symbols_present": False,
+                "root_sdl_symbols_present": True,
                 "rapidjson_namespace_isolation": {
                     "host_namespace": "rapidjson",
                     "host_defined_symbol_count": link_map_evidence[

@@ -542,10 +542,11 @@ class CombinedProviderContractTests(unittest.TestCase):
             "FORBIDDEN_PE_OBJECT_TOKENS",
             "_public_symbol_rows",
             "_dependent_names",
-            "_exported_sdl_names",
+            "REQUIRED_STATIC_SDL_SYMBOL_TOKENS",
+            '"provider-recorded static SDL archive"',
             '"qualification_eligible": source_checkout[',
             '"bridge_or_transport_symbols_present": False',
-            '"root_sdl_symbols_present": False',
+            '"root_sdl_symbols_present": True',
             '"ogre14_host_imports_present": True',
             '"dual_owner_linked": True',
         ):
@@ -578,26 +579,18 @@ class CombinedProviderContractTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "duplicate DLL"):
             module._dependent_names("  OgreMain.dll\n  ogremain.DLL\n")
-        exports = module._exported_sdl_names(
-            "ordinal hint RVA      name\n"
-            "      1    0 00011000 SDL_Init\n"
-            "      2    1 00011020 _SDL_PollEvent\n"
-            "      3    2 00011040 SDL_CreateWindow = SDL_CreateWindow\n"
-        )
-        self.assertEqual(
-            exports, {"SDL_Init", "SDL_PollEvent", "SDL_CreateWindow"}
-        )
-
         with tempfile.TemporaryDirectory() as temporary:
             build = Path(temporary) / "build"
             binary = build / "bin/RoR-Combined.exe"
             archive_a = build / "lib/ror-presenter.lib"
             archive_b = build / "lib/OgreNextMain.lib"
+            sdl_archive = build / "lib/SDL2-static.lib"
             archive_a.parent.mkdir(parents=True)
             binary.parent.mkdir(parents=True)
             binary.write_bytes(b"pe")
             archive_a.write_bytes(b"a")
             archive_b.write_bytes(b"b")
+            sdl_archive.write_bytes(b"sdl")
 
             required = list(module.REQUIRED_PE_SYMBOL_TOKENS)
             rows = [
@@ -620,6 +613,10 @@ class CombinedProviderContractTests(unittest.TestCase):
                     " 0001:00000100 ?DecodeOwner@@YAXXZ 0000000140000100 f source/main/Ogre14SourceTextureDecoder.cpp.obj",
                     " 0001:00000110 ?Host@rapidjson@@YAXXZ 0000000140000110 f OgreNextMain.lib:rapidjson.obj",
                     " 0001:00000120 ?Next@RoROgreNextRapidJson@@YAXXZ 0000000140000120 f OgreNextMain.lib:nextjson.obj",
+                    " 0001:00000130 SDL_InitSubSystem 0000000140000130 f SDL2-static:SDL.c.obj",
+                    " 0001:00000140 SDL_PollEvent 0000000140000140 f SDL2-static:SDL_dynapi.c.obj",
+                    " 0001:00000150 SDL_CreateWindow 0000000140000150 f SDL2-static:SDL_dynapi.c.obj",
+                    " 0001:00000160 png_create_read_struct 0000000140000160 f libpng16_static:pngread.c.obj",
                     " entry point at        0001:00000000",
                 ]
             )
@@ -627,23 +624,47 @@ class CombinedProviderContractTests(unittest.TestCase):
                 "\n".join(rows) + "\n",
                 binary,
                 [archive_a, archive_b],
+                sdl_archive,
             )
-            self.assertFalse(
+            self.assertTrue(
                 report["root_sdl_static_archive_members_extracted"]
+            )
+            self.assertEqual(
+                report["root_sdl_archive"]["required_symbol_owners"][
+                    "SDL_CreateWindow"
+                ],
+                ["SDL2-static:SDL_dynapi.c.obj"],
+            )
+            self.assertEqual(
+                report["reviewed_root_image_codec_archive"],
+                {"owner": "libpng16_static", "defined_symbol_count": 1},
             )
             self.assertEqual(
                 report["required_archive_member_counts"][str(archive_a)], 1
             )
 
             hostile = rows[:-1] + [
-                " 0001:00000130 ?SDL_Init@@YAHXZ 0000000140000130 f SDL2-static.lib:SDL.obj",
+                " 0001:00000170 SDL_CreateWindow 0000000140000170 f hostile.lib:SDL.obj",
                 rows[-1],
             ]
-            with self.assertRaisesRegex(ValueError, "SDL2-static"):
+            with self.assertRaisesRegex(ValueError, "static SDL ownership"):
                 module._link_map_evidence(
                     "\n".join(hostile) + "\n",
                     binary,
                     [archive_a, archive_b],
+                    sdl_archive,
+                )
+
+            hostile_codec = rows[:-1] + [
+                " 0001:00000180 jpeg_read_header 0000000140000180 f foreign-codec:jpeg.obj",
+                rows[-1],
+            ]
+            with self.assertRaisesRegex(ValueError, "image-codec ownership"):
+                module._link_map_evidence(
+                    "\n".join(hostile_codec) + "\n",
+                    binary,
+                    [archive_a, archive_b],
+                    sdl_archive,
                 )
 
     def test_linux_install_and_launcher_select_the_combined_executable(self) -> None:
