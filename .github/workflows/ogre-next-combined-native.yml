@@ -540,3 +540,378 @@ jobs:
             ${{ runner.temp }}/ror-combined-build/ogre-next-embedded/*.json
             ${{ runner.temp }}/ror-combined-build/source/main/RoR-Combined.*
             ${{ runner.temp }}/ror-combined-stage/qualification/
+
+  windows-x64-d3d11:
+    name: Windows x64 D3D11 RoR-Combined
+    runs-on: windows-2022
+    timeout-minutes: 180
+    env:
+      CC: cl
+      CXX: cl
+      CMAKE_BUILD_PARALLEL_LEVEL: "3"
+      PYTHONDONTWRITEBYTECODE: "1"
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Isolate all generated Windows state from the source checkout
+        shell: pwsh
+        run: |
+          @(
+            "CONAN_HOME=$(Join-Path $env:RUNNER_TEMP 'ror-combined-conan-home')"
+            "ROR_COMBINED_ARTIFACTS_DIR=$(Join-Path $env:RUNNER_TEMP 'ror-combined-artifacts')"
+            "ROR_COMBINED_BUILD_DIR=$(Join-Path $env:RUNNER_TEMP 'ror-combined-build')"
+            "ROR_COMBINED_STAGE_DIR=$(Join-Path $env:RUNNER_TEMP 'ror-combined-stage')"
+          ) | Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8NoBOM
+
+      - name: Enable the pinned MSVC x64 toolset
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+        with:
+          arch: x64
+          toolset: "14.44"
+
+      - name: Install pinned Conan and Ninja clients
+        shell: pwsh
+        run: >-
+          python -m pip install
+          --disable-pip-version-check
+          conan==2.31.1
+          ninja==1.13.0
+
+      - name: Restore isolated Conan packages
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/ror-combined-conan-home
+          key: ogre-next-combined-windows-msvc1944-release-conan-2.31.1-${{ hashFiles('conanfile.py', 'cmake/conan/locks/*.lock', 'cmake/conan/profiles/*', 'cmake/conan/recipes/**', 'cmake/conan/export_pinned_dependency_recipes.py') }}
+
+      - name: Configure isolated Conan client
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:CONAN_HOME | Out-Null
+          @'
+          tools.system.package_manager:mode=install
+          core.sources:download_urls=["origin", "https://c3i.jfrog.io/artifactory/conan-center-backup-sources/"]
+          '@ | Set-Content -LiteralPath (Join-Path $env:CONAN_HOME 'global.conf') -Encoding utf8NoBOM
+          conan remote add conancenter https://center2.conan.io --force
+          conan --version
+          ninja --version
+
+      - name: Export pinned public RoR dependency recipes
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:ROR_COMBINED_ARTIFACTS_DIR | Out-Null
+          python cmake/conan/export_pinned_dependency_recipes.py `
+            --archive (Join-Path $env:RUNNER_TEMP 'ror-conan-recipes-d3568327.tar.gz') `
+            --extract-root (Join-Path $env:RUNNER_TEMP 'ror-conan-recipes-export') |
+            Tee-Object -FilePath (Join-Path $env:ROR_COMBINED_ARTIFACTS_DIR 'pinned-conan-recipes.json')
+
+      - name: Verify compiler, architecture, and PE audit tool
+        shell: pwsh
+        run: |
+          cl 2>&1 | Tee-Object -FilePath (Join-Path $env:ROR_COMBINED_ARTIFACTS_DIR 'msvc-version.txt')
+          if (-not (Select-String -LiteralPath (Join-Path $env:ROR_COMBINED_ARTIFACTS_DIR 'msvc-version.txt') -Pattern 'Version 19\.44\.')) {
+            throw 'The reviewed MSVC 19.44 toolset is not active'
+          }
+          $dumpbin = Get-Command dumpbin.exe -ErrorAction Stop
+          & $dumpbin.Source /nologo /headers $dumpbin.Source | Select-Object -First 20
+          cmake --version
+          ninja --version
+
+      - name: Run combined-runtime fail-closed contracts
+        shell: pwsh
+        run: |
+          python tests/tools/test_ogre_next_combined_provider_contract.py
+          python tests/tools/test_ogre_next_embedded_namespace_contract.py
+          python tests/tools/test_renderer_combined_game_wiring_contract.py
+          python -O tests/tools/test_ogre_next_combined_provider_contract.py
+          python -O tests/tools/test_ogre_next_embedded_namespace_contract.py
+          python -O tests/tools/test_renderer_combined_game_wiring_contract.py
+
+      - name: Verify the locked native Conan graph
+        shell: pwsh
+        run: |
+          python tests/tools/assert_ogre14_app_graph.py `
+            --platform windows-x86_64 |
+            Tee-Object -FilePath (Join-Path $env:ROR_COMBINED_ARTIFACTS_DIR 'windows-x86_64-conan-graph.json')
+
+      - name: Configure clean Windows RoR-Combined Release
+        shell: pwsh
+        run: |
+          $tracked = git status --porcelain --untracked-files=no
+          if ($tracked) {
+            throw "The source checkout is dirty before configure: $tracked"
+          }
+          cmake `
+            -S . `
+            -B $env:ROR_COMBINED_BUILD_DIR `
+            -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_INSTALL_PREFIX=$env:ROR_COMBINED_STAGE_DIR `
+            -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake `
+            -DCONAN_HOST_PROFILE="$env:GITHUB_WORKSPACE/cmake/conan/profiles/windows-x86_64-release" `
+            -DCONAN_BUILD_PROFILE="$env:GITHUB_WORKSPACE/cmake/conan/profiles/windows-x86_64-release" `
+            -DROR_BUILD_TESTS=OFF `
+            -DROR_CREATE_CONTENT_FOLDER=ON `
+            -DROR_OGRE_NEXT_COMBINED_RUNTIME=ON `
+            -DROR_RENDERER_PUBLIC_LAUNCHER=OFF `
+            -DROR_OGRE_NEXT_PRODUCTION_PACKAGE=OFF `
+            -DROR_OGRE_NEXT_DEMO_ADMISSION=OFF
+
+      - name: Build and prove the final combined PE closure
+        shell: pwsh
+        run: >-
+          cmake
+          --build $env:ROR_COMBINED_BUILD_DIR
+          --target ror_ogre_next_combined_verified
+          --config Release
+
+      - name: Require a qualification-eligible combined PE receipt
+        shell: pwsh
+        run: |
+          @'
+          import json
+          import os
+          from pathlib import Path
+
+          build = Path(os.environ["ROR_COMBINED_BUILD_DIR"])
+          required = (
+              build / "bin/RoR-Combined.exe",
+              build / "source/main/RoR-Combined.binary-closure.json",
+              build / "ogre-next-embedded/ogre-next-combined-namespace-audit.json",
+              build / "bin/resources/ogrenext/.complete.json",
+          )
+          for path in required:
+              if not path.is_file() or path.is_symlink():
+                  raise SystemExit(f"required combined build output is unavailable: {path}")
+          document = json.loads(required[1].read_text(encoding="utf-8"))
+          expected = {
+              "schema": "ror.ogre_next_combined_pe_closure.v1",
+              "platform_policy": "windows-x64-d3d11",
+              "qualification_eligible": True,
+              "bridge_or_transport_symbols_present": False,
+              "root_sdl_symbols_present": False,
+              "ogre14_host_imports_present": True,
+          }
+          for field, value in expected.items():
+              if document.get(field) != value:
+                  raise SystemExit(
+                      f"combined PE closure changed: {field}={document.get(field)!r}"
+                  )
+          '@ | python -
+
+      - name: Install and relocate the combined Windows runtime
+        shell: pwsh
+        run: |
+          cmake --install $env:ROR_COMBINED_BUILD_DIR `
+            --prefix $env:ROR_COMBINED_STAGE_DIR `
+            --component Base_Game
+          cmake --install $env:ROR_COMBINED_BUILD_DIR `
+            --prefix $env:ROR_COMBINED_STAGE_DIR `
+            --component Base_Content
+
+      - name: Audit relocated runtime and retain provenance
+        shell: pwsh
+        run: |
+          $stage = $env:ROR_COMBINED_STAGE_DIR
+          $build = $env:ROR_COMBINED_BUILD_DIR
+          $exe = Join-Path $stage 'RoR-Combined.exe'
+          foreach ($path in @(
+              $exe,
+              (Join-Path $stage 'resources/ogrenext/ShaderMedia'),
+              (Join-Path $stage 'resources/ogrenext/Presentation'),
+              (Join-Path $stage 'resources/ogrenext/.complete.json'),
+              (Join-Path $stage 'content')
+          )) {
+            if (-not (Test-Path -LiteralPath $path)) {
+              throw "Relocated combined runtime input is missing: $path"
+            }
+          }
+          foreach ($forbidden in @('RoR.exe', 'RoR-Ogre14.exe')) {
+            if (Test-Path -LiteralPath (Join-Path $stage $forbidden)) {
+              throw "Relocated package contains a legacy-visible executable: $forbidden"
+            }
+          }
+          $qualification = Join-Path $stage 'qualification'
+          New-Item -ItemType Directory -Force -Path $qualification | Out-Null
+          dumpbin /nologo /headers $exe |
+            Tee-Object -FilePath (Join-Path $qualification 'RoR-Combined.headers.txt')
+          dumpbin /nologo /dependents $exe |
+            Tee-Object -FilePath (Join-Path $qualification 'RoR-Combined.dependents.txt')
+          foreach ($pair in @(
+              @('source/main/RoR-Combined.binary-closure.json', 'RoR-Combined.binary-closure.json'),
+              @('ogre-next-embedded/ogre-next-combined-namespace-audit.json', 'ogre-next-combined-namespace-audit.json'),
+              @('ogre-next-embedded/ogre-next-combined-provider-contract.json', 'ogre-next-combined-provider-contract.json'),
+              @('bin/resources/ogrenext/.complete.json', 'ogre-next-combined-resources.complete.json')
+          )) {
+            Copy-Item -LiteralPath (Join-Path $build $pair[0]) `
+              -Destination (Join-Path $qualification $pair[1])
+          }
+          $quarantine = Join-Path $env:RUNNER_TEMP 'ror-combined-build-media-quarantine'
+          if (Test-Path -LiteralPath $quarantine) {
+            throw "Build-media quarantine already exists: $quarantine"
+          }
+          Move-Item -LiteralPath (Join-Path $build 'bin/resources/ogrenext') `
+            -Destination $quarantine
+
+      - name: Render bounded Ogre-Next frames with relocated D3D11 runtime
+        shell: pwsh
+        run: |
+          $stage = $env:ROR_COMBINED_STAGE_DIR
+          $smoke = Join-Path $env:RUNNER_TEMP 'ror-combined-smoke'
+          $profile = Join-Path $smoke 'profile'
+          $appData = Join-Path $profile 'AppData/Roaming'
+          $localData = Join-Path $profile 'AppData/Local'
+          New-Item -ItemType Directory -Force -Path $appData, $localData | Out-Null
+          $receipt = Join-Path $stage 'qualification/renderer-smoke.json'
+          $log = Join-Path $stage 'qualification/renderer-smoke.console.log'
+          if (Test-Path -LiteralPath $receipt) {
+            throw 'Renderer smoke receipt already exists'
+          }
+          $env:USERPROFILE = $profile
+          $env:APPDATA = $appData
+          $env:LOCALAPPDATA = $localData
+          $stdout = Join-Path $smoke 'renderer-smoke.stdout.log'
+          $stderr = Join-Path $smoke 'renderer-smoke.stderr.log'
+          $arguments = @(
+            '--native-visual-showcase',
+            '-frame-budget', 'measure',
+            '-frame-budget-receipt', $receipt,
+            '-frame-budget-scenario', 'ci.ogre-next-combined.windows-renderer-smoke',
+            '-frame-budget-sustained-ms', '1000',
+            '-frame-budget-percentile', '99',
+            '-frame-budget-percentile-ms', '1000',
+            '-frame-budget-warmup', '2',
+            '-frame-budget-minimum', '8',
+            '-frame-budget-frames', '12'
+          )
+          $process = Start-Process `
+            -FilePath (Join-Path $stage 'RoR-Combined.exe') `
+            -ArgumentList $arguments `
+            -WorkingDirectory $stage `
+            -RedirectStandardOutput $stdout `
+            -RedirectStandardError $stderr `
+            -PassThru
+          if (-not $process.WaitForExit(120000)) {
+            Stop-Process -Id $process.Id -Force
+            throw 'Relocated Windows renderer smoke exceeded 120 seconds'
+          }
+          $process.WaitForExit()
+          $status = $process.ExitCode
+          Get-Content -LiteralPath $stdout, $stderr |
+            Set-Content -LiteralPath $log -Encoding utf8NoBOM
+          if ($status -ne 0) {
+            throw "Relocated Windows renderer smoke failed with exit code $status"
+          }
+          @'
+          import json
+          import os
+          from pathlib import Path
+
+          receipt = (
+              Path(os.environ["ROR_COMBINED_STAGE_DIR"])
+              / "qualification/renderer-smoke.json"
+          )
+          document = json.loads(receipt.read_text(encoding="utf-8"))
+          expected = {
+              "format": "ror-frame-time-budget-v1",
+              "mode": "measure",
+              "scenario_id": "ci.ogre-next-combined.windows-renderer-smoke",
+              "renderer": "ogre-next-combined",
+              "presents_frames": True,
+              "requires_native_scene_draw_metrics": True,
+              "requested_frames": 12,
+              "accepted_frames": 12,
+              "rejected_frames": 0,
+              "native_scene_draw_exact_samples": 12,
+              "native_scene_draw_rejected_samples": 0,
+          }
+          for field, value in expected.items():
+              if document.get(field) != value:
+                  raise SystemExit(
+                      f"Windows renderer smoke receipt changed: {field}={document.get(field)!r}"
+                  )
+          if document.get("native_scene_draw_p99", 0) <= 0:
+              raise SystemExit("Windows renderer smoke submitted no native scene draws")
+          '@ | python -
+
+      - name: Write deterministic Windows package inventory
+        shell: pwsh
+        run: |
+          @'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import stat
+
+          root = Path(os.environ["ROR_COMBINED_STAGE_DIR"]).resolve(strict=True)
+          files = []
+          for path in sorted(root.rglob("*")):
+              if path.is_symlink():
+                  raise SystemExit(f"Windows package contains a symlink: {path}")
+              if not path.is_file():
+                  continue
+              relative = path.relative_to(root).as_posix()
+              if relative == "qualification/package-inventory.json":
+                  continue
+              files.append(
+                  {
+                      "path": relative,
+                      "size": path.stat().st_size,
+                      "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                      "mode": stat.S_IMODE(path.stat().st_mode),
+                      "stage_kind": "regular",
+                  }
+              )
+          document = {
+              "schema": "ror.ogre_next_combined_windows_package.v1",
+              "source_commit": os.environ["GITHUB_SHA"],
+              "platform_policy": "windows-x64-d3d11",
+              "entrypoint": "RoR-Combined.exe",
+              "executable": "RoR-Combined.exe",
+              "renderer": "ogre-next",
+              "legacy_visible_presentation": False,
+              "renderer_smoke_only": True,
+              "playability_qualified": False,
+              "artifact_transport": "github-actions-upload-artifact-v7",
+              "all_transport_files_inventoried": True,
+              "files": files,
+          }
+          output = root / "qualification/package-inventory.json"
+          output.write_text(
+              json.dumps(document, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          '@ | python -
+
+      - name: Upload qualified Windows RoR-Combined runtime
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: RoR-Combined-Windows-x64-D3D11-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true
+          path: ${{ runner.temp }}/ror-combined-stage/
+
+      - name: Upload Windows combined-build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: RoR-Combined-Windows-x64-diagnostics-${{ github.sha }}
+          if-no-files-found: warn
+          retention-days: 14
+          include-hidden-files: true
+          path: |
+            ${{ runner.temp }}/ror-combined-artifacts/
+            ${{ runner.temp }}/ror-combined-build/CMakeCache.txt
+            ${{ runner.temp }}/ror-combined-build/CMakeFiles/CMakeConfigureLog.yaml
+            ${{ runner.temp }}/ror-combined-build/ogre-next-embedded/*.json
+            ${{ runner.temp }}/ror-combined-build/source/main/RoR-Combined.*
+            ${{ runner.temp }}/ror-combined-stage/qualification/

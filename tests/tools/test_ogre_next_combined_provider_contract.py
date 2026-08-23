@@ -694,6 +694,53 @@ class CombinedProviderContractTests(unittest.TestCase):
         self.assertNotIn("--native-visual-showcase-a0", COMBINED_WORKFLOW)
         self.assertNotIn("ROR_OGRE_NEXT_ALLOW_DIRTY_DEVELOPMENT_BUILD", COMBINED_WORKFLOW)
 
+    def test_windows_combined_workflow_builds_installs_and_smokes_one_target(
+        self,
+    ) -> None:
+        for token in (
+            "windows-x64-d3d11:",
+            "Windows x64 D3D11 RoR-Combined",
+            "runs-on: windows-2022",
+            'toolset: "14.44"',
+            "conan==2.31.1",
+            "ninja==1.13.0",
+            "windows-x86_64-release",
+            "-DROR_OGRE_NEXT_COMBINED_RUNTIME=ON",
+            "-DROR_RENDERER_PUBLIC_LAUNCHER=OFF",
+            "-DROR_OGRE_NEXT_PRODUCTION_PACKAGE=OFF",
+            "-DROR_OGRE_NEXT_DEMO_ADMISSION=OFF",
+            "--target ror_ogre_next_combined_verified",
+            "ror.ogre_next_combined_pe_closure.v1",
+            '"qualification_eligible": True',
+            "cmake --install $env:ROR_COMBINED_BUILD_DIR",
+            "RoR-Combined.exe",
+            "foreach ($forbidden in @('RoR.exe', 'RoR-Ogre14.exe'))",
+            "resources/ogrenext/ShaderMedia",
+            "resources/ogrenext/Presentation",
+            "ror.ogre_next_combined_resource_stage.v2",
+            "ror-combined-build-media-quarantine",
+            "--native-visual-showcase",
+            "Start-Process",
+            "WaitForExit(120000)",
+            "Stop-Process -Id $process.Id -Force",
+            '"renderer": "ogre-next-combined"',
+            '"presents_frames": True',
+            '"requested_frames": 12',
+            '"accepted_frames": 12',
+            '"rejected_frames": 0',
+            "ror.ogre_next_combined_windows_package.v1",
+            '"renderer": "ogre-next"',
+            '"legacy_visible_presentation": False',
+            '"renderer_smoke_only": True',
+            '"playability_qualified": False',
+            "RoR-Combined-Windows-x64-D3D11-${{ github.sha }}",
+            "if: success()",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, COMBINED_WORKFLOW)
+        self.assertNotIn("RoR-Ogre14.exe' -truck", COMBINED_WORKFLOW)
+        self.assertNotIn("RoR.exe' -truck", COMBINED_WORKFLOW)
+
     def test_linux_elf_parsers_fail_closed_on_duplicate_or_missing_evidence(
         self,
     ) -> None:
