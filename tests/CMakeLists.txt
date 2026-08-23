@@ -125,6 +125,23 @@ add_test(
     COMMAND ror_renderer_combined_application_mode_tests
 )
 
+add_executable(
+    ror_thread_pool_worker_policy_tests
+    "${CMAKE_CURRENT_LIST_DIR}/system/ThreadPoolWorkerPolicyTests.cpp"
+)
+target_include_directories(
+    ror_thread_pool_worker_policy_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/threadpool"
+)
+add_test(
+    NAME thread_pool_worker_policy
+    COMMAND ror_thread_pool_worker_policy_tests
+)
+set_tests_properties(
+    thread_pool_worker_policy
+    PROPERTIES LABELS "physics;determinism"
+)
+
 # The playable frame-time budget compiles the exact production kernel into a
 # standalone strict binary; it must never acquire a renderer dependency.
 add_executable(

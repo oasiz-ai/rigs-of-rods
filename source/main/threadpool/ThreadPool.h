@@ -20,6 +20,7 @@ along with Rigs of Rods.  If not, see <http://www.gnu.org/licenses/>.
 #pragma once
 
 #include "Application.h"
+#include "ThreadPoolWorkerPolicy.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -109,10 +110,12 @@ public:
         // Create general-purpose thread pool
         int logical_cores = std::thread::hardware_concurrency();
 
-        int num_threads = App::app_num_workers->getInt();
-        if (num_threads < 1 || num_threads > logical_cores)
+        const int configured_threads = App::app_num_workers->getInt();
+        const int num_threads = ResolveThreadPoolWorkerCount(
+            configured_threads,
+            logical_cores);
+        if (num_threads != configured_threads)
         {
-            num_threads = Ogre::Math::Clamp(logical_cores - 1, 1, 8);
             App::app_num_workers->setVal(num_threads);
         }
 
