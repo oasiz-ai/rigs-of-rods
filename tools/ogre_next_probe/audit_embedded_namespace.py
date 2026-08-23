@@ -302,6 +302,29 @@ def cpp_namespace_present(
     return readable_namespace in demangled
 
 
+def final_root_owner_present(
+    raw: str,
+    demangled: str,
+    platform_policy: str,
+    readable_token: str,
+    msvc_decorated_token: str,
+    windows_adapter_owner: str,
+) -> bool:
+    direct_owner = cpp_symbol_present(
+        raw,
+        demangled,
+        platform_policy,
+        readable_token,
+        msvc_decorated_token,
+    )
+    if platform_policy != "windows-x64-d3d11":
+        return direct_owner
+    # MSVC may inline the header-defined Root getter. The retained adapter is
+    # the final-image owner proof; archive/DLL checks above independently bind
+    # its remapped and legacy Root ABI inputs.
+    return direct_owner or windows_adapter_owner in raw
+
+
 def read_msvc_link_map(path: Path, executable: Path) -> str:
     payload = path.read_bytes()
     if payload.startswith((b"\xff\xfe", b"\xfe\xff")):
@@ -1074,14 +1097,16 @@ def main() -> int:
         executable_raw, executable_demangled = nm(
             executable, args.platform_policy, global_only=False
         )
-    require(cpp_symbol_present(
+    require(final_root_owner_present(
                 executable_raw, executable_demangled, args.platform_policy,
                 "Ogre::Root::getSingletonPtr()",
-                "?getSingletonPtr@Root@Ogre@@") and
-            cpp_symbol_present(
+                "?getSingletonPtr@Root@Ogre@@",
+                "ror_ogre14_root_address") and
+            final_root_owner_present(
                 executable_raw, executable_demangled, args.platform_policy,
                 "RoROgreNext::Root::getSingletonPtr()",
-                "?getSingletonPtr@Root@RoROgreNext@@"),
+                "?getSingletonPtr@Root@RoROgreNext@@",
+                "ror_embedded_ogre_next_root_address"),
             "dual-runtime executable does not resolve both Root ABI owners")
     require(
         cpp_namespace_present(

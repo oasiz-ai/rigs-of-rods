@@ -418,6 +418,39 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
             )
         )
 
+    def test_windows_final_root_proof_accepts_only_retained_adapter_owner(self) -> None:
+        windows_map = "ror_embedded_ogre_next_root_address\n"
+        self.assertTrue(
+            AUDIT.final_root_owner_present(
+                windows_map,
+                "",
+                "windows-x64-d3d11",
+                "RoROgreNext::Root::getSingletonPtr()",
+                "?getSingletonPtr@Root@RoROgreNext@@",
+                "ror_embedded_ogre_next_root_address",
+            )
+        )
+        self.assertFalse(
+            AUDIT.final_root_owner_present(
+                windows_map,
+                "",
+                "windows-x64-d3d11",
+                "Ogre::Root::getSingletonPtr()",
+                "?getSingletonPtr@Root@Ogre@@",
+                "ror_ogre14_root_address",
+            )
+        )
+        self.assertFalse(
+            AUDIT.final_root_owner_present(
+                "ror_embedded_ogre_next_root_address",
+                "",
+                "linux-x86_64-vulkan",
+                "RoROgreNext::Root::getSingletonPtr()",
+                "?getSingletonPtr@Root@RoROgreNext@@",
+                "ror_embedded_ogre_next_root_address",
+            )
+        )
+
     def test_windows_link_map_requires_named_public_symbol_table(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
