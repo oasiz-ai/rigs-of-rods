@@ -114,42 +114,33 @@ get_target_property(_ror_root_sdl_imported_target_type
     ${ROR_ROOT_SDL_IMPORTED_ARTIFACT_TARGET} TYPE)
 get_target_property(_ror_root_sdl_imported_target_flag
     ${ROR_ROOT_SDL_IMPORTED_ARTIFACT_TARGET} IMPORTED)
-get_target_property(_ror_root_sdl_imported_target_configs
-    ${ROR_ROOT_SDL_IMPORTED_ARTIFACT_TARGET} IMPORTED_CONFIGURATIONS)
 if (NOT _ror_root_sdl_imported_target_type STREQUAL "STATIC_LIBRARY" OR
         NOT _ror_root_sdl_imported_target_flag)
     message(FATAL_ERROR
         "The root SDL archive target is not one imported static library")
 endif ()
-set(_ror_root_sdl_location_configs RELEASE)
-if (_ror_root_sdl_imported_target_configs AND
-        NOT _ror_root_sdl_imported_target_configs MATCHES "-NOTFOUND$")
-    list(APPEND _ror_root_sdl_location_configs
-        ${_ror_root_sdl_imported_target_configs})
-endif ()
-list(REMOVE_DUPLICATES _ror_root_sdl_location_configs)
+# Conan's reviewed Windows OGRE package exports its SDL micro-target with an
+# optimized RelWithDebInfo label even though the locked package graph and the
+# root consumer are Release. Linux and macOS export the ordinary Release
+# label. Read only the imported properties themselves: LOCATION_<CONFIG>
+# asks CMake to resolve a consumer configuration and fails before we can
+# authenticate and normalize this known package metadata variation.
+set(_ror_root_sdl_location_configs RELEASE RELWITHDEBINFO)
 set(_ror_root_sdl_imported_locations "")
+set(_ror_root_sdl_imported_location_configs "")
 foreach (_ror_root_sdl_location_config IN LISTS
         _ror_root_sdl_location_configs)
-    string(TOUPPER "${_ror_root_sdl_location_config}"
-        _ror_root_sdl_location_config_upper)
     get_target_property(_ror_root_sdl_location_candidate
         ${ROR_ROOT_SDL_IMPORTED_ARTIFACT_TARGET}
-        "LOCATION_${_ror_root_sdl_location_config_upper}")
+        "IMPORTED_LOCATION_${_ror_root_sdl_location_config}")
     if (_ror_root_sdl_location_candidate AND
             NOT _ror_root_sdl_location_candidate MATCHES "-NOTFOUND$")
         list(APPEND _ror_root_sdl_imported_locations
             "${_ror_root_sdl_location_candidate}")
+        list(APPEND _ror_root_sdl_imported_location_configs
+            "${_ror_root_sdl_location_config}")
     endif ()
 endforeach ()
-get_target_property(_ror_root_sdl_location_candidate
-    ${ROR_ROOT_SDL_IMPORTED_ARTIFACT_TARGET} LOCATION)
-if (_ror_root_sdl_location_candidate AND
-        NOT _ror_root_sdl_location_candidate MATCHES "-NOTFOUND$")
-    list(APPEND _ror_root_sdl_imported_locations
-        "${_ror_root_sdl_location_candidate}")
-endif ()
-list(REMOVE_DUPLICATES _ror_root_sdl_imported_locations)
 list(LENGTH _ror_root_sdl_imported_locations
     _ror_root_sdl_imported_location_count)
 if (NOT _ror_root_sdl_imported_location_count EQUAL 1)
@@ -158,6 +149,8 @@ if (NOT _ror_root_sdl_imported_location_count EQUAL 1)
 endif ()
 list(GET _ror_root_sdl_imported_locations 0
     ROR_ROOT_SDL_IMPORTED_ARTIFACT)
+list(GET _ror_root_sdl_imported_location_configs 0
+    ROR_ROOT_SDL_IMPORTED_ARTIFACT_CONFIG)
 get_target_property(_ror_root_sdl_interface
     SDL2::SDL2 INTERFACE_LINK_LIBRARIES)
 string(JOIN ";" _ror_root_sdl_interface_serialized
@@ -204,6 +197,12 @@ if (_ror_root_sdl_interface_target_index EQUAL -1)
     message(FATAL_ERROR
         "SDL2::SDL2 does not link its exact imported archive target")
 endif ()
+# Make the one authenticated optimized archive usable by the root Release
+# consumer. This is a configuration-label normalization on the exact Conan
+# micro-target, not a library substitution.
+set_property(TARGET ${ROR_ROOT_SDL_IMPORTED_ARTIFACT_TARGET}
+    PROPERTY MAP_IMPORTED_CONFIG_RELEASE
+    "${ROR_ROOT_SDL_IMPORTED_ARTIFACT_CONFIG}")
 file(SIZE "${ROR_ROOT_SDL_IMPORTED_ARTIFACT}"
     ROR_ROOT_SDL_IMPORTED_ARTIFACT_SIZE)
 file(SHA256 "${ROR_ROOT_SDL_IMPORTED_ARTIFACT}"

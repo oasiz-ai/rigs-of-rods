@@ -537,6 +537,8 @@ jobs:
             ${{ runner.temp }}/ror-combined-artifacts/
             ${{ runner.temp }}/ror-combined-build/CMakeCache.txt
             ${{ runner.temp }}/ror-combined-build/CMakeFiles/CMakeConfigureLog.yaml
+            ${{ runner.temp }}/ror-combined-build/conan/generators/SDL2*.cmake
+            ${{ runner.temp }}/ror-combined-build/conan/generators/cmakedeps_macros.cmake
             ${{ runner.temp }}/ror-combined-build/ogre-next-embedded/*.json
             ${{ runner.temp }}/ror-combined-build/source/main/RoR-Combined.*
             ${{ runner.temp }}/ror-combined-stage/qualification/
@@ -919,6 +921,8 @@ jobs:
             ${{ runner.temp }}/ror-combined-artifacts/
             ${{ runner.temp }}/ror-combined-build/CMakeCache.txt
             ${{ runner.temp }}/ror-combined-build/CMakeFiles/CMakeConfigureLog.yaml
+            ${{ runner.temp }}/ror-combined-build/conan/generators/SDL2*.cmake
+            ${{ runner.temp }}/ror-combined-build/conan/generators/cmakedeps_macros.cmake
             ${{ runner.temp }}/ror-combined-build/ogre-next-embedded/*.json
             ${{ runner.temp }}/ror-combined-build/source/main/RoR-Combined.*
             ${{ runner.temp }}/ror-combined-stage/qualification/
