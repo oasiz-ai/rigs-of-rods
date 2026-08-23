@@ -572,6 +572,68 @@ RendererOgreNextWindowHostStatus RendererOgreNextWindowHost::Resize(
 }
 
 RendererOgreNextWindowHostStatus
+RendererOgreNextWindowHost::ResizeToExactDrawable(
+    std::uint32_t drawable_width, std::uint32_t drawable_height) noexcept {
+  if ((m_lifecycle != RendererOgreNextWindowLifecycle::READY_HIDDEN &&
+       m_lifecycle != RendererOgreNextWindowLifecycle::ACTIVE &&
+       m_lifecycle != RendererOgreNextWindowLifecycle::SUSPENDED) ||
+      !HasValidExtent(drawable_width, drawable_height)) {
+    return RendererOgreNextWindowHostStatus::REJECTED_INVALID_REQUEST;
+  }
+  if (!IsOwnerThread()) {
+    return RendererOgreNextWindowHostStatus::REJECTED_OWNER_THREAD_REQUIRED;
+  }
+  if (m_metrics.drawable_width == drawable_width &&
+      m_metrics.drawable_height == drawable_height) {
+    return RendererOgreNextWindowHostStatus::COMPLETED;
+  }
+
+  const auto fit_logical_extent = [](std::uint32_t logical,
+                                     std::uint32_t observed_drawable,
+                                     std::uint32_t requested_drawable,
+                                     std::uint32_t &fitted) noexcept {
+    if (!HasValidExtent(logical, 1U) ||
+        !HasValidExtent(observed_drawable, 1U) ||
+        !HasValidExtent(requested_drawable, 1U)) {
+      return false;
+    }
+    const std::uint64_t numerator =
+        static_cast<std::uint64_t>(logical) * requested_drawable +
+        observed_drawable / 2U;
+    const std::uint64_t rounded = numerator / observed_drawable;
+    if (rounded == 0U || rounded > kMaximumWindowDimension) {
+      return false;
+    }
+    fitted = static_cast<std::uint32_t>(rounded);
+    return true;
+  };
+
+  std::uint32_t logical_width = 0U;
+  std::uint32_t logical_height = 0U;
+  if (!fit_logical_extent(m_metrics.logical_width,
+                          m_metrics.drawable_width, drawable_width,
+                          logical_width) ||
+      !fit_logical_extent(m_metrics.logical_height,
+                          m_metrics.drawable_height, drawable_height,
+                          logical_height)) {
+    FailClosedAfterLiveWindowFailure();
+    return RendererOgreNextWindowHostStatus::FAILED_WINDOW_RESIZE;
+  }
+
+  const RendererOgreNextWindowHostStatus resized =
+      Resize(logical_width, logical_height);
+  if (resized != RendererOgreNextWindowHostStatus::COMPLETED) {
+    return resized;
+  }
+  if (m_metrics.drawable_width != drawable_width ||
+      m_metrics.drawable_height != drawable_height) {
+    FailClosedAfterLiveWindowFailure();
+    return RendererOgreNextWindowHostStatus::FAILED_WINDOW_RESIZE;
+  }
+  return RendererOgreNextWindowHostStatus::COMPLETED;
+}
+
+RendererOgreNextWindowHostStatus
 RendererOgreNextWindowHost::AdoptExternalResize(
     std::uint32_t logical_width, std::uint32_t logical_height) noexcept {
   if ((m_lifecycle != RendererOgreNextWindowLifecycle::READY_HIDDEN &&

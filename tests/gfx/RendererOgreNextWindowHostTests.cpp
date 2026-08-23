@@ -479,6 +479,60 @@ void TestCocoaMetalViewTranslationAndLifecycle() {
           "Cocoa shutdown was not idempotent");
 }
 
+void TestExactDrawableResizeUsesObservedScaleAndFailsClosed() {
+  FakeSdlRuntime fake;
+  fake.platform = RoR::RendererOgreNextWindowPlatform::MACOS_COCOA_METAL;
+  fake.driver = RoR::RendererOgreNextSdlVideoDriver::COCOA;
+  RoR::RendererOgreNextWindowHost host;
+  Require(host.Initialize(Request(fake.platform),
+                          Runtime(fake, fake.platform)) ==
+              RoR::RendererOgreNextWindowHostStatus::COMPLETED,
+          "exact-drawable host did not initialize");
+  const std::size_t resize_commands_before =
+      CountCall(fake, "window-resize-await-configure");
+  Require(host.ResizeToExactDrawable(1280U, 720U) ==
+              RoR::RendererOgreNextWindowHostStatus::COMPLETED,
+          "Retina drawable fit did not complete");
+  RequireMetrics(host, 2U, 640U, 360U, 1280U, 720U);
+  Require(CountCall(fake, "window-resize-await-configure") ==
+              resize_commands_before + 1U,
+          "exact drawable fit did not issue one acknowledged logical resize");
+  Require(host.ResizeToExactDrawable(1280U, 720U) ==
+                  RoR::RendererOgreNextWindowHostStatus::COMPLETED &&
+              CountCall(fake, "window-resize-await-configure") ==
+                  resize_commands_before + 1U,
+          "already exact drawable issued a redundant resize");
+  Require(host.ResizeToExactDrawable(0U, 720U) ==
+                  RoR::RendererOgreNextWindowHostStatus::
+                      REJECTED_INVALID_REQUEST &&
+              host.Binding() != nullptr,
+          "invalid exact drawable request damaged the live binding");
+  Require(host.Shutdown() ==
+              RoR::RendererOgreNextWindowHostStatus::COMPLETED,
+          "exact-drawable success host did not shut down");
+
+  FakeSdlRuntime inexact_fake;
+  inexact_fake.platform =
+      RoR::RendererOgreNextWindowPlatform::MACOS_COCOA_METAL;
+  inexact_fake.driver = RoR::RendererOgreNextSdlVideoDriver::COCOA;
+  RoR::RendererOgreNextWindowHost inexact_host;
+  Require(inexact_host.Initialize(
+              Request(inexact_fake.platform),
+              Runtime(inexact_fake, inexact_fake.platform)) ==
+              RoR::RendererOgreNextWindowHostStatus::COMPLETED,
+          "inexact-drawable host did not initialize");
+  Require(inexact_host.ResizeToExactDrawable(1279U, 719U) ==
+                  RoR::RendererOgreNextWindowHostStatus::
+                      FAILED_WINDOW_RESIZE &&
+              inexact_host.Lifecycle() ==
+                  RoR::RendererOgreNextWindowLifecycle::FAILED &&
+              inexact_host.Binding() == nullptr,
+          "unacknowledged exact drawable did not invalidate visibility");
+  Require(inexact_host.Shutdown() ==
+              RoR::RendererOgreNextWindowHostStatus::COMPLETED,
+          "failed exact-drawable host did not release native ownership");
+}
+
 void TestWin32Translation() {
   FakeSdlRuntime fake;
   RoR::RendererOgreNextWindowRequest request = Request(fake.platform);
@@ -1015,6 +1069,7 @@ void TestPartialInitializationCleansUp() {
 int main() {
   TestEnumAndVersionContracts();
   TestCocoaMetalViewTranslationAndLifecycle();
+  TestExactDrawableResizeUsesObservedScaleAndFailsClosed();
   TestWin32Translation();
   TestLinuxX11XcbTranslationAndStablePair();
   TestExternalVisibilityAdoptionNeverIssuesShowOrHide();

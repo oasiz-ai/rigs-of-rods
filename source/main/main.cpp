@@ -398,6 +398,49 @@ constexpr std::uint64_t kCombinedRendererAssetRegistryId =
 constexpr std::uint64_t kCombinedRendererShutdownAttemptNanoseconds =
     500'000'000ULL;
 
+bool ParseCombinedExactDrawableExtent(
+    const char* text,
+    std::uint32_t& width,
+    std::uint32_t& height) noexcept
+{
+    if (text == nullptr)
+    {
+        return false;
+    }
+    const std::string extent(text);
+    const std::size_t separator = extent.find('x');
+    if (separator == std::string::npos || separator == 0U ||
+        separator + 1U >= extent.size() ||
+        extent.find('x', separator + 1U) != std::string::npos)
+    {
+        return false;
+    }
+    const std::string width_text = extent.substr(0U, separator);
+    const std::string height_text = extent.substr(separator + 1U);
+    if (width_text.find_first_not_of("0123456789") != std::string::npos ||
+        height_text.find_first_not_of("0123456789") != std::string::npos)
+    {
+        return false;
+    }
+    try
+    {
+        const unsigned long long parsed_width = std::stoull(width_text);
+        const unsigned long long parsed_height = std::stoull(height_text);
+        if (parsed_width == 0U || parsed_height == 0U ||
+            parsed_width > 32768U || parsed_height > 32768U)
+        {
+            return false;
+        }
+        width = static_cast<std::uint32_t>(parsed_width);
+        height = static_cast<std::uint32_t>(parsed_height);
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
 bool ResolveCombinedPresenterConfiguration(
     RoR::RendererOgreNextInProcessPresenterConfiguration& configuration,
     std::string& failure_detail)
@@ -426,6 +469,29 @@ bool ResolveCombinedPresenterConfiguration(
     }
     configuration.shader_media_root = shader_media_root;
     configuration.presentation_media_root = presentation_media_root;
+
+    // The isolated performance/image harness already binds its home and exact
+    // requested backing extent through this pair. Ordinary launches ignore a
+    // stray extent value. Admitted harness launches hand the exact pixel pair
+    // to the Ogre-Next window owner before frontend creation so Retina scaling
+    // cannot silently double the measured surface.
+    const char* d0_scene_home = std::getenv("ROR_D0_SCENE_HOME");
+    const char* d0_exact_window_extent =
+        std::getenv("ROR_D0_EXACT_WINDOW_EXTENT");
+    if (d0_scene_home != nullptr && IsAbsolutePath(d0_scene_home) &&
+        d0_exact_window_extent != nullptr)
+    {
+        if (!ParseCombinedExactDrawableExtent(
+                d0_exact_window_extent,
+                configuration.exact_drawable_width,
+                configuration.exact_drawable_height))
+        {
+            failure_detail = fmt::format(
+                "isolated exact OgreNext drawable extent is malformed: {}",
+                d0_exact_window_extent);
+            return false;
+        }
+    }
     return true;
 }
 
@@ -1332,6 +1398,14 @@ int main(int argc, char *argv[])
                 "[RoR|RendererCombined|Startup] {}",
                 presenter_config_failure));
             return 70;
+        }
+        if (presenter_config.exact_drawable_width != 0U)
+        {
+            LOG(fmt::format(
+                "[RoR|RendererCombined|Startup] exact_drawable={}x{} "
+                "source=isolated-scene-contract",
+                presenter_config.exact_drawable_width,
+                presenter_config.exact_drawable_height));
         }
         const RendererOgreNextInProcessPresenterStatus presenter_prepared =
             renderer_combined_presenter.PrepareWindow(presenter_config);

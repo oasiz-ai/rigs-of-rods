@@ -203,6 +203,24 @@ void TestProductionLightingConfigurationFailsClosed() {
           configuration),
       "exact single-evaluation HDR/PSSM configuration was rejected");
 
+  configuration.exact_drawable_width = 1280U;
+  Require(
+      !RoR::IsValidRendererOgreNextInProcessPresenterConfiguration(
+          configuration),
+      "half-specified exact drawable extent was accepted");
+  configuration.exact_drawable_height = 720U;
+  Require(
+      RoR::IsValidRendererOgreNextInProcessPresenterConfiguration(
+          configuration),
+      "complete exact drawable extent was rejected");
+  configuration.exact_drawable_width = 32769U;
+  Require(
+      !RoR::IsValidRendererOgreNextInProcessPresenterConfiguration(
+          configuration),
+      "out-of-contract exact drawable extent was accepted");
+  configuration.exact_drawable_width = 0U;
+  configuration.exact_drawable_height = 0U;
+
   configuration.lighting_mode =
       RoR::RendererOgreNextInProcessLightingMode::INVALID;
   Require(

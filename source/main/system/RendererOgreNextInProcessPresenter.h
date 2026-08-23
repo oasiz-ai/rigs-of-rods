@@ -52,7 +52,7 @@ private:
 } // namespace Detail
 
 constexpr std::uint32_t
-    kRendererOgreNextInProcessPresenterContractVersion = 2U;
+    kRendererOgreNextInProcessPresenterContractVersion = 3U;
 
 enum class RendererOgreNextInProcessLightingMode : std::uint8_t {
   INVALID = 0U,
@@ -67,6 +67,12 @@ struct RendererOgreNextInProcessPresenterConfiguration final {
   std::string presentation_media_root;
   std::uint32_t logical_width = 1280U;
   std::uint32_t logical_height = 720U;
+  /// Optional exact backing-pixel contract for isolated image/performance
+  /// gates. Zero/zero keeps the ordinary HiDPI interactive behaviour. A
+  /// nonzero pair must be acknowledged exactly before Ogre-Next frontend
+  /// construction; there is no approximate or low-DPI fallback.
+  std::uint32_t exact_drawable_width = 0U;
+  std::uint32_t exact_drawable_height = 0U;
   /// Exact production graph. Ordinary joined gameplay currently selects the
   /// reviewed raster HDR/PSSM topology. The bounded project-owned native
   /// showcase may instead require the Apple-family-9 Metal V2 graph; that mode
@@ -90,6 +96,12 @@ IsValidRendererOgreNextInProcessPresenterConfiguration(
          configuration.logical_height > 0U &&
          configuration.logical_width <= 32768U &&
          configuration.logical_height <= 32768U &&
+         ((configuration.exact_drawable_width == 0U &&
+           configuration.exact_drawable_height == 0U) ||
+          (configuration.exact_drawable_width > 0U &&
+           configuration.exact_drawable_height > 0U &&
+           configuration.exact_drawable_width <= 32768U &&
+           configuration.exact_drawable_height <= 32768U)) &&
          (configuration.lighting_mode ==
               RendererOgreNextInProcessLightingMode::RASTER_HDR_PSSM ||
           configuration.lighting_mode ==

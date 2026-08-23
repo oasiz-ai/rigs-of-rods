@@ -1065,6 +1065,14 @@ public:
       return RendererOgreNextInProcessPresenterStatus::
           FAILED_WINDOW_INITIALIZATION;
     }
+    if (candidate.exact_drawable_width != 0U &&
+        host.ResizeToExactDrawable(candidate.exact_drawable_width,
+                                   candidate.exact_drawable_height) !=
+            RendererOgreNextWindowHostStatus::COMPLETED) {
+      (void)host.Shutdown();
+      return RendererOgreNextInProcessPresenterStatus::
+          FAILED_WINDOW_INITIALIZATION;
+    }
     const RendererOgreNextWindowBinding *binding = host.Binding();
     const RendererOgreNextSdlNativeWindow *native = host.NativeWindow();
     const RendererOgreNextWindowMetrics *metrics = host.Metrics();

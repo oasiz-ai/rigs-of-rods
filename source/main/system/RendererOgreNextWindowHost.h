@@ -254,6 +254,15 @@ public:
   RendererOgreNextWindowHostStatus Resize(
       std::uint32_t logical_width,
       std::uint32_t logical_height) noexcept;
+  /// Fits the owned logical window to an exact drawable-pixel extent using
+  /// the currently observed content scale. This is intentionally stricter
+  /// than Resize(): the acknowledged drawable must equal the requested pixel
+  /// dimensions exactly or the visible-window binding is invalidated. The
+  /// operation is used by isolated image/performance gates and preserves the
+  /// normal HiDPI window path for ordinary interactive launches.
+  RendererOgreNextWindowHostStatus ResizeToExactDrawable(
+      std::uint32_t drawable_width,
+      std::uint32_t drawable_height) noexcept;
   /// Adopts a logical resize already acknowledged by the native window
   /// system. Unlike Resize(), this never issues SDL_SetWindowSize or waits for
   /// another configure event; it queries and commits the current drawable.
