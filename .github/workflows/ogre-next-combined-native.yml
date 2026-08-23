@@ -442,24 +442,56 @@ jobs:
           python - "$stage" "$GITHUB_SHA" <<'PY'
           import hashlib
           import json
+          import os
           from pathlib import Path
+          import stat
           import sys
 
           root = Path(sys.argv[1]).resolve(strict=True)
           source_commit = sys.argv[2]
           files = []
+          staged_symlink_count = 0
           for path in sorted(root.rglob("*")):
-              if not path.is_file() or path.is_symlink():
+              if path.is_symlink():
+                  if not path.is_file():
+                      raise SystemExit(
+                          f"package contains an unsupported non-file symlink: {path}"
+                      )
+                  link_target = os.readlink(path)
+                  if os.path.isabs(link_target):
+                      raise SystemExit(
+                          f"package symlink has an absolute target: {path}"
+                      )
+                  resolved_target = path.resolve(strict=True)
+                  try:
+                      resolved_target.relative_to(root)
+                  except ValueError:
+                      raise SystemExit(
+                          f"package symlink escapes the install root: {path}"
+                      )
+                  stage_kind = "symlink"
+                  staged_symlink_count += 1
+              elif path.is_file():
+                  link_target = None
+                  stage_kind = "regular"
+              else:
                   continue
               relative = path.relative_to(root).as_posix()
               if relative == "qualification/package-inventory.json":
                   continue
               digest = hashlib.sha256(path.read_bytes()).hexdigest()
-              files.append(
-                  {"path": relative, "size": path.stat().st_size, "sha256": digest}
-              )
+              entry = {
+                  "path": relative,
+                  "size": path.stat().st_size,
+                  "sha256": digest,
+                  "mode": stat.S_IMODE(path.stat().st_mode),
+                  "stage_kind": stage_kind,
+              }
+              if link_target is not None:
+                  entry["stage_link_target"] = link_target
+              files.append(entry)
           document = {
-              "schema": "ror.ogre_next_combined_linux_package.v1",
+              "schema": "ror.ogre_next_combined_linux_package.v2",
               "source_commit": source_commit,
               "platform_policy": "linux-x86_64-vulkan",
               "entrypoint": "RunRoR",
@@ -468,6 +500,10 @@ jobs:
               "legacy_visible_presentation": False,
               "renderer_smoke_only": True,
               "playability_qualified": False,
+              "artifact_transport": "github-actions-upload-artifact-v7",
+              "transport_dereferences_file_symlinks": True,
+              "all_transport_files_inventoried": True,
+              "staged_symlink_count": staged_symlink_count,
               "files": files,
           }
           output = root / "qualification/package-inventory.json"
