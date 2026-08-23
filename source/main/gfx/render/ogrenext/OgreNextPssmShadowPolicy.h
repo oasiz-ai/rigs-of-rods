@@ -27,6 +27,9 @@ enum class OgreNextDirectionalShadowMode : std::uint8_t {
 
 constexpr std::uint32_t kOgreNextPssmShadowContractVersion = 1U;
 constexpr std::uint32_t kOgreNextPssmCascadeCount = 3U;
+/// Upper bound for every runtime-configurable cascade array. Ogre-Next's
+/// shadow-node validation itself rejects numPssmSplits outside [2, 4].
+constexpr std::uint32_t kOgreNextPssmMaxCascadeCount = 4U;
 
 // These values are deliberately fixed for the checkpoint. The shadow-enabled
 // frontend rejects a view with different clip distances instead of silently
@@ -90,10 +93,47 @@ constexpr std::array<OgreNextPssmCascadeLayout,
     }};
 
 struct OgreNextPssmSplitPolicy final {
-  std::array<float, kOgreNextPssmCascadeCount + 1U> split_points{};
-  std::array<float, kOgreNextPssmCascadeCount - 1U> blend_points{};
+  std::uint32_t cascade_count = kOgreNextPssmCascadeCount;
+  std::array<float, kOgreNextPssmMaxCascadeCount + 1U> split_points{};
+  std::array<float, kOgreNextPssmMaxCascadeCount - 1U> blend_points{};
   float fade_point = 0.0F;
 };
+
+/// Runtime-resolved cascade quality configuration. The V1 checkpoint values
+/// above stay the compiled defaults for every consumer that never opts in
+/// (the standalone probe and its CI locks are byte-stable); the combined
+/// presenter opts into the stage-3 quality defaults before frontend
+/// initialization and may further tune them through fail-closed environment
+/// knobs:
+///   ROR_SHADOW_LEGACY=1        exact PSSM_3_CASCADE_V1 checkpoint values
+///   ROR_SHADOW_CASCADES=n      cascade count in [2, 4]
+///   ROR_SHADOW_FAR_M=f         shadow far plane in meters, [100, 4000]
+///   ROR_SHADOW_LAMBDA=l        log/uniform split mix, [0.5, 0.99]
+///   ROR_SHADOW_RES=r0,r1,...   per-cascade square resolution, each a
+///                              power of two in [256, 4096]
+/// Any unparsable or out-of-range knob keeps its default instead of failing
+/// the session; the resolved configuration is immutable after first use.
+struct OgreNextPssmShadowQualityConfig final {
+  std::uint32_t cascade_count = kOgreNextPssmCascadeCount;
+  float far_meters = kOgreNextPssmFarMeters;
+  float lambda = kOgreNextPssmLambda;
+  std::array<OgreNextPssmCascadeLayout, kOgreNextPssmMaxCascadeCount>
+      layouts{};
+  std::uint32_t atlas_width = 0U;
+  std::uint32_t atlas_height = 0U;
+};
+
+/// Opt the process into the stage-3 quality defaults (4 cascades over
+/// 0.5-1200 m) plus the environment knobs above. Must be called before the
+/// first GetOgreNextPssmShadowQualityConfig() call; later calls are ignored.
+void RequestOgreNextPssmModernShadowQualityDefaults() noexcept;
+
+/// The immutable resolved cascade configuration for this process. Without a
+/// prior RequestOgreNextPssmModernShadowQualityDefaults() call this is
+/// exactly the PSSM_3_CASCADE_V1 checkpoint (and the knobs are ignored), so
+/// existing consumers observe byte-identical behavior.
+[[nodiscard]] const OgreNextPssmShadowQualityConfig &
+GetOgreNextPssmShadowQualityConfig() noexcept;
 
 /// Perspective side-plane tangents that remain valid when Ogre temporarily
 /// changes the viewer camera's near/far distances for each PSSM split.

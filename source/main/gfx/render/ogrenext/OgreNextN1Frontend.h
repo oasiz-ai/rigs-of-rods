@@ -762,7 +762,7 @@ struct OgreNextPssmShadowRuntimeAudit final {
   std::uint64_t target_texture_cleanup_absence_checks = 0U;
   OgreNextPssmShadowFramePlan last_frame;
   OgreNextPssmSplitPolicy last_native_splits;
-  std::array<float, kOgreNextPssmCascadeCount>
+  std::array<float, kOgreNextPssmMaxCascadeCount>
       last_native_normal_offset_bias{};
   bool native_projection_extents_verified = false;
   bool native_readback_verified = false;

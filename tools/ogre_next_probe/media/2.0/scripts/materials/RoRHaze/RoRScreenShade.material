@@ -1,0 +1,255 @@
+// RoR stage-3 screen-space shading: ambient occlusion + sun contact shadows.
+//
+// Three quad passes inside RoRScreenShadeNodeV1, between the
+// single-evaluation HDR scene node and the aerial-haze quad:
+//   1. RoR/HDR/ScreenShadeAO      depth -> (AO, sun visibility) at the
+//                                 configured shade resolution.
+//   2. RoR/HDR/ScreenShadeBlur    two depth-aware separable passes (H then V)
+//                                 over the RG shade buffer.
+//   3. RoR/HDR/ScreenShadeApply   scene radiance modulated per pixel:
+//                                 rgb *= a*AO + (1-a)*sunVis, where a is the
+//                                 indirect-luminance fraction the PBS
+//                                 indirect-alpha piece wrote into alpha.
+//                                 a >= 1 (sky clear, Unlit, untagged) is the
+//                                 reserved identity value.
+//
+// The vertex program is the stock Ogre/Compositor/Quad_vs already carried by
+// the pinned Common media closure; only the fragment programs are RoR-owned.
+// Every named constant is bound per frame by the presenter with a
+// _readRawConstants readback, so a silent binding drift fails closed there.
+
+//------------------------
+//OpenGL GLSL Definitions
+//------------------------
+fragment_program RoR/HDR/ScreenShadeAO_ps_GLSL glsl
+{
+	source RoRScreenShadeAO_ps.glsl
+	default_params
+	{
+		param_named depthTexture	int 0
+	}
+}
+
+fragment_program RoR/HDR/ScreenShadeBlur_ps_GLSL glsl
+{
+	source RoRScreenShadeBlur_ps.glsl
+	default_params
+	{
+		param_named shadeTexture	int 0
+	}
+}
+
+fragment_program RoR/HDR/ScreenShadeApply_ps_GLSL glsl
+{
+	source RoRScreenShadeApply_ps.glsl
+	default_params
+	{
+		param_named rt0				int 0
+		param_named shadeTexture	int 1
+	}
+}
+
+//------------------------
+//Vulkan GLSL Definitions
+//------------------------
+fragment_program RoR/HDR/ScreenShadeAO_ps_VK glslvk
+{
+	source RoRScreenShadeAO_ps.glsl
+}
+
+fragment_program RoR/HDR/ScreenShadeBlur_ps_VK glslvk
+{
+	source RoRScreenShadeBlur_ps.glsl
+}
+
+fragment_program RoR/HDR/ScreenShadeApply_ps_VK glslvk
+{
+	source RoRScreenShadeApply_ps.glsl
+}
+
+//------------------------
+//HLSL Definitions
+//------------------------
+fragment_program RoR/HDR/ScreenShadeAO_ps_HLSL hlsl
+{
+	source RoRScreenShadeAO_ps.hlsl
+	entry_point main
+	target ps_5_0 ps_4_0
+}
+
+fragment_program RoR/HDR/ScreenShadeBlur_ps_HLSL hlsl
+{
+	source RoRScreenShadeBlur_ps.hlsl
+	entry_point main
+	target ps_5_0 ps_4_0
+}
+
+fragment_program RoR/HDR/ScreenShadeApply_ps_HLSL hlsl
+{
+	source RoRScreenShadeApply_ps.hlsl
+	entry_point main
+	target ps_5_0 ps_4_0
+}
+
+//------------------------
+//Metal Definitions
+//------------------------
+fragment_program RoR/HDR/ScreenShadeAO_ps_Metal metal
+{
+	source RoRScreenShadeAO_ps.metal
+	shader_reflection_pair_hint Ogre/Compositor/Quad_vs
+}
+
+fragment_program RoR/HDR/ScreenShadeBlur_ps_Metal metal
+{
+	source RoRScreenShadeBlur_ps.metal
+	shader_reflection_pair_hint Ogre/Compositor/Quad_vs
+}
+
+fragment_program RoR/HDR/ScreenShadeApply_ps_Metal metal
+{
+	source RoRScreenShadeApply_ps.metal
+	shader_reflection_pair_hint Ogre/Compositor/Quad_vs
+}
+
+fragment_program RoR/HDR/ScreenShadeAO_ps unified
+{
+	delegate RoR/HDR/ScreenShadeAO_ps_GLSL
+	delegate RoR/HDR/ScreenShadeAO_ps_VK
+	delegate RoR/HDR/ScreenShadeAO_ps_HLSL
+	delegate RoR/HDR/ScreenShadeAO_ps_Metal
+}
+
+fragment_program RoR/HDR/ScreenShadeBlur_ps unified
+{
+	delegate RoR/HDR/ScreenShadeBlur_ps_GLSL
+	delegate RoR/HDR/ScreenShadeBlur_ps_VK
+	delegate RoR/HDR/ScreenShadeBlur_ps_HLSL
+	delegate RoR/HDR/ScreenShadeBlur_ps_Metal
+}
+
+fragment_program RoR/HDR/ScreenShadeApply_ps unified
+{
+	delegate RoR/HDR/ScreenShadeApply_ps_GLSL
+	delegate RoR/HDR/ScreenShadeApply_ps_VK
+	delegate RoR/HDR/ScreenShadeApply_ps_HLSL
+	delegate RoR/HDR/ScreenShadeApply_ps_Metal
+}
+
+material RoR/HDR/ScreenShadeAO
+{
+	technique
+	{
+		pass
+		{
+			depth_check off
+			depth_write off
+			cull_hardware none
+
+			vertex_program_ref Ogre/Compositor/Quad_vs
+			{
+			}
+
+			fragment_program_ref RoR/HDR/ScreenShadeAO_ps
+			{
+			}
+
+			// Point sampling: the raymarch and horizon walk linearize exact
+			// depth samples; any filtering would blend across silhouettes.
+			texture_unit depthTexture
+			{
+				tex_address_mode	clamp
+				filtering			none
+			}
+		}
+	}
+}
+
+material RoR/HDR/ScreenShadeBlurH
+{
+	technique
+	{
+		pass
+		{
+			depth_check off
+			depth_write off
+			cull_hardware none
+
+			vertex_program_ref Ogre/Compositor/Quad_vs
+			{
+			}
+
+			fragment_program_ref RoR/HDR/ScreenShadeBlur_ps
+			{
+			}
+
+			texture_unit shadeTexture
+			{
+				tex_address_mode	clamp
+				filtering			none
+			}
+		}
+	}
+}
+
+material RoR/HDR/ScreenShadeBlurV
+{
+	technique
+	{
+		pass
+		{
+			depth_check off
+			depth_write off
+			cull_hardware none
+
+			vertex_program_ref Ogre/Compositor/Quad_vs
+			{
+			}
+
+			fragment_program_ref RoR/HDR/ScreenShadeBlur_ps
+			{
+			}
+
+			texture_unit shadeTexture
+			{
+				tex_address_mode	clamp
+				filtering			none
+			}
+		}
+	}
+}
+
+material RoR/HDR/ScreenShadeApply
+{
+	technique
+	{
+		pass
+		{
+			depth_check off
+			depth_write off
+			cull_hardware none
+
+			vertex_program_ref Ogre/Compositor/Quad_vs
+			{
+			}
+
+			fragment_program_ref RoR/HDR/ScreenShadeApply_ps
+			{
+			}
+
+			// Scene radiance stays a point copy on the identity path; the
+			// shade buffer is sampled bilinearly for the low-cost upsample.
+			texture_unit rt0
+			{
+				tex_address_mode	clamp
+				filtering			none
+			}
+
+			texture_unit shadeTexture
+			{
+				tex_address_mode	clamp
+				filtering			bilinear
+			}
+		}
+	}
+}

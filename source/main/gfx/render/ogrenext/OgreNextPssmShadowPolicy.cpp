@@ -9,8 +9,13 @@
 #include "OgreNextPssmShadowPolicy.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <limits>
+#include <mutex>
 
 namespace RoR::Render {
 namespace {
@@ -22,19 +27,188 @@ ValidationResult Unsupported(const char *field, const char *detail,
 }
 
 bool IsFiniteOrdered(const OgreNextPssmSplitPolicy &policy) noexcept {
-  for (std::size_t index = 0U; index < policy.split_points.size(); ++index) {
+  if (policy.cascade_count < 2U ||
+      policy.cascade_count > kOgreNextPssmMaxCascadeCount) {
+    return false;
+  }
+  for (std::size_t index = 0U; index <= policy.cascade_count; ++index) {
     if (!IsFinite(policy.split_points[index]) ||
         (index != 0U &&
          policy.split_points[index] <= policy.split_points[index - 1U])) {
       return false;
     }
   }
-  for (const float blend : policy.blend_points) {
-    if (!IsFinite(blend)) {
+  for (std::size_t index = 0U; index + 1U < policy.cascade_count; ++index) {
+    if (!IsFinite(policy.blend_points[index])) {
       return false;
     }
   }
   return IsFinite(policy.fade_point);
+}
+
+/// Stage-3 quality defaults requested by the combined presenter: one more
+/// cascade and a 1200 m shadow horizon over the same near plane, with the
+/// second cascade promoted to 2048^2 so the 15-50 m band roughly doubles its
+/// texel density relative to the V1 checkpoint.
+constexpr std::uint32_t kOgreNextPssmModernCascadeCount = 4U;
+constexpr float kOgreNextPssmModernFarMeters = 1200.0F;
+constexpr float kOgreNextPssmModernLambda = 0.96F;
+constexpr std::array<std::uint32_t, kOgreNextPssmMaxCascadeCount>
+    kOgreNextPssmModernResolutions{{2048U, 2048U, 1024U, 1024U}};
+constexpr std::array<std::uint32_t, kOgreNextPssmMaxCascadeCount>
+    kOgreNextPssmLegacyResolutions{{2048U, 1024U, 1024U, 1024U}};
+constexpr std::uint32_t kOgreNextPssmMaxAtlasDimension = 8192U;
+
+std::atomic<bool> g_modern_shadow_defaults_requested{false};
+
+bool IsPowerOfTwoResolution(std::uint32_t value) noexcept {
+  return value >= 256U && value <= 4096U && (value & (value - 1U)) == 0U;
+}
+
+/// Deterministic shelf packing: cascade zero pins the atlas width; later
+/// cascades fill left-to-right shelves in declaration order. Reproduces the
+/// exact V1 layout (2048^2 above two 1024^2 tiles in one 2048x3072 atlas)
+/// for the legacy resolution set.
+bool PackCascadeShelves(const std::array<std::uint32_t,
+                                         kOgreNextPssmMaxCascadeCount> &sizes,
+                        std::uint32_t cascade_count,
+                        OgreNextPssmShadowQualityConfig &config) noexcept {
+  if (cascade_count < 2U || cascade_count > kOgreNextPssmMaxCascadeCount) {
+    return false;
+  }
+  const std::uint32_t atlas_width = sizes[0U];
+  std::uint32_t shelf_y = 0U;
+  std::uint32_t shelf_height = 0U;
+  std::uint32_t cursor_x = 0U;
+  for (std::size_t index = 0U; index < cascade_count; ++index) {
+    const std::uint32_t size = sizes[index];
+    if (!IsPowerOfTwoResolution(size) || size > atlas_width) {
+      return false;
+    }
+    if (cursor_x + size > atlas_width) {
+      shelf_y += shelf_height;
+      shelf_height = 0U;
+      cursor_x = 0U;
+    }
+    config.layouts[index].width = size;
+    config.layouts[index].height = size;
+    config.layouts[index].atlas_x = cursor_x;
+    config.layouts[index].atlas_y = shelf_y;
+    cursor_x += size;
+    shelf_height = std::max(shelf_height, size);
+  }
+  config.atlas_width = atlas_width;
+  config.atlas_height = shelf_y + shelf_height;
+  return config.atlas_width <= kOgreNextPssmMaxAtlasDimension &&
+         config.atlas_height <= kOgreNextPssmMaxAtlasDimension;
+}
+
+bool ParseEnvUnsigned(const char *name, std::uint32_t minimum,
+                      std::uint32_t maximum, std::uint32_t &value) noexcept {
+  const char *raw = std::getenv(name);
+  if (raw == nullptr || raw[0U] == '\0') {
+    return false;
+  }
+  char *end = nullptr;
+  const unsigned long parsed = std::strtoul(raw, &end, 10);
+  if (end == raw || *end != '\0' || parsed < minimum || parsed > maximum) {
+    return false;
+  }
+  value = static_cast<std::uint32_t>(parsed);
+  return true;
+}
+
+bool ParseEnvFloat(const char *name, float minimum, float maximum,
+                   float &value) noexcept {
+  const char *raw = std::getenv(name);
+  if (raw == nullptr || raw[0U] == '\0') {
+    return false;
+  }
+  char *end = nullptr;
+  const float parsed = std::strtof(raw, &end);
+  if (end == raw || *end != '\0' || !std::isfinite(parsed) ||
+      parsed < minimum || parsed > maximum) {
+    return false;
+  }
+  value = parsed;
+  return true;
+}
+
+OgreNextPssmShadowQualityConfig ResolveShadowQualityConfig() noexcept {
+  OgreNextPssmShadowQualityConfig config;
+  std::array<std::uint32_t, kOgreNextPssmMaxCascadeCount> resolutions =
+      kOgreNextPssmLegacyResolutions;
+  const bool modern = g_modern_shadow_defaults_requested.load(
+      std::memory_order_acquire);
+  const char *legacy_raw = std::getenv("ROR_SHADOW_LEGACY");
+  const bool legacy_forced =
+      legacy_raw != nullptr && std::strcmp(legacy_raw, "1") == 0;
+  if (modern && !legacy_forced) {
+    config.cascade_count = kOgreNextPssmModernCascadeCount;
+    config.far_meters = kOgreNextPssmModernFarMeters;
+    config.lambda = kOgreNextPssmModernLambda;
+    resolutions = kOgreNextPssmModernResolutions;
+    std::uint32_t knob_unsigned = 0U;
+    float knob_float = 0.0F;
+    if (ParseEnvUnsigned("ROR_SHADOW_CASCADES", 2U,
+                         kOgreNextPssmMaxCascadeCount, knob_unsigned)) {
+      config.cascade_count = knob_unsigned;
+    }
+    if (ParseEnvFloat("ROR_SHADOW_FAR_M", 100.0F, 4000.0F, knob_float)) {
+      config.far_meters = knob_float;
+    }
+    if (ParseEnvFloat("ROR_SHADOW_LAMBDA", 0.5F, 0.99F, knob_float)) {
+      config.lambda = knob_float;
+    }
+    const char *resolution_raw = std::getenv("ROR_SHADOW_RES");
+    if (resolution_raw != nullptr && resolution_raw[0U] != '\0') {
+      std::array<std::uint32_t, kOgreNextPssmMaxCascadeCount> parsed =
+          resolutions;
+      const char *cursor = resolution_raw;
+      bool valid = true;
+      for (std::size_t index = 0U;
+           valid && index < config.cascade_count; ++index) {
+        char *end = nullptr;
+        const unsigned long value = std::strtoul(cursor, &end, 10);
+        if (end == cursor ||
+            !IsPowerOfTwoResolution(static_cast<std::uint32_t>(value))) {
+          valid = false;
+          break;
+        }
+        parsed[index] = static_cast<std::uint32_t>(value);
+        cursor = end;
+        if (index + 1U < config.cascade_count) {
+          if (*cursor != ',') {
+            valid = false;
+            break;
+          }
+          ++cursor;
+        }
+      }
+      if (valid && *cursor == '\0') {
+        resolutions = parsed;
+      }
+    }
+  }
+  if (!PackCascadeShelves(resolutions, config.cascade_count, config)) {
+    // Fail closed onto the reviewed V1 checkpoint layout.
+    config = OgreNextPssmShadowQualityConfig{};
+    (void)PackCascadeShelves(kOgreNextPssmLegacyResolutions,
+                             config.cascade_count, config);
+  }
+  if (modern) {
+    std::fprintf(stderr,
+                 "[RoR|PssmShadowConfig] cascades=%u far_m=%.1f lambda=%.3f "
+                 "atlas=%ux%u res=%u,%u,%u,%u legacy_forced=%d\n",
+                 config.cascade_count,
+                 static_cast<double>(config.far_meters),
+                 static_cast<double>(config.lambda), config.atlas_width,
+                 config.atlas_height, config.layouts[0U].width,
+                 config.layouts[1U].width, config.layouts[2U].width,
+                 config.layouts[3U].width,
+                 legacy_forced ? 1 : 0);
+  }
+  return config;
 }
 
 bool NearlyEqual(float lhs, float rhs) noexcept {
@@ -71,40 +245,61 @@ bool IsKnownOgreNextDirectionalShadowMode(
   return false;
 }
 
+void RequestOgreNextPssmModernShadowQualityDefaults() noexcept {
+  g_modern_shadow_defaults_requested.store(true, std::memory_order_release);
+}
+
+const OgreNextPssmShadowQualityConfig &
+GetOgreNextPssmShadowQualityConfig() noexcept {
+  static const OgreNextPssmShadowQualityConfig config =
+      ResolveShadowQualityConfig();
+  return config;
+}
+
 bool TryBuildOgreNextPssmSplitPolicy(
     OgreNextPssmSplitPolicy &output) noexcept {
+  const OgreNextPssmShadowQualityConfig &config =
+      GetOgreNextPssmShadowQualityConfig();
+  const std::uint32_t cascade_count = config.cascade_count;
+  const float far_meters = config.far_meters;
+  const float lambda = config.lambda;
+  if (cascade_count < 2U || cascade_count > kOgreNextPssmMaxCascadeCount ||
+      !IsFinite(far_meters) || far_meters <= kOgreNextPssmNearMeters ||
+      !IsFinite(lambda) || lambda <= 0.0F || lambda >= 1.0F) {
+    return false;
+  }
   OgreNextPssmSplitPolicy candidate;
+  candidate.cascade_count = cascade_count;
   candidate.split_points[0U] = kOgreNextPssmNearMeters;
-  for (std::size_t index = 1U; index < kOgreNextPssmCascadeCount; ++index) {
+  for (std::size_t index = 1U; index < cascade_count; ++index) {
     const float fraction = static_cast<float>(index) /
-                           static_cast<float>(kOgreNextPssmCascadeCount);
+                           static_cast<float>(cascade_count);
     const float logarithmic =
         kOgreNextPssmNearMeters *
-        std::pow(kOgreNextPssmFarMeters / kOgreNextPssmNearMeters,
+        std::pow(far_meters / kOgreNextPssmNearMeters,
                  fraction);
     const float uniform =
         kOgreNextPssmNearMeters +
-        fraction * (kOgreNextPssmFarMeters - kOgreNextPssmNearMeters);
+        fraction * (far_meters - kOgreNextPssmNearMeters);
     candidate.split_points[index] =
-        kOgreNextPssmLambda * logarithmic +
-        (1.0F - kOgreNextPssmLambda) * uniform;
+        lambda * logarithmic +
+        (1.0F - lambda) * uniform;
     candidate.blend_points[index - 1U] =
         candidate.split_points[index] +
         (candidate.split_points[index - 1U] -
          candidate.split_points[index]) *
             kOgreNextPssmSplitBlend;
   }
-  candidate.split_points[kOgreNextPssmCascadeCount] =
-      kOgreNextPssmFarMeters;
+  candidate.split_points[cascade_count] = far_meters;
   candidate.fade_point =
-      candidate.split_points[kOgreNextPssmCascadeCount] +
-      (candidate.split_points[kOgreNextPssmCascadeCount - 1U] -
-       candidate.split_points[kOgreNextPssmCascadeCount]) *
+      candidate.split_points[cascade_count] +
+      (candidate.split_points[cascade_count - 1U] -
+       candidate.split_points[cascade_count]) *
           kOgreNextPssmSplitFade;
   if (!IsFiniteOrdered(candidate)) {
     return false;
   }
-  for (std::size_t index = 0U; index < candidate.blend_points.size(); ++index) {
+  for (std::size_t index = 0U; index + 1U < cascade_count; ++index) {
     if (!(candidate.blend_points[index] > candidate.split_points[index] &&
           candidate.blend_points[index] <
               candidate.split_points[index + 1U])) {
@@ -112,8 +307,8 @@ bool TryBuildOgreNextPssmSplitPolicy(
     }
   }
   if (!(candidate.fade_point >
-            candidate.split_points[kOgreNextPssmCascadeCount - 1U] &&
-        candidate.fade_point < kOgreNextPssmFarMeters)) {
+            candidate.split_points[cascade_count - 1U] &&
+        candidate.fade_point < far_meters)) {
     return false;
   }
   output = candidate;

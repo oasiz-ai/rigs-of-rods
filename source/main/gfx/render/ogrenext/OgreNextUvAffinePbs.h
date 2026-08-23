@@ -23,8 +23,12 @@ inline constexpr char kOgreNextUvAffinePbsProperty[] =
     "ror_uv0_affine_pbs";
 inline constexpr char kOgreNextThinSlabPbsProperty[] =
     "ror_thin_slab_transmission";
+inline constexpr char kOgreNextIndirectAlphaPbsProperty[] =
+    "ror_indirect_alpha";
 inline constexpr char kOgreNextUvAffinePbsMediaPath[] =
     "Hlms/RoR/UvAffinePbs";
+inline constexpr char kOgreNextIndirectAlphaPbsMediaPath[] =
+    "Hlms/RoR/IndirectAlpha";
 
 /// Keeps upstream PBS behavior intact for every non-RoR datablock. The
 /// frontend-owned RT4/V1 prefix selects one custom UV macro piece in both the
@@ -38,6 +42,15 @@ public:
       const Ogre::HlmsDatablock *datablock) noexcept;
   [[nodiscard]] static bool SelectsThinSlabTransmissionShader(
       const Ogre::HlmsDatablock *datablock) noexcept;
+
+  /// Stage-3 screen-space shade: when enabled, every opaque RT4/V1 PBS
+  /// datablock writes its indirect-luminance fraction into the scene alpha
+  /// (Hlms/RoR/IndirectAlpha). Must be decided once before the first shader
+  /// is generated; the frontend enables it exactly when the screen-shade
+  /// node is part of the workspace, so a disabled shade graph keeps the
+  /// stock alpha-1.0 shaders byte-identical.
+  static void SetIndirectAlphaExportEnabled(bool enabled) noexcept;
+  [[nodiscard]] static bool IndirectAlphaExportEnabled() noexcept;
 
 protected:
   void calculateHashForPreCreate(Ogre::Renderable *renderable,

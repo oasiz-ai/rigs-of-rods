@@ -263,8 +263,8 @@ struct OgreNextStage0DistanceCullPolicy final {
   /// Cascade band far ends and the minimum world-bounds radius an object
   /// needs to still cover kOgreNextStage0CasterCullTexels texels of that
   /// cascade's estimated texel density.
-  std::array<float, kOgreNextPssmCascadeCount> band_end{};
-  std::array<float, kOgreNextPssmCascadeCount> minimum_caster_radius{};
+  std::array<float, kOgreNextPssmMaxCascadeCount> band_end{};
+  std::array<float, kOgreNextPssmMaxCascadeCount> minimum_caster_radius{};
 
   bool operator==(const OgreNextStage0DistanceCullPolicy &other)
       const noexcept {
@@ -326,6 +326,8 @@ bool BuildOgreNextStage0DistanceCullPolicy(
     }
   }
   if (shadow_lever && shadow_plan_enabled) {
+    const OgreNextPssmShadowQualityConfig &shadow_config =
+        GetOgreNextPssmShadowQualityConfig();
     OgreNextPssmSplitPolicy splits;
     bool bands_valid = TryBuildOgreNextPssmSplitPolicy(splits);
     if (bands_valid) {
@@ -333,7 +335,7 @@ bool BuildOgreNextStage0DistanceCullPolicy(
       const float tan_y = 1.0F / projection_scale_y;
       const float corner_scale = tan_x * tan_x + tan_y * tan_y;
       for (std::size_t index = 0U;
-           bands_valid && index < kOgreNextPssmCascadeCount; ++index) {
+           bands_valid && index < shadow_config.cascade_count; ++index) {
         const float near_z = splits.split_points[index];
         const float far_z = splits.split_points[index + 1U];
         // Bounding sphere of the perspective frustum slice [near_z, far_z]:
@@ -350,7 +352,7 @@ bool BuildOgreNextStage0DistanceCullPolicy(
             (far_z - center_z) * (far_z - center_z) + corner_far));
         const float texel =
             2.0F * radius * kOgreNextPssmXyPadding /
-            static_cast<float>(kOgreNextPssmCascadeLayouts[index].width);
+            static_cast<float>(shadow_config.layouts[index].width);
         const float minimum_radius = texel *
                                      (kOgreNextStage0CasterCullTexels * 0.5F) *
                                      kOgreNextStage0CasterTexelMargin;
@@ -1387,6 +1389,7 @@ RenderOperationResult ValidateShaderArchives(
   Ogre::StringVector pbs_libraries;
   Ogre::HlmsPbs::getDefaultPaths(pbs_data, pbs_libraries);
   pbs_libraries.emplace_back(kOgreNextUvAffinePbsMediaPath);
+  pbs_libraries.emplace_back(kOgreNextIndirectAlphaPbsMediaPath);
   Ogre::String unlit_data;
   Ogre::StringVector unlit_libraries;
   Ogre::HlmsUnlit::getDefaultPaths(unlit_data, unlit_libraries);
@@ -1401,11 +1404,19 @@ RenderOperationResult ValidateShaderArchives(
 }
 
 Ogre::HlmsPbs *RegisterPbs(Ogre::Root &root,
-                           const std::string &resolved_media_root) {
+                           const std::string &resolved_media_root,
+                           bool enable_indirect_alpha_export) {
   Ogre::String data_path;
   Ogre::StringVector library_paths;
   Ogre::HlmsPbs::getDefaultPaths(data_path, library_paths);
   library_paths.emplace_back(kOgreNextUvAffinePbsMediaPath);
+  library_paths.emplace_back(kOgreNextIndirectAlphaPbsMediaPath);
+  // Decide the indirect-alpha export once, before the first PBS shader hash
+  // exists. Only the single-evaluation topology consumes the exported
+  // fraction; the DIRECTIONAL_SPLIT_V2 evidence chain keeps its canonical
+  // alpha-one scene targets.
+  OgreNextUvAffinePbs::SetIndirectAlphaExportEnabled(
+      enable_indirect_alpha_export);
   const Ogre::String media_root = Ogre::String(resolved_media_root) + "/";
   Ogre::ArchiveManager &archives = Ogre::ArchiveManager::getSingleton();
   Ogre::Archive *data =
@@ -1516,17 +1527,19 @@ void CreateAndVerifyPssmShadowNode(
     const Ogre::RenderSystemCapabilities &capabilities,
     const std::string &shadow_node_name,
     std::uint32_t native_visibility_mask) {
+  const OgreNextPssmShadowQualityConfig &shadow_config =
+      GetOgreNextPssmShadowQualityConfig();
   Ogre::ShadowNodeHelper::ShadowParam parameter{};
   parameter.supportedLightTypes = 0U;
   parameter.addLightType(Ogre::Light::LT_DIRECTIONAL);
   parameter.technique = Ogre::SHADOWMAP_PSSM;
   parameter.numPssmSplits =
-      static_cast<Ogre::uint8>(kOgreNextPssmCascadeCount);
+      static_cast<Ogre::uint8>(shadow_config.cascade_count);
   parameter.atlasId = 0U;
-  for (std::size_t index = 0U; index < kOgreNextPssmCascadeCount;
+  for (std::size_t index = 0U; index < shadow_config.cascade_count;
        ++index) {
     const OgreNextPssmCascadeLayout &layout =
-        kOgreNextPssmCascadeLayouts[index];
+        shadow_config.layouts[index];
     parameter.resolution[index] =
         Ogre::ShadowNodeHelper::Resolution(layout.width, layout.height);
     parameter.atlasStart[index] =
@@ -1536,7 +1549,7 @@ void CreateAndVerifyPssmShadowNode(
   parameters.push_back(parameter);
   Ogre::ShadowNodeHelper::createShadowNodeWithSettings(
       &compositors, &capabilities, shadow_node_name, parameters, false,
-      1024U, kOgreNextPssmLambda, kOgreNextPssmSplitPaddingMeters,
+      1024U, shadow_config.lambda, kOgreNextPssmSplitPaddingMeters,
       kOgreNextPssmSplitBlend, kOgreNextPssmSplitFade,
       kOgreNextPssmStableCascadeCount, native_visibility_mask,
       kOgreNextPssmXyPadding, 0U, 255U);
@@ -1550,16 +1563,16 @@ void CreateAndVerifyPssmShadowNode(
           Ogre::IdString(shadow_node_name));
   if (definition == nullptr ||
       definition->getNumShadowTextureDefinitions() !=
-          kOgreNextPssmCascadeCount ||
+          shadow_config.cascade_count ||
       definition->getNumTargetPasses() !=
-          kOgreNextPssmCascadeCount + 1U) {
+          shadow_config.cascade_count + 1U) {
     throw std::runtime_error(
-        "Ogre-Next PSSM helper substituted the reviewed three-cascade node topology");
+        "Ogre-Next PSSM helper substituted the reviewed cascade node topology");
   }
   const auto &textures = definition->getLocalTextureDefinitions();
   if (textures.size() != 1U ||
-      textures.front().width != kOgreNextPssmAtlasWidth ||
-      textures.front().height != kOgreNextPssmAtlasHeight ||
+      textures.front().width != shadow_config.atlas_width ||
+      textures.front().height != shadow_config.atlas_height ||
       textures.front().format != Ogre::PFG_D32_FLOAT ||
       textures.front().depthBufferFormat != Ogre::PFG_D32_FLOAT ||
       textures.front().preferDepthTexture || textures.front().fsaa != "1" ||
@@ -1567,10 +1580,10 @@ void CreateAndVerifyPssmShadowNode(
           (Ogre::TextureFlags::RenderToTexture |
            Ogre::TextureFlags::DiscardableContent)) {
     throw std::runtime_error(
-        "Ogre-Next PSSM helper substituted the reviewed 2048x3072 D32_FLOAT atlas");
+        "Ogre-Next PSSM helper substituted the reviewed D32_FLOAT atlas");
   }
 
-  for (std::size_t index = 0U; index < kOgreNextPssmCascadeCount;
+  for (std::size_t index = 0U; index < shadow_config.cascade_count;
        ++index) {
     Ogre::ShadowTextureDefinition *shadow =
         definition->getShadowTextureDefinitionNonConst(index);
@@ -1580,26 +1593,26 @@ void CreateAndVerifyPssmShadowNode(
     shadow->autoNormalOffsetBiasScale =
         kOgreNextPssmAutoNormalOffsetBiasScale;
     const OgreNextPssmCascadeLayout &layout =
-        kOgreNextPssmCascadeLayouts[index];
+        shadow_config.layouts[index];
     const Ogre::Vector2 expected_offset(
         static_cast<float>(layout.atlas_x) /
-            static_cast<float>(kOgreNextPssmAtlasWidth),
+            static_cast<float>(shadow_config.atlas_width),
         static_cast<float>(layout.atlas_y) /
-            static_cast<float>(kOgreNextPssmAtlasHeight));
+            static_cast<float>(shadow_config.atlas_height));
     const Ogre::Vector2 expected_length(
         static_cast<float>(layout.width) /
-            static_cast<float>(kOgreNextPssmAtlasWidth),
+            static_cast<float>(shadow_config.atlas_width),
         static_cast<float>(layout.height) /
-            static_cast<float>(kOgreNextPssmAtlasHeight));
+            static_cast<float>(shadow_config.atlas_height));
     if (shadow->light != 0U || shadow->split != index ||
         shadow->shadowMapTechnique != Ogre::SHADOWMAP_PSSM ||
-        shadow->numSplits != kOgreNextPssmCascadeCount ||
+        shadow->numSplits != shadow_config.cascade_count ||
         shadow->numStableSplits != kOgreNextPssmStableCascadeCount ||
         !NearlyEqual(shadow->uvOffset.x, expected_offset.x) ||
         !NearlyEqual(shadow->uvOffset.y, expected_offset.y) ||
         !NearlyEqual(shadow->uvLength.x, expected_length.x) ||
         !NearlyEqual(shadow->uvLength.y, expected_length.y) ||
-        !NearlyEqual(shadow->pssmLambda, kOgreNextPssmLambda) ||
+        !NearlyEqual(shadow->pssmLambda, shadow_config.lambda) ||
         !NearlyEqual(shadow->splitPadding,
                      kOgreNextPssmSplitPaddingMeters) ||
         !NearlyEqual(shadow->splitBlend, kOgreNextPssmSplitBlend) ||
@@ -1621,7 +1634,7 @@ void CreateAndVerifyPssmShadowNode(
   const std::uint32_t expected_shadow_visibility_mask =
       native_visibility_mask | Ogre::VisibilityFlags::LAYER_SHADOW_CASTER;
   for (std::size_t target_index = 1U;
-       target_index < kOgreNextPssmCascadeCount + 1U; ++target_index) {
+       target_index < shadow_config.cascade_count + 1U; ++target_index) {
     const Ogre::CompositorPassDefVec &passes =
         definition->getTargetPass(target_index)->getCompositorPasses();
     const auto *scene_pass =
@@ -1762,7 +1775,7 @@ void UnbindAndVerifyPssmWorkspace(
 
 struct NativePssmReadback final {
   OgreNextPssmSplitPolicy splits;
-  std::array<float, kOgreNextPssmCascadeCount> normal_offset_bias{};
+  std::array<float, kOgreNextPssmMaxCascadeCount> normal_offset_bias{};
 };
 
 NativePssmReadback ReadAndVerifyNativePssmState(
@@ -1776,12 +1789,14 @@ NativePssmReadback ReadAndVerifyNativePssmState(
       shadow_node != nullptr ? shadow_node->getPssmBlends(0U) : nullptr;
   const Ogre::Real *native_fade =
       shadow_node != nullptr ? shadow_node->getPssmFade(0U) : nullptr;
+  const OgreNextPssmShadowQualityConfig &shadow_config =
+      GetOgreNextPssmShadowQualityConfig();
   OgreNextPssmSplitPolicy expected;
   if (shadow_node == nullptr || native_splits == nullptr ||
       native_blends == nullptr || native_fade == nullptr ||
       shadow_node->getNumActiveShadowCastingLights() != 1U ||
-      native_splits->size() != kOgreNextPssmCascadeCount + 1U ||
-      native_blends->size() != kOgreNextPssmCascadeCount - 1U ||
+      native_splits->size() != shadow_config.cascade_count + 1U ||
+      native_blends->size() != shadow_config.cascade_count - 1U ||
       !TryBuildOgreNextPssmSplitPolicy(expected)) {
     std::ostringstream detail;
     detail << "Ogre-Next PSSM runtime did not expose the reviewed cascade split state"
@@ -1799,6 +1814,7 @@ NativePssmReadback ReadAndVerifyNativePssmState(
     throw std::runtime_error(detail.str());
   }
   NativePssmReadback observed;
+  observed.splits.cascade_count = shadow_config.cascade_count;
   for (std::size_t index = 0U; index < native_splits->size(); ++index) {
     observed.splits.split_points[index] = (*native_splits)[index];
     if (!NearlyEqual(observed.splits.split_points[index],
@@ -1820,7 +1836,8 @@ NativePssmReadback ReadAndVerifyNativePssmState(
     throw std::runtime_error(
         "Ogre-Next PSSM runtime substituted the terminal fade point");
   }
-  for (std::size_t index = 0U; index < kOgreNextPssmCascadeCount; ++index) {
+  for (std::size_t index = 0U; index < shadow_config.cascade_count;
+       ++index) {
     if (!shadow_node->isShadowMapIdxActive(index)) {
       throw std::runtime_error(
           "Ogre-Next PSSM runtime left a reviewed cascade inactive");
@@ -1915,15 +1932,18 @@ ProbePssmD32Atlas(Ogre::TextureGpuManager &texture_manager
         OgreNextN1PssmFailureStage::AFTER_D32_ATLAS_CREATE,
         "injected PSSM D32 post-create rollback failure");
 #endif
-    texture->setResolution(kOgreNextPssmAtlasWidth, kOgreNextPssmAtlasHeight);
+    const OgreNextPssmShadowQualityConfig &shadow_config =
+        GetOgreNextPssmShadowQualityConfig();
+    texture->setResolution(shadow_config.atlas_width,
+                           shadow_config.atlas_height);
     texture->setNumMipmaps(1U);
     texture->setPixelFormat(Ogre::PFG_D32_FLOAT);
     texture->scheduleTransitionTo(Ogre::GpuResidency::Resident);
     OgreNextStage0TimedStreamingWait(texture_manager, "pssm_atlas_create");
     if (!texture->isDataReady() ||
         texture->getResidencyStatus() != Ogre::GpuResidency::Resident ||
-        texture->getWidth() != kOgreNextPssmAtlasWidth ||
-        texture->getHeight() != kOgreNextPssmAtlasHeight ||
+        texture->getWidth() != shadow_config.atlas_width ||
+        texture->getHeight() != shadow_config.atlas_height ||
         texture->getPixelFormat() != Ogre::PFG_D32_FLOAT) {
       throw std::runtime_error(
           "Ogre-Next did not allocate the exact resident PSSM D32 atlas");
@@ -1940,11 +1960,12 @@ ProbePssmD32Atlas(Ogre::TextureGpuManager &texture_manager
       Ogre::Image2 readback;
       readback.convertFromTexture(texture, 0U, 0U);
       const Ogre::TextureBox pixels = readback.getData(0U);
-      if (readback.getWidth() != kOgreNextPssmAtlasWidth ||
-          readback.getHeight() != kOgreNextPssmAtlasHeight ||
+      if (readback.getWidth() != shadow_config.atlas_width ||
+          readback.getHeight() != shadow_config.atlas_height ||
           readback.getPixelFormat() != Ogre::PFG_D32_FLOAT ||
-          pixels.width != kOgreNextPssmAtlasWidth ||
-          pixels.height != kOgreNextPssmAtlasHeight || pixels.data == nullptr) {
+          pixels.width != shadow_config.atlas_width ||
+          pixels.height != shadow_config.atlas_height ||
+          pixels.data == nullptr) {
         throw std::runtime_error(
             "Ogre-Next PSSM D32 atlas staging readback metadata changed");
       }
@@ -2208,6 +2229,185 @@ TryComputeTaaReprojectionRows(const CameraViewRequest &view,
     rows[row] = Ogre::Vector4(x, y, z, w);
   }
   return true;
+}
+
+constexpr const char kOgreNextScreenShadeNode[] = "RoRScreenShadeNodeV1";
+constexpr const char kOgreNextScreenShadeInputTexture[] = "RoRShadeInputHdr";
+constexpr const char kOgreNextScreenShadeDepthInput[] =
+    "RoRShadeOpaqueDepth";
+constexpr const char kOgreNextScreenShadeBufferA[] = "RoRShadeBufferA";
+constexpr const char kOgreNextScreenShadeBufferB[] = "RoRShadeBufferB";
+constexpr const char kOgreNextScreenShadeOutputTexture[] =
+    "RoRShadeOutputHdr";
+constexpr const char kOgreNextScreenShadeAoMaterial[] =
+    "RoR/HDR/ScreenShadeAO";
+constexpr const char kOgreNextScreenShadeBlurHMaterial[] =
+    "RoR/HDR/ScreenShadeBlurH";
+constexpr const char kOgreNextScreenShadeBlurVMaterial[] =
+    "RoR/HDR/ScreenShadeBlurV";
+constexpr const char kOgreNextScreenShadeApplyMaterial[] =
+    "RoR/HDR/ScreenShadeApply";
+/// Terms that let a compositor shader recover view-space Z from one depth
+/// sample as `view_z = b / (depth - a)`, plus the depth a background/sky
+/// texel carries. Both depth conventions share the same shader expression;
+/// only these terms differ.
+struct OgreNextDepthLinearization final {
+  float a = 0.0F;
+  float b = 0.0F;
+  float background = 1.0F;
+};
+
+/// Ogre-Next defaults to reverse-Z (RenderSystem::mReverseDepth is
+/// constructed true and RoR never passes reverse_depth=false), which puts
+/// the near plane at depth 1 and the far plane at depth 0. Deriving these
+/// terms from the non-reversed convention against a reverse-Z buffer
+/// collapses every real depth onto the near plane - at near=0.5/far=12000
+/// the entire 5-500 m band linearizes to 0.50-0.56 m - so every depth-driven
+/// screen-space pass silently degrades into a constant. Read the convention
+/// from the render system rather than assuming one.
+[[nodiscard]] bool ResolveOgreNextDepthLinearization(
+    const Ogre::RenderSystem *render_system, float near_plane,
+    float far_plane, OgreNextDepthLinearization &out) noexcept {
+  const float plane_span = far_plane - near_plane;
+  if (render_system == nullptr || !IsFinite(near_plane) ||
+      !IsFinite(far_plane) || near_plane <= 0.0F || !(plane_span > 0.0F)) {
+    return false;
+  }
+  if (render_system->isReverseDepth()) {
+    out.a = -near_plane / plane_span;
+    out.b = (far_plane * near_plane) / plane_span;
+    out.background = 0.0F;
+  } else {
+    out.a = far_plane / plane_span;
+    out.b = -(far_plane * near_plane) / plane_span;
+    out.background = 1.0F;
+  }
+  return IsFinite(out.a) && IsFinite(out.b);
+}
+
+/// Depth-aware blur rejection: taps whose relative linear-depth difference
+/// reaches 1/8 of the centre depth lose ~90% of their Gaussian weight.
+constexpr float kOgreNextScreenShadeBlurDepthReject = 64.0F;
+/// Upper bound for the AO spiral's screen-space radius so a near-camera
+/// surface cannot degenerate into a full-screen gather.
+constexpr float kOgreNextScreenShadeMaxRadiusPixels = 48.0F;
+/// Cosine bias subtracted from every AO sample so shading-normal noise on
+/// flat surfaces never reads as occlusion.
+constexpr float kOgreNextScreenShadeAngleBias = 0.02F;
+
+/// Stage-3 screen-space shade tiers (GTAO-class ambient obscurance on the
+/// indirect term, screen-space sun contact shadows on the direct term),
+/// resolved once from fail-closed environment knobs:
+///   ROR_AO=off|half|full            (default half: half-res shade buffer)
+///   ROR_AO_RADIUS_M / ROR_AO_STRENGTH / ROR_AO_POWER / ROR_AO_SAMPLES
+///   ROR_CONTACT=off|short|full      (default short: 0.9 m, 12 steps)
+///   ROR_CONTACT_LENGTH_M / ROR_CONTACT_STRENGTH / ROR_CONTACT_STEPS
+/// Any unparsable or out-of-range knob keeps its tier default. Both terms
+/// off removes the node from the workspace entirely, which keeps the
+/// established scene -> haze -> post graph byte-identical.
+struct OgreNextScreenShadeConfig final {
+  bool enabled = false;
+  float resolution_scale = 0.5F;
+  float ao_radius_m = 0.0F;
+  float ao_strength = 0.0F;
+  float ao_power = 1.5F;
+  float ao_sample_count = 0.0F;
+  float contact_length_m = 0.0F;
+  float contact_strength = 0.0F;
+  float contact_step_count = 0.0F;
+  float contact_thickness_m = 0.5F;
+};
+
+bool ParseShadeEnvFloat(const char *name, float minimum, float maximum,
+                        float &value) noexcept {
+  const char *raw = std::getenv(name);
+  if (raw == nullptr || raw[0U] == '\0') {
+    return false;
+  }
+  char *end = nullptr;
+  const float parsed = std::strtof(raw, &end);
+  if (end == raw || *end != '\0' || !std::isfinite(parsed) ||
+      parsed < minimum || parsed > maximum) {
+    return false;
+  }
+  value = parsed;
+  return true;
+}
+
+const OgreNextScreenShadeConfig &GetOgreNextScreenShadeConfig() {
+  static const OgreNextScreenShadeConfig config = [] {
+    OgreNextScreenShadeConfig resolved;
+    const char *ao_raw = std::getenv("ROR_AO");
+    const std::string ao_mode(ao_raw != nullptr ? ao_raw : "half");
+    if (ao_mode == "half" || ao_mode == "full") {
+      // Tuned on the alley canyon against the shade-off reference. The
+      // original 1.2 m / 1.1 / 1.5 defaults only reached -10% at the
+      // strongest crevice and -1.1% frame mean, which reads as a wash on
+      // architectural scale; a 3 m radius spans the wall-to-wall occlusion
+      // an alley actually has. These values measure -23% at the strongest
+      // crevice and -3.0% frame mean while still never brightening a pixel
+      // (whole-frame maximum +0.01%) and leaving direct-lit surfaces at
+      // exactly +0.00%. The deep-shade canyon wall moves sRGB (87.0,80.5,
+      // 77.1) -> (79.1,72.9,69.8), still ~8x the pre-SH-seat (10,10,7)
+      // floor, so the raised sky fill is shaped rather than erased.
+      resolved.ao_radius_m = 3.0F;
+      resolved.ao_strength = 1.7F;
+      resolved.ao_power = 1.8F;
+      // The wider radius spreads the spiral, so both tiers take more taps.
+      resolved.ao_sample_count = ao_mode == "full" ? 16.0F : 12.0F;
+      resolved.resolution_scale = ao_mode == "full" ? 1.0F : 0.5F;
+      (void)ParseShadeEnvFloat("ROR_AO_RADIUS_M", 0.1F, 8.0F,
+                               resolved.ao_radius_m);
+      (void)ParseShadeEnvFloat("ROR_AO_STRENGTH", 0.0F, 4.0F,
+                               resolved.ao_strength);
+      (void)ParseShadeEnvFloat("ROR_AO_POWER", 0.25F, 6.0F,
+                               resolved.ao_power);
+      (void)ParseShadeEnvFloat("ROR_AO_SAMPLES", 4.0F, 24.0F,
+                               resolved.ao_sample_count);
+      resolved.ao_sample_count = std::floor(resolved.ao_sample_count);
+    }
+    const char *contact_raw = std::getenv("ROR_CONTACT");
+    const std::string contact_mode(
+        contact_raw != nullptr ? contact_raw : "short");
+    if (contact_mode == "short" || contact_mode == "full") {
+      const bool full = contact_mode == "full";
+      resolved.contact_length_m = full ? 2.5F : 0.9F;
+      resolved.contact_step_count = full ? 24.0F : 12.0F;
+      resolved.contact_strength = 0.7F;
+      resolved.contact_thickness_m = full ? 0.6F : 0.35F;
+      (void)ParseShadeEnvFloat("ROR_CONTACT_LENGTH_M", 0.1F, 10.0F,
+                               resolved.contact_length_m);
+      (void)ParseShadeEnvFloat("ROR_CONTACT_STRENGTH", 0.0F, 1.0F,
+                               resolved.contact_strength);
+      (void)ParseShadeEnvFloat("ROR_CONTACT_STEPS", 4.0F, 48.0F,
+                               resolved.contact_step_count);
+      resolved.contact_step_count =
+          std::floor(resolved.contact_step_count);
+    }
+    const bool ao_active =
+        resolved.ao_radius_m > 0.0F && resolved.ao_strength > 0.0F &&
+        resolved.ao_sample_count > 0.0F;
+    const bool contact_active = resolved.contact_length_m > 0.0F &&
+                                resolved.contact_strength > 0.0F &&
+                                resolved.contact_step_count > 0.0F;
+    resolved.enabled = ao_active || contact_active;
+    std::fprintf(
+        stderr,
+        "[RoR|ScreenShadeConfig] enabled=%d scale=%.2f ao=(r=%.2f s=%.2f "
+        "p=%.2f n=%.0f) contact=(l=%.2f s=%.2f n=%.0f t=%.2f)\n",
+        resolved.enabled ? 1 : 0,
+        static_cast<double>(resolved.resolution_scale),
+        static_cast<double>(resolved.ao_radius_m),
+        static_cast<double>(resolved.ao_strength),
+        static_cast<double>(resolved.ao_power),
+        static_cast<double>(resolved.ao_sample_count),
+        static_cast<double>(resolved.contact_length_m),
+        static_cast<double>(resolved.contact_strength),
+        static_cast<double>(resolved.contact_step_count),
+        static_cast<double>(resolved.contact_thickness_m));
+    return resolved;
+  }();
+  return config;
 }
 constexpr const char kOgreNextHdrSunVisibilityV2ContinuationWorkspace[] =
     "RoRHdrSunVisibilityV2Continuation";
@@ -2901,24 +3101,6 @@ void CreateAndVerifyAerialHazeNode(Ogre::CompositorManager2 &compositors) {
   }
 }
 
-// Stage 5 temporal AA node, single-scene topology only. Consumes the hazed
-// linear HDR radiance (channel 0) and the scene's exported D32 opaque depth
-// (channel 1), and emits the temporally resolved HDR frame for the stock
-// post node. Seven passes:
-//
-//   1. one-time clear of the persistent reactive mask (all zero: the tier-1
-//      reactive path relies on depth disocclusion and variance clipping for
-//      deforming soft-body geometry, and the mask stays wired so a later
-//      vehicle-mask tier is a content change, not a graph change),
-//   2. camera-reprojection motion vectors from depth,
-//   3. temporal resolve writing history slot B (even frames), and
-//   4. its odd sibling writing history slot A - the per-frame workspace
-//      execution mask enables exactly one of the two,
-//   5./6. a bit-exact FP32 copy of the freshly written history slot into the
-//      output texture the post node consumes (masked like 3./4.), and
-//   7. this frame's depth stored into the persistent R32 history for the
-//      next frame's disocclusion test - deliberately last, after the resolve
-//      consumed the previous depth.
 void CreateAndVerifyTemporalAaNode(Ogre::CompositorManager2 &compositors) {
   const Ogre::IdString node_name(kOgreNextTaaNode);
   if (compositors.hasNodeDefinition(node_name)) {
@@ -3178,6 +3360,153 @@ void CreateAndVerifyTemporalAaNode(Ogre::CompositorManager2 &compositors) {
   if (!exact) {
     throw std::runtime_error(
         "Ogre-Next temporal AA node topology failed exact definition readback");
+  }
+}
+
+void CreateAndVerifyScreenShadeNode(Ogre::CompositorManager2 &compositors,
+                                    float resolution_scale) {
+  const Ogre::IdString node_name(kOgreNextScreenShadeNode);
+  if (compositors.hasNodeDefinition(node_name) ||
+      !(resolution_scale > 0.0F && resolution_scale <= 1.0F)) {
+    throw std::runtime_error(
+        "Ogre-Next screen-shade node identity is not empty or its scale is "
+        "not representable");
+  }
+  Ogre::CompositorNodeDef *node =
+      compositors.addNodeDefinition(kOgreNextScreenShadeNode);
+  node->addTextureSourceName(kOgreNextScreenShadeInputTexture, 0U,
+                             Ogre::TextureDefinitionBase::TEXTURE_INPUT);
+  node->addTextureSourceName(kOgreNextScreenShadeDepthInput, 1U,
+                             Ogre::TextureDefinitionBase::TEXTURE_INPUT);
+
+  // Stage 5 renders the scene and its exported depth at the MetalFX
+  // internal render scale, so every screen-space buffer derived from them
+  // must ride the same factor. The shade tier scale composes on top of it:
+  // the AO/blur buffers are (tier x render) and the applied output matches
+  // the scene extent the haze node downstream expects. At the NATIVE tier
+  // the render scale is exactly 1.0 and these are the shipped factors.
+  const float render_scale = OgreNextMetalFxRenderScale();
+  node->setNumLocalTextureDefinitions(3U);
+  const auto add_texture = [&](const char *name, float scale) {
+    Ogre::TextureDefinitionBase::TextureDefinition *texture =
+        node->addTextureDefinition(name);
+    texture->textureType = Ogre::TextureTypes::Type2D;
+    texture->width = 0U;
+    texture->height = 0U;
+    texture->widthFactor = scale;
+    texture->heightFactor = scale;
+    texture->depthOrSlices = 1U;
+    texture->numMipmaps = 1U;
+    texture->format = Ogre::PFG_RGBA16_FLOAT;
+    texture->fsaa = "1";
+    texture->textureFlags = Ogre::TextureFlags::RenderToTexture |
+                            Ogre::TextureFlags::DiscardableContent;
+    texture->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
+    Ogre::RenderTargetViewDef *view = node->addRenderTextureView(name);
+    Ogre::RenderTargetViewEntry colour;
+    colour.textureName = name;
+    view->colourAttachments.push_back(colour);
+    view->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
+  };
+  const float buffer_factor = resolution_scale * render_scale;
+  add_texture(kOgreNextScreenShadeBufferA, buffer_factor);
+  add_texture(kOgreNextScreenShadeBufferB, buffer_factor);
+  add_texture(kOgreNextScreenShadeOutputTexture, render_scale);
+
+  node->setNumTargetPass(4U);
+  const auto add_quad = [&](const char *target_name,
+                            const char *material_name,
+                            std::initializer_list<const char *> sources) {
+    Ogre::CompositorTargetDef *target = node->addTargetPass(target_name);
+    target->setNumPasses(1U);
+    auto *quad = static_cast<Ogre::CompositorPassQuadDef *>(
+        target->addPass(Ogre::PASS_QUAD));
+    quad->mMaterialIsHlms = false;
+    quad->mMaterialName = material_name;
+    quad->mUseQuad = false;
+    std::size_t texture_unit = 0U;
+    for (const char *source : sources) {
+      quad->addQuadTextureSource(static_cast<std::uint32_t>(texture_unit),
+                                 source);
+      ++texture_unit;
+    }
+    quad->setAllLoadActions(Ogre::LoadAction::DontCare);
+    quad->mStoreActionColour[0] = Ogre::StoreAction::Store;
+    return quad;
+  };
+  add_quad(kOgreNextScreenShadeBufferA, kOgreNextScreenShadeAoMaterial,
+           {kOgreNextScreenShadeDepthInput});
+  add_quad(kOgreNextScreenShadeBufferB, kOgreNextScreenShadeBlurHMaterial,
+           {kOgreNextScreenShadeBufferA});
+  add_quad(kOgreNextScreenShadeBufferA, kOgreNextScreenShadeBlurVMaterial,
+           {kOgreNextScreenShadeBufferB});
+  add_quad(kOgreNextScreenShadeOutputTexture,
+           kOgreNextScreenShadeApplyMaterial,
+           {kOgreNextScreenShadeInputTexture, kOgreNextScreenShadeBufferA});
+
+  node->setNumOutputChannels(1U);
+  node->mapOutputChannel(0U, kOgreNextScreenShadeOutputTexture);
+
+  const auto &textures = node->getLocalTextureDefinitions();
+  const auto exact_quad = [&](std::size_t target_index,
+                              const char *target_name,
+                              const char *material_name,
+                              std::initializer_list<const char *> sources) {
+    Ogre::CompositorTargetDef *target = node->getTargetPass(target_index);
+    const Ogre::CompositorPassDefVec &passes =
+        target->getCompositorPasses();
+    const auto *quad =
+        passes.size() == 1U
+            ? dynamic_cast<const Ogre::CompositorPassQuadDef *>(
+                  passes.front())
+            : nullptr;
+    if (target->getRenderTargetName() != Ogre::IdString(target_name) ||
+        quad == nullptr || quad->mMaterialIsHlms || quad->mUseQuad ||
+        quad->mMaterialName != material_name ||
+        quad->getTextureSources().size() != sources.size()) {
+      return false;
+    }
+    std::size_t source_index = 0U;
+    for (const char *source : sources) {
+      const auto &binding = quad->getTextureSources()[source_index];
+      if (binding.texUnitIdx != source_index ||
+          binding.textureName != Ogre::IdString(source)) {
+        return false;
+      }
+      ++source_index;
+    }
+    return true;
+  };
+  const auto exact_texture = [&](std::size_t index, const char *name,
+                                 float scale) {
+    return textures[index].getName() == Ogre::IdString(name) &&
+           textures[index].format == Ogre::PFG_RGBA16_FLOAT &&
+           textures[index].width == 0U && textures[index].height == 0U &&
+           textures[index].widthFactor == scale &&
+           textures[index].heightFactor == scale &&
+           textures[index].depthBufferId == Ogre::DepthBuffer::POOL_NO_DEPTH;
+  };
+  if (textures.size() != 3U || node->getNumTargetPasses() != 4U ||
+      node->getNumOutputChannels() != 1U ||
+      node->calculateNumPasses() != 4U ||
+      !exact_texture(0U, kOgreNextScreenShadeBufferA, buffer_factor) ||
+      !exact_texture(1U, kOgreNextScreenShadeBufferB, buffer_factor) ||
+      !exact_texture(2U, kOgreNextScreenShadeOutputTexture, render_scale) ||
+      !exact_quad(0U, kOgreNextScreenShadeBufferA,
+                  kOgreNextScreenShadeAoMaterial,
+                  {kOgreNextScreenShadeDepthInput}) ||
+      !exact_quad(1U, kOgreNextScreenShadeBufferB,
+                  kOgreNextScreenShadeBlurHMaterial,
+                  {kOgreNextScreenShadeBufferA}) ||
+      !exact_quad(2U, kOgreNextScreenShadeBufferA,
+                  kOgreNextScreenShadeBlurVMaterial,
+                  {kOgreNextScreenShadeBufferB}) ||
+      !exact_quad(3U, kOgreNextScreenShadeOutputTexture,
+                  kOgreNextScreenShadeApplyMaterial,
+                  {kOgreNextScreenShadeInputTexture,
+                   kOgreNextScreenShadeBufferA})) {
+    throw std::runtime_error(
+        "Ogre-Next screen-shade node topology failed exact definition readback");
   }
 }
 
@@ -4179,6 +4508,13 @@ public:
   /// topologies keep their frozen graphs.
   [[nodiscard]] bool TemporalAaEnabled() const noexcept {
     return SingleSceneHdrPssmEnabled() && OgreNextTemporalAaRequested();
+  }
+
+  /// Stage-3 screen-space shade (AO + sun contact shadows) rides only the
+  /// single-evaluation production topology and its resolved tier config.
+  [[nodiscard]] bool ScreenShadeEnabled() const noexcept {
+    return SingleSceneHdrPssmEnabled() &&
+           GetOgreNextScreenShadeConfig().enabled;
   }
 
   [[nodiscard]] NativeSunVisibilityV2Result V2PresentationResult(
@@ -7537,8 +7873,27 @@ public:
     // HdrRenderUi edge below - is untouched, so the HUD stays post-tonemap
     // and unhazed.
     if (SingleSceneHdrPssmEnabled()) {
-      definition->connect(Ogre::IdString(kOgreNextHdrRenderingNode), 0U,
-                          Ogre::IdString(kOgreNextAerialHazeNode), 0U);
+      if (ScreenShadeEnabled()) {
+        // Stage 3: the shade node is the first hop out of the scene node,
+        // so the composed chain is scene -> shade -> haze -> TAA -> post
+        // whenever the later stages are on. The shade node consumes the
+        // same radiance/depth pair the haze node would and hands the haze
+        // node its modulated radiance; the haze depth edge is unchanged.
+        // Both the shade and TAA depth edges read the scene's exported D32
+        // directly, so neither is affected by the other's position in the
+        // chain, and AO/contact shading stays upstream of the temporal
+        // resolve - the resolve sees already-shaded radiance rather than
+        // having to keep a separately-shaded history coherent.
+        definition->connect(Ogre::IdString(kOgreNextHdrRenderingNode), 0U,
+                            Ogre::IdString(kOgreNextScreenShadeNode), 0U);
+        definition->connect(Ogre::IdString(kOgreNextHdrRenderingNode), 2U,
+                            Ogre::IdString(kOgreNextScreenShadeNode), 1U);
+        definition->connect(Ogre::IdString(kOgreNextScreenShadeNode), 0U,
+                            Ogre::IdString(kOgreNextAerialHazeNode), 0U);
+      } else {
+        definition->connect(Ogre::IdString(kOgreNextHdrRenderingNode), 0U,
+                            Ogre::IdString(kOgreNextAerialHazeNode), 0U);
+      }
       definition->connect(Ogre::IdString(kOgreNextHdrRenderingNode), 2U,
                           Ogre::IdString(kOgreNextAerialHazeNode), 1U);
       if (TemporalAaEnabled()) {
@@ -7594,16 +7949,21 @@ public:
         aliases.find(Ogre::IdString(kOgreNextAerialHazeNode)) != aliases.end();
     const bool has_taa =
         aliases.find(Ogre::IdString(kOgreNextTaaNode)) != aliases.end();
+    const bool has_shade =
+        aliases.find(Ogre::IdString(kOgreNextScreenShadeNode)) !=
+        aliases.end();
     const bool has_upstream_ui =
         aliases.find(Ogre::IdString(kOgreNextHdrUiNode)) != aliases.end();
     // The HDR UI node is now a required production member of the closure.
     constexpr bool expected_ui = true;
     // Haze is single-scene only; DIRECTIONAL_SPLIT_V2 keeps rendering -> post
-    // (or -> thin slab -> post) exactly as before. Temporal AA additionally
-    // requires the single-scene topology and its own kill-switch.
+    // (or -> thin slab -> post) exactly as before. The screen-shade node is
+    // additionally gated on its resolved tier configuration, and temporal AA
+    // on the single-scene topology plus its own kill-switch.
     if (!has_rendering || !has_postprocessing ||
         has_refraction != SunVisibilityV2Enabled() ||
         has_haze != SingleSceneHdrPssmEnabled() ||
+        has_shade != (SingleSceneHdrPssmEnabled() && ScreenShadeEnabled()) ||
         has_taa != TemporalAaEnabled() ||
         has_upstream_ui != expected_ui) {
       return HdrBackendFailure(
@@ -7831,6 +8191,28 @@ public:
       hdr_taa_node_definition_created = false;
     }
     if (destroy_definitions_and_resources && root &&
+        hdr_shade_node_definition_created) {
+      try {
+        Ogre::CompositorManager2 *compositors =
+            root->getCompositorManager2();
+        const Ogre::IdString shade_name(kOgreNextScreenShadeNode);
+        if (!compositors->hasNodeDefinition(shade_name)) {
+          clean = false;
+        } else {
+          compositors->removeNodeDefinition(shade_name);
+        }
+        clean = !compositors->hasNodeDefinition(shade_name) && clean;
+      } catch (...) {
+        clean = false;
+      }
+    } else if (destroy_definitions_and_resources &&
+               hdr_shade_node_definition_created) {
+      clean = false;
+    }
+    if (destroy_definitions_and_resources) {
+      hdr_shade_node_definition_created = false;
+    }
+    if (destroy_definitions_and_resources && root &&
         hdr_split_node_definition_created) {
       try {
         Ogre::CompositorManager2 *compositors =
@@ -7935,6 +8317,10 @@ public:
     hdr_aerial_haze_workspace_verified = false;
     hdr_aerial_haze_constants_bound = false;
     hdr_aerial_haze_applied = false;
+    hdr_screen_shade_workspace_verified = false;
+    hdr_screen_shade_constants_bound = false;
+    hdr_shade_buffer_width = 0U;
+    hdr_shade_buffer_height = 0U;
     hdr_auto_exposure_graph_verified = false;
     hdr_bloom_graph_verified = false;
     hdr_tone_map_graph_verified = false;
@@ -8203,7 +8589,16 @@ public:
       return HdrBackendFailure(
           "aerial haze cannot linearize a degenerate depth range");
     }
-    // Non-reversed [0, 1] depth: d = A + B / view_z, so view_z = B / (d - A).
+    // KNOWN DEFECT (pre-existing, not fixed here): these terms assume the
+    // non-reversed [0, 1] convention, but Ogre-Next runs reverse-Z, so
+    // view_z collapses onto the near plane and the haze extinction is
+    // effectively constant instead of distance-graded. The correct terms are
+    // a = -near/span, b = far*near/span (see
+    // ResolveOgreNextDepthLinearization), but the haze shader also excludes
+    // the sky with a hard-coded `fDepth >= 1.0` test that is only valid under
+    // the non-reversed convention: correcting the terms alone would give the
+    // sky dome a full 12 km of extinction. Fixing haze therefore needs the
+    // background depth plumbed into its constants as its own change.
     const float projection_a = far_plane / plane_span;
     const float projection_b = -(far_plane * near_plane) / plane_span;
     const Ogre::Vector4 coefficients(
@@ -8591,6 +8986,188 @@ public:
     return RenderOperationResult::Success();
   }
 
+  /// Binds one shade material's named vec4 constants exactly like the haze
+  /// constants: setNamedConstant followed by a _readRawConstants readback,
+  /// HdrBackendFailure on any mismatch.
+  [[nodiscard]] RenderOperationResult BindScreenShadeMaterialConstants(
+      const char *material_name,
+      const std::vector<std::pair<const char *, Ogre::Vector4>> &bindings) {
+    for (const auto &binding : bindings) {
+      const Ogre::Vector4 &value = binding.second;
+      if (!IsFinite(static_cast<float>(value.x)) ||
+          !IsFinite(static_cast<float>(value.y)) ||
+          !IsFinite(static_cast<float>(value.z)) ||
+          !IsFinite(static_cast<float>(value.w))) {
+        return HdrBackendFailure(
+            "screen-shade constant is not representable as finite binary32");
+      }
+    }
+    Ogre::MaterialPtr material = std::static_pointer_cast<Ogre::Material>(
+        Ogre::MaterialManager::getSingleton().load(
+            material_name, kOgreNextHdrResourceGroup));
+    if (!material || material->getNumTechniques() != 1U ||
+        material->getTechnique(0U) == nullptr ||
+        material->getTechnique(0U)->getNumPasses() != 1U) {
+      return HdrBackendFailure(
+          "screen-shade material lost its exact single-technique quad pass");
+    }
+    Ogre::Pass *pass = material->getTechnique(0U)->getPass(0U);
+    Ogre::GpuProgramParametersSharedPtr parameters =
+        pass->getFragmentProgramParameters();
+    if (!parameters) {
+      return HdrBackendFailure(
+          "screen-shade material exposes no fragment parameters");
+    }
+    for (const auto &binding : bindings) {
+      const Ogre::Vector4 &value = binding.second;
+      parameters->setNamedConstant(binding.first, value);
+      float observed[4U]{};
+      const Ogre::GpuConstantDefinition &definition =
+          parameters->getConstantDefinition(binding.first);
+      parameters->_readRawConstants(definition.physicalIndex, 4U, observed);
+      if (observed[0U] != static_cast<float>(value.x) ||
+          observed[1U] != static_cast<float>(value.y) ||
+          observed[2U] != static_cast<float>(value.z) ||
+          observed[3U] != static_cast<float>(value.w)) {
+        return HdrBackendFailure(
+            "screen-shade constant changed after deterministic binding");
+      }
+    }
+    return RenderOperationResult::Success();
+  }
+
+  [[nodiscard]] RenderOperationResult ConfigureScreenShadeParameters(
+      const Ogre::Vector4 &proj, const Ogre::Vector4 &depth_lin,
+      const Ogre::Vector4 &ao_params, const Ogre::Vector4 &ao_kernel,
+      const Ogre::Vector4 &contact_params,
+      const Ogre::Vector4 &sun_dir_view, const Ogre::Vector4 &blur_h,
+      const Ogre::Vector4 &blur_v) {
+    RenderOperationResult bound = BindScreenShadeMaterialConstants(
+        kOgreNextScreenShadeAoMaterial,
+        {{"shadeProj", proj},
+         {"shadeDepthLin", depth_lin},
+         {"shadeAoParams", ao_params},
+         {"shadeAoKernel", ao_kernel},
+         {"shadeContactParams", contact_params},
+         {"shadeSunDirView", sun_dir_view}});
+    if (!bound) {
+      return bound;
+    }
+    bound = BindScreenShadeMaterialConstants(
+        kOgreNextScreenShadeBlurHMaterial, {{"shadeBlurParams", blur_h}});
+    if (!bound) {
+      return bound;
+    }
+    bound = BindScreenShadeMaterialConstants(
+        kOgreNextScreenShadeBlurVMaterial, {{"shadeBlurParams", blur_v}});
+    if (bound) {
+      hdr_screen_shade_constants_bound = true;
+    }
+    return bound;
+  }
+
+  /// The canonical inert binding: well-defined projection terms so no
+  /// division can produce a NaN, and zero strengths so both shade terms
+  /// evaluate to exactly one. Used for the warmup frames and whenever a
+  /// frame cannot justify a live derivation.
+  [[nodiscard]] RenderOperationResult BindIdentityScreenShadeParameters() {
+    return ConfigureScreenShadeParameters(
+        Ogre::Vector4(1.0F, 1.0F, 0.0F, 0.0F),
+        Ogre::Vector4(0.0F, 1.0F, 1.0F, 1.0F),
+        Ogre::Vector4(0.0F, 0.0F, 0.0F, 1.0F),
+        Ogre::Vector4(kOgreNextScreenShadeMaxRadiusPixels,
+                      kOgreNextScreenShadeAngleBias, 0.0F, 0.0F),
+        Ogre::Vector4(0.0F, 0.0F, 0.0F, 0.0F),
+        Ogre::Vector4(0.0F, 0.0F, 1.0F, 0.0F),
+        Ogre::Vector4(0.0F, 0.0F, 0.0F, 0.0F),
+        Ogre::Vector4(0.0F, 0.0F, 0.0F, 0.0F));
+  }
+
+  /// Derives this frame's shade constants from the validated camera, the
+  /// resolved tier configuration, and the committed directional light.
+  [[nodiscard]] RenderOperationResult ConfigureScreenShadeForFrame(
+      const SceneSnapshot &snapshot, const CameraViewRequest &view) {
+    const OgreNextScreenShadeConfig &config = GetOgreNextScreenShadeConfig();
+    if (hdr_shade_buffer_width == 0U || hdr_shade_buffer_height == 0U) {
+      // The scaled shade buffer has not been resolved and verified yet
+      // (pre-refresh warmup): present this frame inert rather than deriving
+      // against unverified extents.
+      return BindIdentityScreenShadeParameters();
+    }
+    const float projection_m00 = view.clip_from_view.elements[0U];
+    const float projection_m05 = view.clip_from_view.elements[5U];
+    const float projection_m08 = view.clip_from_view.elements[8U];
+    const float projection_m09 = view.clip_from_view.elements[9U];
+    if (!IsFinite(projection_m00) || !IsFinite(projection_m05) ||
+        projection_m00 == 0.0F || projection_m05 == 0.0F ||
+        !IsFinite(projection_m08) || !IsFinite(projection_m09)) {
+      return HdrBackendFailure(
+          "screen shade cannot invert a degenerate projection scale");
+    }
+    const float near_plane = view.near_plane;
+    const float far_plane = view.far_plane;
+    const float plane_span = far_plane - near_plane;
+    if (!IsFinite(near_plane) || !IsFinite(far_plane) ||
+        near_plane <= 0.0F || !(plane_span > 0.0F)) {
+      return HdrBackendFailure(
+          "screen shade cannot linearize a degenerate depth range");
+    }
+    OgreNextDepthLinearization depth_linearization;
+    if (!ResolveOgreNextDepthLinearization(
+            root != nullptr ? root->getRenderSystem() : nullptr, near_plane,
+            far_plane, depth_linearization)) {
+      return HdrBackendFailure(
+          "screen shade cannot resolve the render system depth convention");
+    }
+    const float projection_a = depth_linearization.a;
+    const float projection_b = depth_linearization.b;
+
+    // View-space direction toward the committed sun; contact shadows stay
+    // inert when the scene carries no directional light.
+    Ogre::Vector4 sun_dir_view(0.0F, 0.0F, 1.0F, 0.0F);
+    const auto sun_iterator = std::find_if(
+        snapshot.lights().begin(), snapshot.lights().end(),
+        [](const LightDescriptor &light_entry) {
+          return light_entry.type == LightType::DIRECTIONAL;
+        });
+    if (sun_iterator != snapshot.lights().end()) {
+      const Ogre::Matrix4 native_view = ToOgreMatrix(view.view_from_render);
+      Ogre::Matrix3 view_rotation;
+      native_view.extract3x3Matrix(view_rotation);
+      const Ogre::Vector3 world_toward_sun(-sun_iterator->direction.x,
+                                           -sun_iterator->direction.y,
+                                           -sun_iterator->direction.z);
+      Ogre::Vector3 view_toward_sun = view_rotation * world_toward_sun;
+      const float length = view_toward_sun.length();
+      if (IsFinite(length) && length > 1.0e-4F) {
+        view_toward_sun /= length;
+        sun_dir_view = Ogre::Vector4(view_toward_sun.x, view_toward_sun.y,
+                                     view_toward_sun.z, 1.0F);
+      }
+    }
+
+    const float buffer_width = static_cast<float>(hdr_shade_buffer_width);
+    const float buffer_height = static_cast<float>(hdr_shade_buffer_height);
+    return ConfigureScreenShadeParameters(
+        Ogre::Vector4(projection_m00, projection_m05, projection_m08,
+                      projection_m09),
+        Ogre::Vector4(projection_a, projection_b, buffer_width,
+                      buffer_height),
+        Ogre::Vector4(config.ao_radius_m, config.ao_strength,
+                      config.ao_sample_count, config.ao_power),
+        Ogre::Vector4(kOgreNextScreenShadeMaxRadiusPixels,
+                      kOgreNextScreenShadeAngleBias, 1.0F / buffer_width,
+                      1.0F / buffer_height),
+        Ogre::Vector4(config.contact_length_m, config.contact_strength,
+                      config.contact_step_count,
+                      config.contact_thickness_m),
+        sun_dir_view,
+        Ogre::Vector4(1.0F / buffer_width, 0.0F,
+                      kOgreNextScreenShadeBlurDepthReject, 0.0F),
+        Ogre::Vector4(0.0F, 1.0F / buffer_height,
+                      kOgreNextScreenShadeBlurDepthReject, 0.0F));
+  }
+
   [[nodiscard]] bool ReadHdrHistory(HdrR16Float &history) {
     if (hdr_workspace == nullptr) {
       return false;
@@ -8758,6 +9335,43 @@ public:
         haze_output->getHeight() == scene_height &&
         haze_output->getDepth() == 1U &&
         haze_output->getNumMipmaps() == 1U;
+    if (ScreenShadeEnabled()) {
+      Ogre::CompositorNode *shade =
+          hdr_workspace->findNode(kOgreNextScreenShadeNode);
+      Ogre::TextureGpu *shade_output =
+          shade != nullptr
+              ? shade->getDefinedTexture(kOgreNextScreenShadeOutputTexture)
+              : nullptr;
+      Ogre::TextureGpu *shade_buffer =
+          shade != nullptr
+              ? shade->getDefinedTexture(kOgreNextScreenShadeBufferA)
+              : nullptr;
+      hdr_screen_shade_workspace_verified =
+          shade != nullptr && shade_output != nullptr &&
+          shade_buffer != nullptr &&
+          shade_output->getPixelFormat() == Ogre::PFG_RGBA16_FLOAT &&
+          // Scene-extent target, so it follows the internal render extent the
+          // MetalFX tier reduces below the presented one - exactly like the
+          // linear scene and haze targets checked above. Comparing against the
+          // presented extent instead made every upscaling tier fail this
+          // readback, which fails closed into a terminal dispatch rollback.
+          shade_output->getWidth() == scene_width &&
+          shade_output->getHeight() == scene_height &&
+          shade_buffer->getPixelFormat() == Ogre::PFG_RGBA16_FLOAT &&
+          shade_buffer->getWidth() >= 1U &&
+          shade_buffer->getWidth() <= scene_width &&
+          shade_buffer->getHeight() >= 1U &&
+          shade_buffer->getHeight() <= scene_height;
+      hdr_shade_buffer_width =
+          hdr_screen_shade_workspace_verified ? shade_buffer->getWidth() : 0U;
+      hdr_shade_buffer_height =
+          hdr_screen_shade_workspace_verified ? shade_buffer->getHeight()
+                                              : 0U;
+    } else {
+      hdr_screen_shade_workspace_verified = false;
+      hdr_shade_buffer_width = 0U;
+      hdr_shade_buffer_height = 0U;
+    }
     hdr_base_hdr_target_verified = false;
     hdr_sun_full_hdr_target_verified = false;
     hdr_sun_direct_hdr_target_verified = false;
@@ -8790,11 +9404,12 @@ public:
              Ogre::IdString(kOgreNextHdrShadowNode)) != nullptr);
     if (!hdr_linear_scene_target_verified || !exact_topology ||
         !opaque_depth_verified || !hdr_aerial_haze_workspace_verified ||
+        (ScreenShadeEnabled() && !hdr_screen_shade_workspace_verified) ||
         !hdr_auto_exposure_graph_verified || !hdr_bloom_graph_verified ||
         !hdr_tone_map_graph_verified || !hdr_srgb_output_verified ||
         !exact_shadow_runtime) {
       return HdrBackendFailure(
-          "single-evaluation HDR runtime differs from the reviewed RGBA16F scene, D32 opaque depth, aerial-haze node, R16F history, exposure, bloom, filmic, sRGB, or staged PSSM topology");
+          "single-evaluation HDR runtime differs from the reviewed RGBA16F scene, D32 opaque depth, aerial-haze node, screen-shade node, R16F history, exposure, bloom, filmic, sRGB, or staged PSSM topology");
     }
     hdr_base_hdr_target = nullptr;
     hdr_sun_direct_hdr_target = nullptr;
@@ -9168,6 +9783,12 @@ public:
             hdr_split_node_definition_created, TemporalAaEnabled());
         CreateAndVerifyAerialHazeNode(*root->getCompositorManager2());
         hdr_haze_node_definition_created = true;
+        if (ScreenShadeEnabled()) {
+          CreateAndVerifyScreenShadeNode(
+              *root->getCompositorManager2(),
+              GetOgreNextScreenShadeConfig().resolution_scale);
+          hdr_shade_node_definition_created = true;
+        }
         if (TemporalAaEnabled()) {
           CreateAndVerifyTemporalAaNode(*root->getCompositorManager2());
           hdr_taa_node_definition_created = true;
@@ -9216,6 +9837,10 @@ public:
            (!hdr_haze_node_definition_created ||
             !compositors->hasNodeDefinition(
                 Ogre::IdString(kOgreNextAerialHazeNode)))) ||
+          (ScreenShadeEnabled() &&
+           (!hdr_shade_node_definition_created ||
+            !compositors->hasNodeDefinition(
+                Ogre::IdString(kOgreNextScreenShadeNode)))) ||
           (TemporalAaEnabled() &&
            (!hdr_taa_node_definition_created ||
             !compositors->hasNodeDefinition(
@@ -9240,10 +9865,14 @@ public:
           aliases.end();
       const bool has_taa =
           aliases.find(Ogre::IdString(kOgreNextTaaNode)) != aliases.end();
+      const bool has_shade =
+          aliases.find(Ogre::IdString(kOgreNextScreenShadeNode)) !=
+          aliases.end();
       // The HDR UI node is a required production member of the closure.
       constexpr bool expected_ui = true;
       if (!has_rendering || !has_postprocessing || has_ui != expected_ui ||
           has_haze != SingleSceneHdrPssmEnabled() ||
+          has_shade != ScreenShadeEnabled() ||
           has_taa != TemporalAaEnabled()) {
         return HdrBackendFailure(
             "retained HDR workspace topology changed before resize rebuild");
@@ -9688,6 +10317,13 @@ public:
           BindIdentityAerialHazeParameters();
       if (!haze_identity) {
         return haze_identity;
+      }
+      if (ScreenShadeEnabled()) {
+        const RenderOperationResult shade_identity =
+            BindIdentityScreenShadeParameters();
+        if (!shade_identity) {
+          return shade_identity;
+        }
       }
     }
     if (TemporalAaEnabled()) {
@@ -11564,6 +12200,12 @@ public:
   /// were therefore presented with identity (exactly no) haze. A healthy
   /// session reports zero; a nonzero count is a real signal, not a fault.
   std::uint64_t hdr_aerial_haze_basis_rejections = 0U;
+  /// Stage-3 screen-shade node lifecycle and per-frame verification.
+  bool hdr_shade_node_definition_created = false;
+  bool hdr_screen_shade_workspace_verified = false;
+  bool hdr_screen_shade_constants_bound = false;
+  std::uint32_t hdr_shade_buffer_width = 0U;
+  std::uint32_t hdr_shade_buffer_height = 0U;
   /// Last bound atmosphere, for the presenter's runtime evidence log.
   float hdr_aerial_haze_extinction_per_meter = 0.0F;
   Float3 hdr_aerial_haze_inscatter{};
@@ -12126,8 +12768,10 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
       impl_->shadow_audit.observed_maximum_texture_dimension =
           impl_->maximum_texture_dimension;
       impl_->shadow_audit.atlas_dimensions_supported =
-          impl_->maximum_texture_dimension >= kOgreNextPssmAtlasWidth &&
-          impl_->maximum_texture_dimension >= kOgreNextPssmAtlasHeight;
+          impl_->maximum_texture_dimension >=
+              GetOgreNextPssmShadowQualityConfig().atlas_width &&
+          impl_->maximum_texture_dimension >=
+              GetOgreNextPssmShadowQualityConfig().atlas_height;
       impl_->shadow_audit.texture_gather_supported =
           device_capabilities->hasCapability(Ogre::RSC_TEXTURE_GATHER);
       if (!impl_->shadow_audit.atlas_dimensions_supported ||
@@ -12193,7 +12837,8 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
       }
     }
 #endif
-    impl_->pbs = RegisterPbs(*impl_->root, impl_->resolved_shader_media_root);
+    impl_->pbs = RegisterPbs(*impl_->root, impl_->resolved_shader_media_root,
+                             impl_->ScreenShadeEnabled());
     if (impl_->directional_shadow_mode ==
         OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1) {
       impl_->pbs->setShadowSettings(Ogre::HlmsPbs::PCF_4x4);
@@ -13481,6 +14126,15 @@ RenderOperationResult OgreNextN1Frontend::Render(
         impl_->faulted = true;
         return haze;
       }
+      if (impl_->ScreenShadeEnabled()) {
+        const RenderOperationResult shade =
+            impl_->ConfigureScreenShadeForFrame(*request.scene_snapshot,
+                                                validated_view);
+        if (!shade) {
+          impl_->faulted = true;
+          return shade;
+        }
+      }
     }
     // Stage 5 temporal AA frame plan. The wire-level view stays unjittered
     // (the N1 policy still rejects nonzero wire jitter); the frontend is the
@@ -14418,9 +15072,10 @@ RenderOperationResult OgreNextN1Frontend::Render(
       // evidence of the last completed shadow present until this present
       // commits its own retained set, or a mutation failure tears the
       // retained scene (and its evidence) down with it.
-      impl_->scene_manager->setShadowFarDistance(kOgreNextPssmFarMeters);
+      impl_->scene_manager->setShadowFarDistance(
+          GetOgreNextPssmShadowQualityConfig().far_meters);
       impl_->scene_manager->setShadowDirectionalLightExtrusionDistance(
-          kOgreNextPssmFarMeters);
+          GetOgreNextPssmShadowQualityConfig().far_meters);
     }
     const Ogre::ColourValue expected_ambient(
         snapshot.environment().ambient_radiance.x *
@@ -14690,7 +15345,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
                 Ogre::Vector3::UNIT_Y));
         light->setCastShadows(shadow_plan.enabled);
         if (shadow_plan.enabled) {
-          light->setShadowFarDistance(kOgreNextPssmFarMeters);
+          light->setShadowFarDistance(
+              GetOgreNextPssmShadowQualityConfig().far_meters);
         }
         const Ogre::Vector3 expected_direction(descriptor.direction.x,
                                                descriptor.direction.y,
@@ -14703,7 +15359,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
             light->getCastShadows() == shadow_plan.enabled &&
             (!shadow_plan.enabled ||
              (NearlyEqual(light->getShadowFarDistance(),
-                          kOgreNextPssmFarMeters) &&
+                          GetOgreNextPssmShadowQualityConfig().far_meters) &&
               descriptor.light_id == shadow_plan.shadow_light_id));
         ++lighting_candidate.last_directional_lights;
         positive_calibrated_directional_light =
@@ -14838,7 +15494,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
       float shadow_distance = view_distance;
       if (stage0_present_policy.shadow_enabled) {
         float caster_distance = kOgreNextStage0SubTexelCasterDistanceMeters;
-        for (std::size_t band = 0U; band < kOgreNextPssmCascadeCount;
+        for (std::size_t band = 0U;
+             band < GetOgreNextPssmShadowQualityConfig().cascade_count;
              ++band) {
           if (world_radius >=
               stage0_present_policy.minimum_caster_radius[band]) {

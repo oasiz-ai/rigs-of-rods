@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Rigs of Rods stage-3 indirect-fraction alpha export.
+//
+// Opaque RT4/V1 PBS pixels replace their constant 1.0 alpha with the
+// fraction of the pixel's outgoing luminance contributed by INDIRECT
+// lighting (ambient-fixed base + the env-BRDF diffuse/specular terms fed by
+// AmbientSh and the PCC probe). The screen-space shade compositor pass uses
+// that fraction to apply ambient occlusion to the indirect share only and
+// screen-space sun contact shadows to the direct share only.
+//
+// The encoded fraction is clamped below one: an exact 1.0 alpha remains the
+// reserved "untagged" value written by every other producer (Unlit sky and
+// emissive surfaces, the scene clear), which the shade pass treats as
+// identity. Alpha-blended and alpha-to-coverage materials keep their real
+// alpha untouched; the shadow-caster and depth-only variants never reach the
+// colour write this piece edits.
+@property( ror_indirect_alpha )
+
+@piece( custom_ps_preLights )
+	// finalColour currently holds exactly the ambient_fixed base term (or
+	// zero for the SH/hemisphere modes); every direct light adds after this.
+	midf3 rorIndirectBase = finalColour;
+	midf rorIndirectFraction = _h( 0.0 );
+@end
+
+// Inserted after BRDF_EnvMap folded the indirect env terms into finalColour;
+// Rd/Rs are that piece's still-live locals. The thin-slab transmission
+// datablocks keep their own applyRefractions override: the frontend never
+// sets ror_indirect_alpha on them, so the two definitions cannot collide.
+@piece( applyRefractions )
+	midf3 rorIndirectSum = rorIndirectBase;
+	@property( needs_env_brdf )
+		rorIndirectSum += Rd + Rs;
+	@end
+	midf rorTotalLum =
+		dot( finalColour, midf3_c( 0.2126, 0.7152, 0.0722 ) );
+	midf rorIndirectLum =
+		dot( rorIndirectSum, midf3_c( 0.2126, 0.7152, 0.0722 ) );
+	if( rorTotalLum > _h( 1.0e-6 ) )
+	{
+		rorIndirectFraction = clamp( rorIndirectLum / rorTotalLum,
+									 _h( 0.0 ), _h( 0.996 ) );
+	}
+@end
+
+@piece( custom_ps_posExecution )
+	@property( hlms_normal || hlms_qtangent )
+		@property( !hlms_shadowcaster && !hlms_prepass && !hlms_render_depth_only && !hlms_alphablend && !hlms_alpha_to_coverage )
+			outPs_colour0.w = rorIndirectFraction;
+		@end
+	@end
+@end
+
+@end
