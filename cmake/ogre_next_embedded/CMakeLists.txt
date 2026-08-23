@@ -135,7 +135,7 @@ foreach (_ror_root_sdl_location_config IN LISTS
         _ror_root_sdl_location_config_upper)
     get_target_property(_ror_root_sdl_location_candidate
         ${ROR_ROOT_SDL_IMPORTED_ARTIFACT_TARGET}
-        "IMPORTED_LOCATION_${_ror_root_sdl_location_config_upper}")
+        "LOCATION_${_ror_root_sdl_location_config_upper}")
     if (_ror_root_sdl_location_candidate AND
             NOT _ror_root_sdl_location_candidate MATCHES "-NOTFOUND$")
         list(APPEND _ror_root_sdl_imported_locations
@@ -143,7 +143,7 @@ foreach (_ror_root_sdl_location_config IN LISTS
     endif ()
 endforeach ()
 get_target_property(_ror_root_sdl_location_candidate
-    ${ROR_ROOT_SDL_IMPORTED_ARTIFACT_TARGET} IMPORTED_LOCATION)
+    ${ROR_ROOT_SDL_IMPORTED_ARTIFACT_TARGET} LOCATION)
 if (_ror_root_sdl_location_candidate AND
         NOT _ror_root_sdl_location_candidate MATCHES "-NOTFOUND$")
     list(APPEND _ror_root_sdl_imported_locations
