@@ -340,6 +340,9 @@ private:
     std::uint64_t m_ogre14_section_log_dynamic_rigid_ns = 0U;
     std::uint64_t m_ogre14_section_log_dynamic_validation_ns = 0U;
     std::uint64_t m_ogre14_section_log_dynamic_inventory_ns = 0U;
+    std::uint64_t m_ogre14_section_log_dynamic_inventory_fast_probe_ns = 0U;
+    std::uint64_t m_ogre14_section_log_dynamic_inventory_fast_hits = 0U;
+    std::uint64_t m_ogre14_section_log_dynamic_inventory_fast_fallbacks = 0U;
     std::uint64_t m_ogre14_section_log_dynamic_inventory_clone_ns = 0U;
     std::uint64_t m_ogre14_section_log_dynamic_inventory_validate_ns = 0U;
     std::uint64_t m_ogre14_section_log_dynamic_inventory_assets_ns = 0U;

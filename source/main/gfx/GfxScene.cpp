@@ -7310,6 +7310,15 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
         m_ogre14_pending_capture->dynamic_timing.declaration_validation_ns;
     m_ogre14_section_log_dynamic_inventory_ns +=
         m_ogre14_pending_capture->dynamic_timing.inventory_build_ns;
+    m_ogre14_section_log_dynamic_inventory_fast_probe_ns +=
+        m_ogre14_pending_capture->dynamic_timing.inventory_detail.
+            retained_fast_path_probe_ns;
+    m_ogre14_section_log_dynamic_inventory_fast_hits +=
+        m_ogre14_pending_capture->dynamic_timing.inventory_detail.
+            retained_fast_path_hits;
+    m_ogre14_section_log_dynamic_inventory_fast_fallbacks +=
+        m_ogre14_pending_capture->dynamic_timing.inventory_detail.
+            retained_fast_path_fallbacks;
     m_ogre14_section_log_dynamic_inventory_clone_ns +=
         m_ogre14_pending_capture->dynamic_timing.inventory_detail.
             registry_clone_ns;
@@ -7361,6 +7370,9 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
             "[RoR|SceneSource] captures={} mean_ns terrain={} static={} "
             "dynamic={} dynamic_setup={} dynamic_deformable={} "
             "dynamic_rigid={} dynamic_validation={} dynamic_inventory={} "
+            "dynamic_inventory_fast_probe={} "
+            "dynamic_inventory_fast_hits={} "
+            "dynamic_inventory_fast_fallbacks={} "
             "dynamic_inventory_clone={} dynamic_inventory_validate={} "
             "dynamic_inventory_assets={} dynamic_inventory_state={} "
             "dynamic_inventory_finalize={} dynamic_other={} retained={} "
@@ -7383,6 +7395,10 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
                 m_ogre14_section_log_captures,
             m_ogre14_section_log_dynamic_inventory_ns /
                 m_ogre14_section_log_captures,
+            m_ogre14_section_log_dynamic_inventory_fast_probe_ns /
+                m_ogre14_section_log_captures,
+            m_ogre14_section_log_dynamic_inventory_fast_hits,
+            m_ogre14_section_log_dynamic_inventory_fast_fallbacks,
             m_ogre14_section_log_dynamic_inventory_clone_ns /
                 m_ogre14_section_log_captures,
             m_ogre14_section_log_dynamic_inventory_validate_ns /

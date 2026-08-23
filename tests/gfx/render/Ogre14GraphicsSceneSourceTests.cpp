@@ -2027,12 +2027,15 @@ void TestDynamicIdentityPayloadRevisionAndLifecycle() {
       MakeDynamicSection()};
   std::vector<GraphicsSceneAssetInput> assets;
   std::vector<GraphicsSceneDynamicMeshInput> meshes;
+  Ogre14GraphicsSceneDynamicInventoryTiming inventory_timing;
   ValidationResult result = BuildOgre14GraphicsSceneDynamicInventory(
-      inputs, registry, assets, meshes);
+      inputs, registry, assets, meshes, nullptr, &inventory_timing);
   Require(result.ok() && registry.asset_identity_count() == 2U &&
               registry.object_identity_count() == 1U && assets.size() == 2U &&
               meshes.size() == 1U &&
-              meshes.front().state->deformation_revision == 2U,
+              meshes.front().state->deformation_revision == 2U &&
+              inventory_timing.retained_fast_path_hits == 0U &&
+              inventory_timing.retained_fast_path_fallbacks == 1U,
           "initial dynamic inventory did not own base assets and revision two");
 
   Ogre14GraphicsSceneDynamicIdentityRegistry lod_registry;
@@ -2070,15 +2073,37 @@ void TestDynamicIdentityPayloadRevisionAndLifecycle() {
 
   inputs[0U].state = MakeJoinedDynamicState();
   result = BuildOgre14GraphicsSceneDynamicInventory(inputs, registry, assets,
-                                                     meshes);
+                                                     meshes, nullptr,
+                                                     &inventory_timing);
   const auto stable_mesh_asset = std::find_if(
       assets.begin(), assets.end(), [](const GraphicsSceneAssetInput &asset) {
         return RenderAssetPayloadKind(*asset.payload) == RenderAssetKind::MESH;
       });
   Require(result.ok() && SameSharedOwner(first_state, meshes.front().state) &&
               stable_mesh_asset != assets.end() &&
-              SameSharedOwner(first_mesh_owner, stable_mesh_asset->payload),
-          "equivalent dynamic staging did not reuse immutable owners");
+              SameSharedOwner(first_mesh_owner, stable_mesh_asset->payload) &&
+              inventory_timing.retained_fast_path_hits == 1U &&
+              inventory_timing.retained_fast_path_fallbacks == 0U &&
+              inventory_timing.registry_clone_ns == 0U,
+          "equivalent dynamic staging did not use the retained owner path");
+
+  // Owner identity, not merely equal bytes, is the immutable-binding gate.
+  // Replacing the mesh owner must take the full transactional path once; its
+  // canonical output owner can still be reused after value validation.
+  inputs[0U].mesh_payload =
+      std::make_shared<const RenderAssetPayload>(*inputs[0U].mesh_payload);
+  result = BuildOgre14GraphicsSceneDynamicInventory(
+      inputs, registry, assets, meshes, nullptr, &inventory_timing);
+  const auto fallback_mesh_asset = std::find_if(
+      assets.begin(), assets.end(), [](const GraphicsSceneAssetInput &asset) {
+        return RenderAssetPayloadKind(*asset.payload) == RenderAssetKind::MESH;
+      });
+  Require(result.ok() && fallback_mesh_asset != assets.end() &&
+              SameSharedOwner(first_mesh_owner,
+                              fallback_mesh_asset->payload) &&
+              inventory_timing.retained_fast_path_hits == 0U &&
+              inventory_timing.retained_fast_path_fallbacks == 1U,
+          "changed immutable owner bypassed transactional validation");
 
   inputs[0U].visible = false;
   result = BuildOgre14GraphicsSceneDynamicInventory(inputs, registry, assets,
@@ -2106,11 +2131,12 @@ void TestDynamicIdentityPayloadRevisionAndLifecycle() {
   const std::size_t accepted_object_count = registry.object_identity_count();
 
   inputs[0U].has_dynamic_vertex_colors = true;
-  result = BuildOgre14GraphicsSceneDynamicInventory(inputs, registry, assets,
-                                                     meshes);
+  result = BuildOgre14GraphicsSceneDynamicInventory(
+      inputs, registry, assets, meshes, nullptr, &inventory_timing);
   Require(!result && result.code == ValidationCode::UNSUPPORTED_FEATURE &&
               registry.object_identity_count() == accepted_object_count &&
               assets.size() == accepted_assets.size() &&
+              inventory_timing.retained_fast_path_hits == 1U &&
               SameSharedOwner(meshes.front().state,
                               accepted_meshes.front().state),
           "unsupported dynamic colors mutated identity or output state");
@@ -2152,6 +2178,70 @@ void TestConsumedDynamicInventoryTransfersJoinedStorage() {
               meshes.front().state->deformation_revision == 2U,
           "consumed joined state was deep-copied instead of transferring its "
           "validated vertex storage");
+}
+
+void TestRetainedDynamicInventoryFailureIsTransactional() {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneDynamicIdentityRegistry registry;
+  std::vector<Ogre14GraphicsSceneDynamicSectionCaptureInput> inputs{
+      MakeDynamicSection(41), MakeDynamicSection(43)};
+  inputs[1U].exact_entity_name = "actor-43-flexbody-2";
+  std::vector<GraphicsSceneAssetInput> assets;
+  std::vector<GraphicsSceneDynamicMeshInput> meshes;
+  Ogre14GraphicsSceneDynamicInventoryTiming timing;
+  std::uint64_t first_object_id = 0U;
+  std::uint64_t second_object_id = 0U;
+  Require(DeriveOgre14GraphicsSceneDynamicSectionId(
+              inputs[0U].identity, first_object_id)
+              .ok() &&
+              DeriveOgre14GraphicsSceneDynamicSectionId(
+                  inputs[1U].identity, second_object_id)
+                  .ok(),
+          "multi-section retained fixture identities were invalid");
+  Require(BuildOgre14GraphicsSceneDynamicInventory(
+              inputs, registry, assets, meshes, nullptr, &timing)
+              .ok() &&
+              meshes.size() == 2U,
+          "multi-section retained rollback fixture was rejected");
+  const std::vector<GraphicsSceneAssetInput> accepted_assets = assets;
+  const std::vector<GraphicsSceneDynamicMeshInput> accepted_meshes = meshes;
+
+  inputs[0U].state = MakeJoinedDynamicState(0.25F);
+  auto malformed_second =
+      std::make_shared<Ogre14GraphicsSceneJoinedDynamicState>(
+          *inputs[1U].state);
+  malformed_second->positions.pop_back();
+  inputs[1U].state = std::move(malformed_second);
+  const ValidationResult rejected = BuildOgre14GraphicsSceneDynamicInventory(
+      inputs, registry, assets, meshes, nullptr, &timing);
+  Require(!rejected && rejected.code == ValidationCode::SIZE_MISMATCH &&
+              timing.retained_fast_path_hits == 1U &&
+              assets.size() == accepted_assets.size() &&
+              meshes.size() == accepted_meshes.size() &&
+              SameSharedOwner(meshes[0U].state,
+                              accepted_meshes[0U].state) &&
+              SameSharedOwner(meshes[1U].state,
+                              accepted_meshes[1U].state),
+          "late retained validation failure published an early deformation");
+
+  inputs[1U].state = MakeJoinedDynamicState();
+  Require(BuildOgre14GraphicsSceneDynamicInventory(
+              inputs, registry, assets, meshes, nullptr, &timing)
+              .ok(),
+          "valid retained frame after rollback was rejected");
+  const auto first_mesh = std::find_if(
+      meshes.begin(), meshes.end(), [first_object_id](const auto &mesh) {
+        return mesh.source_object_id == first_object_id;
+      });
+  const auto second_mesh = std::find_if(
+      meshes.begin(), meshes.end(), [second_object_id](const auto &mesh) {
+        return mesh.source_object_id == second_object_id;
+      });
+  Require(timing.retained_fast_path_hits == 1U &&
+              first_mesh != meshes.end() && second_mesh != meshes.end() &&
+              first_mesh->state->deformation_revision == 3U &&
+              second_mesh->state->deformation_revision == 2U,
+          "retained rollback consumed a deformation revision");
 }
 
 void TestLvalueDynamicInventoryPreservesConsumableStorage() {
@@ -2709,6 +2799,7 @@ int main() {
   TestTerrainInventoryReusesPayloadAndFeedsProducer();
   TestDynamicIdentityPayloadRevisionAndLifecycle();
   TestConsumedDynamicInventoryTransfersJoinedStorage();
+  TestRetainedDynamicInventoryFailureIsTransactional();
   TestLvalueDynamicInventoryPreservesConsumableStorage();
   TestDynamicSectionsPreserveTopologyAndMaterialBindings();
   TestConvertedDynamicInventoryFeedsProducer();

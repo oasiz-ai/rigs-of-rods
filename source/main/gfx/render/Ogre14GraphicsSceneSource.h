@@ -611,6 +611,8 @@ public:
     object_ids_by_name_.clear();
     canonical_assets_by_asset_key_.clear();
     object_states_.clear();
+    retained_assets_.clear();
+    live_object_order_.clear();
     known_asset_keys_.clear();
     live_asset_keys_.clear();
     known_object_keys_.clear();
@@ -622,6 +624,13 @@ private:
     std::string exact_entity_name;
     std::string mesh_key;
     std::string material_key;
+    Ogre14GraphicsSceneMaterialCaptureInput material;
+    std::shared_ptr<const RenderAssetPayload> mesh_payload;
+    std::shared_ptr<const Ogre14LegacyMaterialClosure> resolved_material;
+    bool mesh_reverse_winding = false;
+    std::uint64_t source_object_id = 0U;
+    std::uint64_t mesh_source_asset_id = 0U;
+    std::uint64_t material_source_asset_id = 0U;
     std::shared_ptr<const GraphicsSceneDynamicMeshState> deformation;
   };
 
@@ -640,6 +649,11 @@ private:
   std::map<std::string, GraphicsSceneAssetInput, std::less<>>
       canonical_assets_by_asset_key_;
   std::map<std::string, ObjectState, std::less<>> object_states_;
+  /// Exact sorted asset output and input-order object keys from the last
+  /// successful transaction. They permit a no-rebuild path only while every
+  /// immutable owner and binding is pointer-identical to that transaction.
+  std::vector<GraphicsSceneAssetInput> retained_assets_;
+  std::vector<std::string> live_object_order_;
   std::set<std::string, std::less<>> known_asset_keys_;
   std::set<std::string, std::less<>> live_asset_keys_;
   std::set<std::string, std::less<>> known_object_keys_;
@@ -662,11 +676,14 @@ public:
 /// Every field is a disjoint successful-path span; callers may use the
 /// remainder of their outer timer to account for call/exception overhead.
 struct Ogre14GraphicsSceneDynamicInventoryTiming {
+  std::uint64_t retained_fast_path_probe_ns = 0U;
   std::uint64_t registry_clone_ns = 0U;
   std::uint64_t input_validation_ns = 0U;
   std::uint64_t identity_and_assets_ns = 0U;
   std::uint64_t state_publication_ns = 0U;
   std::uint64_t lifecycle_finalize_ns = 0U;
+  std::uint64_t retained_fast_path_hits = 0U;
+  std::uint64_t retained_fast_path_fallbacks = 0U;
 };
 
 [[nodiscard]] ValidationResult DeriveOgre14GraphicsSceneDynamicMeshAssetId(
