@@ -174,8 +174,9 @@ bool EquivalentGraphicsSceneAssetInput(
          lhs.payload != nullptr && rhs.payload != nullptr &&
          !lhs.payload->valueless_by_exception() &&
          !rhs.payload->valueless_by_exception() &&
-         EquivalentRenderAssetPayload(*lhs.payload, *rhs.payload) &&
-         lhs.material_bindings == rhs.material_bindings;
+         lhs.material_bindings == rhs.material_bindings &&
+         (lhs.payload == rhs.payload ||
+          EquivalentRenderAssetPayload(*lhs.payload, *rhs.payload));
 }
 
 bool CheckedAddSize(std::size_t value, std::size_t &total) noexcept {
