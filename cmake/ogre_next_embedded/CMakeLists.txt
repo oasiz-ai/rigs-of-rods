@@ -1424,7 +1424,8 @@ elseif (WIN32)
     set(_ror_ogre_next_plugin_export_source
         "${ROR_OGRE_NEXT_STANDALONE_ROOT}/src/embedded_namespace/plugin_export_probe.cpp")
     set(_ror_ogre_next_plugin_export_definition
-        ROR_OGRE_NEXT_PLUGIN_EXPORT_D3D11=1)
+        ROR_OGRE_NEXT_PLUGIN_EXPORT_D3D11=1
+        OGRED3DENGINEDLL_EXPORTS=1)
     set(_ror_ogre_next_plugin_export_language CXX)
     set(_ror_ogre_next_plugin_export_include_dirs
         "${ogre_next_SOURCE_DIR}/RenderSystems/Direct3D11/src"

@@ -248,6 +248,7 @@ class CombinedProviderContractTests(unittest.TestCase):
             "LANGUAGES ${_ror_ogre_next_plugin_export_language}",
             "set(_ror_ogre_next_plugin_export_language OBJCXX)",
             "set(_ror_ogre_next_plugin_export_language CXX)",
+            "OGRED3DENGINEDLL_EXPORTS=1",
         ):
             self.assertIn(invocation, PROVIDER)
 
