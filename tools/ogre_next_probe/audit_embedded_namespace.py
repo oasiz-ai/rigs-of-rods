@@ -14,8 +14,7 @@ from pathlib import Path
 
 CPP_SUFFIXES = {".cc", ".cpp", ".cxx", ".mm"}
 STB_IMAGE_IMPLEMENTATION_PATTERN = re.compile(
-    rb"^[ \t]*#[ \t]*define[ \t]+STB_IMAGE_IMPLEMENTATION[ \t]*\r?$",
-    re.MULTILINE,
+    rb"[ \t]*#[ \t]*define[ \t]+STB_IMAGE_IMPLEMENTATION[ \t]*",
 )
 STB_IMAGE_COMMAND_CONFIGURATION_PATTERN = re.compile(
     r"(?:STBIDEF|STB_IMAGE_[A-Z0-9_]+|STBI_[A-Z0-9_]+)"
@@ -427,6 +426,14 @@ def command_text(entry: dict[str, object]) -> str:
     arguments = entry.get("arguments")
     require(isinstance(arguments, list), "compile entry has no command")
     return " ".join(str(value) for value in arguments)
+
+
+def count_stb_implementation_definitions(source: bytes) -> int:
+    return sum(
+        1
+        for line in source.splitlines()
+        if STB_IMAGE_IMPLEMENTATION_PATTERN.fullmatch(line)
+    )
 
 
 def require_strict_fp_compile_command(command: str, label: str) -> None:
@@ -1204,6 +1211,16 @@ def main() -> int:
                 in {".c", ".cc", ".cpp", ".cxx", ".m", ".mm"}
         ]
         require(stb_target_entries, "stb_image decoder target has no compile entries")
+        stb_decoder_bytes = stb_decoder_source.read_bytes()
+        stb_decoder_definition_count = count_stb_implementation_definitions(
+            stb_decoder_bytes
+        )
+        require(
+            stb_decoder_definition_count == 1,
+            "reviewed stb_image decoder must define its implementation once: "
+            f"definitions={stb_decoder_definition_count}, "
+            f"sha256={hashlib.sha256(stb_decoder_bytes).hexdigest()}",
+        )
         stb_implementation_entries: list[dict[str, object]] = []
         stb_implementation_sources: set[Path] = set()
         for entry in stb_target_entries:
@@ -1234,7 +1251,7 @@ def main() -> int:
                     "stb_image decoder compile command uses an unaudited indirect input: "
                     + ", ".join(indirect_inputs),
                 )
-            if STB_IMAGE_IMPLEMENTATION_PATTERN.search(entry_source.read_bytes()):
+            if count_stb_implementation_definitions(entry_source.read_bytes()):
                 stb_implementation_entries.append(entry)
                 stb_implementation_sources.add(entry_source.resolve())
         require(
@@ -1243,14 +1260,6 @@ def main() -> int:
             + ", ".join(
                 sorted(str(path) for path in stb_implementation_sources)
             ),
-        )
-        require(
-            len(
-                STB_IMAGE_IMPLEMENTATION_PATTERN.findall(
-                    stb_decoder_source.read_bytes()
-                )
-            ) == 1,
-            "reviewed stb_image decoder must define its implementation once",
         )
         stb_decoder_commands = sorted(
             {
