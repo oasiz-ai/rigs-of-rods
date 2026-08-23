@@ -107,6 +107,13 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
             "CMakeFiles/RoR-Combined.dir/",
             AUDIT.normalized_command_path_text(windows),
         )
+        remap = Path(r"D:\a\repo\RoROgreNextNamespaceRemap.h")
+        self.assertTrue(
+            AUDIT.command_contains_path(
+                r"cl /FID:/a/repo/RoROgreNextNamespaceRemap.h source.cpp",
+                remap,
+            )
+        )
 
     def test_canonical_lock_binds_conditional_fork_inputs(self) -> None:
         self.assertEqual(self.lock["schema_version"], 6)

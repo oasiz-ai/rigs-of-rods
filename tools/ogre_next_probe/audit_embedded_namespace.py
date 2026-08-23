@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -432,6 +433,15 @@ def normalized_command_path_text(entry: dict[str, object]) -> str:
     return command_text(entry).replace("\\", "/")
 
 
+def command_contains_path(command: str, path: Path) -> bool:
+    normalized_command = command.replace("\\", "/")
+    normalized_path = str(path).replace("\\", "/")
+    if os.name == "nt":
+        normalized_command = normalized_command.casefold()
+        normalized_path = normalized_path.casefold()
+    return normalized_path in normalized_command
+
+
 def count_stb_implementation_definitions(source: bytes) -> int:
     return sum(
         1
@@ -556,12 +566,12 @@ def audit_compile_sources(
             command = command_text(entry)
             if expect_remap:
                 require(
-                    str(remap_header) in command,
+                    command_contains_path(command, remap_header),
                     f"OgreNext consumer lacks forced namespace remap: {source}",
                 )
             else:
                 require(
-                    str(remap_header) not in command
+                    not command_contains_path(command, remap_header)
                     and remap_header.name not in command
                     and "Ogre=RoROgreNext" not in command,
                     f"namespace remap leaked into neutral/OGRE14 source: {source}",
@@ -1306,7 +1316,7 @@ def main() -> int:
     require(upstream_entries, "no OgreNext C++/Objective-C++ compile entries found")
     for entry in upstream_entries:
         command = command_text(entry)
-        require(str(remap_header) in command,
+        require(command_contains_path(command, remap_header),
                 f"OgreNext source lacks forced namespace remap: {entry.get('file')}")
         if args.require_upstream_strict_fp:
             require_strict_fp_compile_command(
@@ -1359,26 +1369,26 @@ def main() -> int:
             entries, presenter_adapter, args.link_smoke_target_name
         )
     )
-    require(str(remap_header) in next_command,
+    require(command_contains_path(next_command, remap_header),
             "the OgreNext adapter does not receive the fork remap")
-    require(str(remap_header) not in legacy_command and
+    require(not command_contains_path(legacy_command, remap_header) and
             "Ogre=RoROgreNext" not in legacy_command,
             "the fork remap leaked into the OGRE14 adapter")
-    require(str(remap_header) not in main_command,
+    require(not command_contains_path(main_command, remap_header),
             "the fork remap leaked into the dual-runtime main TU")
     require(
-        str(remap_header) not in session_command
+        not command_contains_path(session_command, remap_header)
         and "Ogre=RoROgreNext" not in session_command,
         "the fork remap leaked into the renderer-neutral session adapter",
     )
     require(
-        str(remap_header) not in presenter_adapter_command
+        not command_contains_path(presenter_adapter_command, remap_header)
         and "Ogre=RoROgreNext" not in presenter_adapter_command,
         "the fork remap leaked into the renderer-neutral presenter adapter",
     )
-    require(str(legacy_include) not in next_command,
+    require(not command_contains_path(next_command, legacy_include),
             "the OgreNext adapter sees OGRE14 headers")
-    require(str(next_source_root) not in legacy_command,
+    require(not command_contains_path(legacy_command, next_source_root),
             "the OGRE14 adapter sees OgreNext headers")
 
     isolated_consumer_audit: list[dict[str, object]] = []
@@ -1389,8 +1399,8 @@ def main() -> int:
             )
         )
         require(
-            str(next_source_root) not in command
-            and str(remap_header) not in command
+            not command_contains_path(command, next_source_root)
+            and not command_contains_path(command, remap_header)
             and remap_header.name not in command
             and "Ogre=RoROgreNext" not in command,
             f"OgreNext compile usage leaked through the provider facade: {source}",
@@ -1412,7 +1422,10 @@ def main() -> int:
         for source in embedded_sources
     ]
     require(
-        all(str(remap_header) in command for command in embedded_commands),
+        all(
+            command_contains_path(command, remap_header)
+            for command in embedded_commands
+        ),
         "a production embedded N1 translation unit lacks the namespace remap",
     )
     require(
@@ -1430,7 +1443,7 @@ def main() -> int:
     ]
     require(
         all(
-            str(remap_header) not in command
+            not command_contains_path(command, remap_header)
             and "Ogre=RoROgreNext" not in command
             for command in direct_commands
         ),
