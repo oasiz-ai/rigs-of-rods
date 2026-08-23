@@ -590,8 +590,22 @@ bool ReadFrameBudgetUnsigned(
 /// Any refusal returns a null session, and a refused `gate` request also
 /// reports the failure so an automated run cannot mistake a missing recorder
 /// for a passing budget.
+struct FrameTimeBudgetPresentationSurface final
+{
+    std::uint32_t width = 0U;
+    std::uint32_t height = 0U;
+    bool fullscreen = false;
+    bool vsync = false;
+
+    bool valid() const noexcept
+    {
+        return width > 0U && height > 0U;
+    }
+};
+
 std::unique_ptr<RoR::FrameTimeBudgetSession> CreateFrameTimeBudgetSession(
     Ogre::RenderWindow* render_window,
+    const FrameTimeBudgetPresentationSurface* presentation_surface,
     bool presents_frames,
     bool& refused)
 {
@@ -695,7 +709,20 @@ std::unique_ptr<RoR::FrameTimeBudgetSession> CreateFrameTimeBudgetSession(
 #endif
     context.fps_limit = App::gfx_fps_limit->getInt();
     context.presents_frames = presents_frames;
-    if (render_window != nullptr)
+    if (presentation_surface != nullptr)
+    {
+        if (!presentation_surface->valid())
+        {
+            Log("[RoR|Perf] Refusing an invalid native presentation surface");
+            refused = true;
+            return nullptr;
+        }
+        context.width = presentation_surface->width;
+        context.height = presentation_surface->height;
+        context.fullscreen = presentation_surface->fullscreen;
+        context.vsync = presentation_surface->vsync;
+    }
+    else if (render_window != nullptr)
     {
         context.width = static_cast<std::uint32_t>(render_window->getWidth());
         context.height = static_cast<std::uint32_t>(render_window->getHeight());
@@ -1703,9 +1730,30 @@ int main(int argc, char *argv[])
         // recorder observes exactly the render loop's own frame clock. A
         // refused contract fails the process instead of running unmeasured.
         bool frame_budget_refused = false;
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+        const Render::FrontendSurfaceUpdate combined_budget_surface =
+            renderer_combined_presenter.CurrentSurface();
+        const Render::FrontendInitializationRequest combined_budget_initial =
+            renderer_combined_presenter.InitialFrontendRequest();
+        const FrameTimeBudgetPresentationSurface
+            combined_budget_presentation = {
+                combined_budget_surface.pixel_width,
+                combined_budget_surface.pixel_height,
+                false,
+                combined_budget_initial.vertical_sync,
+            };
+#endif
         std::unique_ptr<FrameTimeBudgetSession> frame_budget_session =
             CreateFrameTimeBudgetSession(
                 App::GetAppContext()->GetRenderWindow(),
+                // The combined process measures the sole visible Ogre-Next
+                // drawable. Its hidden OGRE 14 resource window is neither a
+                // resolution nor presentation authority.
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+                &combined_budget_presentation,
+#else
+                nullptr,
+#endif
                 // "This process presents" is not the same fact as "OGRE 14
                 // presents". The combined runtime also hides OGRE 14 behind a
                 // bridge-active ownership plan, but its in-process OgreNext

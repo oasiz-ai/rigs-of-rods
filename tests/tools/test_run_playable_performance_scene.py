@@ -11,6 +11,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
+TEST_ROOT = Path(tempfile.gettempdir()).resolve() / "ror-perf"
 
 _SPEC = importlib.util.spec_from_file_location(
     "run_playable_performance_scene",
@@ -34,7 +35,7 @@ def make_request(**overrides):
         sustained_ms=16.6667,
         percentile=95,
         percentile_ms=18.3,
-        receipt_path=Path("/tmp/ror-perf/frame-time-receipt.json"),
+        receipt_path=TEST_ROOT / "frame-time-receipt.json",
         mode="gate",
         graphics_preset="high",
         target_platform="darwin",
@@ -657,8 +658,14 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(ordinary[1], "--renderer-log-level=info")
 
     def test_environment_isolates_the_profile(self) -> None:
-        environment = runner.build_environment(Path("/tmp/home"))
-        self.assertEqual(environment["ROR_D0_SCENE_HOME"], "/tmp/home")
+        isolated_home = Path(tempfile.gettempdir()).resolve() / "ror-home"
+        environment = runner.build_environment(isolated_home, make_request())
+        self.assertEqual(
+            environment["ROR_D0_SCENE_HOME"], str(isolated_home)
+        )
+        self.assertEqual(
+            environment["ROR_D0_EXACT_WINDOW_EXTENT"], "1920x1080"
+        )
         self.assertEqual(environment["ALSOFT_DRIVERS"], "null")
         self.assertNotIn("SNAP_USER_COMMON", environment)
 

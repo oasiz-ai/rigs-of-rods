@@ -1189,10 +1189,16 @@ def build_command(
     return tuple(command)
 
 
-def build_environment(isolated_home: Path) -> dict[str, str]:
+def build_environment(
+    isolated_home: Path,
+    request: BudgetRequest,
+) -> dict[str, str]:
     environment = os.environ.copy()
     environment.pop("SNAP_USER_COMMON", None)
     environment["ROR_D0_SCENE_HOME"] = str(isolated_home)
+    environment["ROR_D0_EXACT_WINDOW_EXTENT"] = (
+        f"{request.width}x{request.height}"
+    )
     environment["ALSOFT_DRIVERS"] = "null"
     environment["ALSOFT_LOGLEVEL"] = "0"
     return environment
@@ -1279,7 +1285,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             executable, request, args.launcher_argument)
         completed = subprocess.run(
             list(command),
-            env=build_environment(isolated_home),
+            env=build_environment(isolated_home, request),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             timeout=args.timeout,

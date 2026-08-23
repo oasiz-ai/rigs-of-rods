@@ -454,6 +454,7 @@ jobs:
           test -f "$stage/content/simple2-terrain.zip"
           test -f "$stage/content/dafsemi.zip"
           test ! -e "$scene"
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
           python tools/run_playable_performance_scene.py \
             --executable "$stage/RunRoR" \
             --artifact-dir "$scene" \
@@ -635,6 +636,7 @@ jobs:
             ${{ runner.temp }}/ror-combined-build/ogre-next-embedded/*.json
             ${{ runner.temp }}/ror-combined-build/source/main/RoR-Combined.*
             ${{ runner.temp }}/ror-combined-stage/qualification/
+            ${{ runner.temp }}/ror-combined-packaged-scene/
 
   windows-x64-d3d11:
     name: Windows x64 D3D11 RoR-Combined
@@ -721,14 +723,21 @@ jobs:
       - name: Run combined-runtime fail-closed contracts
         shell: pwsh
         run: |
-          python tests/tools/test_ogre_next_combined_provider_contract.py
-          python tests/tools/test_ogre_next_embedded_namespace_contract.py
-          python tests/tools/test_run_playable_performance_scene.py
-          python tests/tools/test_renderer_combined_game_wiring_contract.py
-          python -O tests/tools/test_ogre_next_combined_provider_contract.py
-          python -O tests/tools/test_ogre_next_embedded_namespace_contract.py
-          python -O tests/tools/test_run_playable_performance_scene.py
-          python -O tests/tools/test_renderer_combined_game_wiring_contract.py
+          function Invoke-CheckedPython {
+            param([string[]]$PythonArguments)
+            & python @PythonArguments
+            if ($LASTEXITCODE -ne 0) {
+              throw "Combined-runtime contract failed: python $($PythonArguments -join ' ')"
+            }
+          }
+          Invoke-CheckedPython -PythonArguments @('tests/tools/test_ogre_next_combined_provider_contract.py')
+          Invoke-CheckedPython -PythonArguments @('tests/tools/test_ogre_next_embedded_namespace_contract.py')
+          Invoke-CheckedPython -PythonArguments @('tests/tools/test_run_playable_performance_scene.py')
+          Invoke-CheckedPython -PythonArguments @('tests/tools/test_renderer_combined_game_wiring_contract.py')
+          Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_ogre_next_combined_provider_contract.py')
+          Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_ogre_next_embedded_namespace_contract.py')
+          Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_playable_performance_scene.py')
+          Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_renderer_combined_game_wiring_contract.py')
 
       - name: Verify the locked native Conan graph
         shell: pwsh
@@ -1173,3 +1182,4 @@ jobs:
             ${{ runner.temp }}/ror-combined-stage/*.dll
             ${{ runner.temp }}/ror-combined-build/bin/RoR-Combined.pdb
             ${{ runner.temp }}/ror-combined-smoke/
+            ${{ runner.temp }}/ror-combined-packaged-scene/

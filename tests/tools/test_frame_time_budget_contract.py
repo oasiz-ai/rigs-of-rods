@@ -109,6 +109,7 @@ class FrameTimeBudgetContractTests(unittest.TestCase):
             : self.main.index("frame_budget_refused);")
         ]
         self.assertIn("#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)", call)
+        self.assertIn("&combined_budget_presentation", call)
         self.assertIn("renderer_combined_session != nullptr", call)
         self.assertIn(
             "renderer_runtime_ownership.legacy_frame_presentation_enabled",
@@ -118,6 +119,21 @@ class FrameTimeBudgetContractTests(unittest.TestCase):
         self.assertIn("FAIL_NOT_PRESENTING", self.header)
         self.assertIn("presents_frames", self.header)
         self.assertIn("if (!context_.presents_frames)", self.source)
+
+    def test_combined_receipt_uses_the_visible_ogre_next_surface(self) -> None:
+        self.assertIn(
+            "renderer_combined_presenter.CurrentSurface()", self.main
+        )
+        self.assertIn(
+            "renderer_combined_presenter.InitialFrontendRequest()", self.main
+        )
+        self.assertIn(
+            "The combined process measures the sole visible Ogre-Next",
+            self.main,
+        )
+        self.assertIn(
+            "if (presentation_surface != nullptr)", self.main
+        )
 
     def test_startup_and_shutdown_are_fail_closed(self) -> None:
         self.assertIn("bool frame_budget_refused = false;", self.main)

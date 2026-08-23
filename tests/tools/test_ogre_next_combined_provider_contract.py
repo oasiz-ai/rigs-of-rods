@@ -745,6 +745,15 @@ class CombinedProviderContractTests(unittest.TestCase):
                 self.assertIn(token, COMBINED_WORKFLOW)
         self.assertNotIn("--native-visual-showcase-a0", COMBINED_WORKFLOW)
         self.assertNotIn("ROR_OGRE_NEXT_ALLOW_DIRTY_DEVELOPMENT_BUILD", COMBINED_WORKFLOW)
+        self.assertIn(
+            'xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \\\n'
+            "          python tools/run_playable_performance_scene.py",
+            COMBINED_WORKFLOW,
+        )
+        self.assertIn(
+            "${{ runner.temp }}/ror-combined-packaged-scene/",
+            COMBINED_WORKFLOW,
+        )
 
     def test_windows_combined_workflow_builds_installs_and_smokes_one_target(
         self,
@@ -809,6 +818,14 @@ class CombinedProviderContractTests(unittest.TestCase):
                 self.assertIn(token, COMBINED_WORKFLOW)
         self.assertNotIn("RoR-Ogre14.exe' -truck", COMBINED_WORKFLOW)
         self.assertNotIn("RoR.exe' -truck", COMBINED_WORKFLOW)
+        self.assertIn("function Invoke-CheckedPython", COMBINED_WORKFLOW)
+        self.assertIn(
+            "if ($LASTEXITCODE -ne 0)", COMBINED_WORKFLOW
+        )
+        self.assertIn(
+            "${{ runner.temp }}/ror-combined-packaged-scene/",
+            COMBINED_WORKFLOW,
+        )
 
     def test_linux_elf_parsers_fail_closed_on_duplicate_or_missing_evidence(
         self,
@@ -1327,10 +1344,14 @@ class CombinedProviderContractTests(unittest.TestCase):
                 {"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
                 for path in paths
             ]
+            ordered_paths = sorted(
+                paths,
+                key=lambda path: path.relative_to(package).as_posix(),
+            )
             serialized = "".join(
                 f"{path.relative_to(package).as_posix()}|{path.stat().st_size}|"
                 f"{hashlib.sha256(path.read_bytes()).hexdigest()}\n"
-                for path in sorted(paths)
+                for path in ordered_paths
             )
             contract = {
                 "ogre14_runtime_package_root": str(package),
