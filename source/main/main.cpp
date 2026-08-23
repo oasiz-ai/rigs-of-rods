@@ -4065,6 +4065,72 @@ int main(int argc, char *argv[])
             RendererInProcessSessionResult renderer_combined_events;
             bool renderer_combined_events_available = false;
             bool frame_budget_native_draw_recorded = false;
+            const auto record_combined_native_budget =
+                [&](std::uint64_t frontend_frame_id)
+            {
+                if (frame_budget_session == nullptr ||
+                    frame_budget_native_draw_recorded)
+                {
+                    return;
+                }
+                const RendererRetainedSceneAudit retained_scene_audit =
+                    renderer_combined_presenter.RetainedSceneAudit();
+                const bool exact_native_scene =
+                    retained_scene_audit.available &&
+                    retained_scene_audit.version >= 6U &&
+                    retained_scene_audit.last_native_renderer_frame_id ==
+                        frontend_frame_id &&
+                    retained_scene_audit.last_native_pass_metrics_exact;
+                frame_budget_session->RecordNativeSceneDrawSubmissions(
+                    exact_native_scene
+                        ? retained_scene_audit.last_native_scene_draws
+                        : 0U,
+                    exact_native_scene);
+                if (exact_native_scene)
+                {
+                    const auto record_native_phase =
+                        [&](FrameTimeBudgetPhase phase,
+                            std::uint64_t microseconds)
+                    {
+                        frame_budget_session->RecordPhaseMicroseconds(
+                            phase, microseconds);
+                    };
+                    record_native_phase(
+                        FrameTimeBudgetPhase::NATIVE_VALIDATION,
+                        retained_scene_audit.
+                            last_validation_phase_microseconds);
+                    record_native_phase(
+                        FrameTimeBudgetPhase::NATIVE_FRAME_PREPARE,
+                        retained_scene_audit.
+                            last_frame_prepare_phase_microseconds);
+                    record_native_phase(
+                        FrameTimeBudgetPhase::NATIVE_LIGHTS,
+                        retained_scene_audit.last_light_phase_microseconds);
+                    record_native_phase(
+                        FrameTimeBudgetPhase::NATIVE_INSTANCES,
+                        retained_scene_audit.last_instance_phase_microseconds);
+                    record_native_phase(
+                        FrameTimeBudgetPhase::NATIVE_PREPARE,
+                        retained_scene_audit.
+                            last_native_prepare_phase_microseconds);
+                    record_native_phase(
+                        FrameTimeBudgetPhase::NATIVE_RENDER,
+                        retained_scene_audit.
+                            last_native_render_phase_microseconds);
+                    record_native_phase(
+                        FrameTimeBudgetPhase::NATIVE_POST_RENDER,
+                        retained_scene_audit.
+                            last_post_render_phase_microseconds);
+                    record_native_phase(
+                        FrameTimeBudgetPhase::NATIVE_CLEANUP,
+                        retained_scene_audit.last_cleanup_phase_microseconds);
+                    record_native_phase(
+                        FrameTimeBudgetPhase::NATIVE_PUBLICATION,
+                        retained_scene_audit.
+                            last_publication_phase_microseconds);
+                }
+                frame_budget_native_draw_recorded = true;
+            };
             // Capture first: it clears prior relative deltas. The presenter's
             // sole SDL drain then installs this frame's ordered transitions,
             // before any gameplay/GUI consumer observes InputEngine state.
@@ -4167,20 +4233,8 @@ int main(int argc, char *argv[])
                 renderer_combined_events.status ==
                     RendererInProcessSessionStatus::FRAME_COMPLETED)
             {
-                const RendererRetainedSceneAudit retained_scene_audit =
-                    renderer_combined_presenter.RetainedSceneAudit();
-                const bool exact_native_scene_draws =
-                    retained_scene_audit.available &&
-                    retained_scene_audit.version >= 6U &&
-                    retained_scene_audit.last_native_renderer_frame_id ==
-                        renderer_combined_events.frontend_frame_id &&
-                    retained_scene_audit.last_native_pass_metrics_exact;
-                frame_budget_session->RecordNativeSceneDrawSubmissions(
-                    exact_native_scene_draws
-                        ? retained_scene_audit.last_native_scene_draws
-                        : 0U,
-                    exact_native_scene_draws);
-                frame_budget_native_draw_recorded = true;
+                record_combined_native_budget(
+                    renderer_combined_events.frontend_frame_id);
             }
 #else
             bool renderer_input_captured = false;
@@ -4559,26 +4613,8 @@ int main(int argc, char *argv[])
                             scene_result.status ==
                                 RendererInProcessSessionStatus::FRAME_COMPLETED)
                         {
-                            const RendererRetainedSceneAudit
-                                retained_scene_audit =
-                                    renderer_combined_presenter.
-                                        RetainedSceneAudit();
-                            const bool exact_native_scene_draws =
-                                retained_scene_audit.available &&
-                                retained_scene_audit.version >= 6U &&
-                                retained_scene_audit.
-                                        last_native_renderer_frame_id ==
-                                    scene_result.frontend_frame_id &&
-                                retained_scene_audit.
-                                    last_native_pass_metrics_exact;
-                            frame_budget_session->
-                                RecordNativeSceneDrawSubmissions(
-                                    exact_native_scene_draws
-                                        ? retained_scene_audit.
-                                              last_native_scene_draws
-                                        : 0U,
-                                    exact_native_scene_draws);
-                            frame_budget_native_draw_recorded = true;
+                            record_combined_native_budget(
+                                scene_result.frontend_frame_id);
                         }
                         (void)renderer_started;
                     }

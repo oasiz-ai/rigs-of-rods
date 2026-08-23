@@ -97,7 +97,16 @@ def make_combined_receipt(request, **overrides):
         native_scene_draw_rejected_samples=0,
         native_scene_draw_p99=934,
         native_scene_draw_maximum=1158,
+        phase_scene_dispatch_samples=request.requested_frames,
+        phase_scene_dispatch_total_ms=9000.0,
     )
+    for phase in runner.NATIVE_PHASE_NAMES:
+        prefix = f"phase_{phase}_"
+        document[prefix + "samples"] = request.requested_frames
+        document[prefix + "total_ms"] = 450.0
+        document[prefix + "mean_ms"] = 0.25
+        document[prefix + "max_ms"] = 0.5
+        document[prefix + "share"] = 0.025
     document.update(overrides)
     return document
 
@@ -263,6 +272,35 @@ class ReceiptValidationTests(unittest.TestCase):
                 request,
             )
         self.assertIn("draw budget failed", str(caught.exception))
+
+    def test_combined_receipt_requires_exact_native_phase_coverage(
+        self,
+    ) -> None:
+        request = make_request()
+        runner.validate_receipt(make_combined_receipt(request), request)
+
+        for phase in runner.NATIVE_PHASE_NAMES:
+            key = f"phase_{phase}_samples"
+            with self.subTest(phase=phase):
+                with self.assertRaisesRegex(
+                    runner.PerformanceSceneFailure,
+                    "covers",
+                ):
+                    runner.validate_receipt(
+                        make_combined_receipt(request, **{key: 0}), request
+                    )
+
+        with self.assertRaisesRegex(
+            runner.PerformanceSceneFailure,
+            "native phase total exceeds scene dispatch",
+        ):
+            runner.validate_receipt(
+                make_combined_receipt(
+                    request,
+                    phase_native_render_total_ms=6000.0,
+                ),
+                request,
+            )
 
 
 class PresentationPacingTests(unittest.TestCase):

@@ -165,6 +165,24 @@ enum class FrameTimeBudgetPhase : std::uint8_t {
     SCENE_PRODUCE,
     /// Dispatch to the frontend, render submission, and completion wait.
     SCENE_DISPATCH,
+    /// Nested Ogre-Next validation inside SCENE_DISPATCH.
+    NATIVE_VALIDATION,
+    /// Nested Ogre-Next frame-state preparation inside SCENE_DISPATCH.
+    NATIVE_FRAME_PREPARE,
+    /// Nested Ogre-Next native light synchronization inside SCENE_DISPATCH.
+    NATIVE_LIGHTS,
+    /// Nested Ogre-Next retained-instance synchronization inside SCENE_DISPATCH.
+    NATIVE_INSTANCES,
+    /// Nested Ogre-Next camera/compositor preparation inside SCENE_DISPATCH.
+    NATIVE_PREPARE,
+    /// Nested Ogre-Next render submission and completion inside SCENE_DISPATCH.
+    NATIVE_RENDER,
+    /// Nested Ogre-Next post-render verification inside SCENE_DISPATCH.
+    NATIVE_POST_RENDER,
+    /// Nested Ogre-Next failed-frame-safe cleanup inside SCENE_DISPATCH.
+    NATIVE_CLEANUP,
+    /// Nested Ogre-Next retained-evidence publication inside SCENE_DISPATCH.
+    NATIVE_PUBLICATION,
     COUNT,
 };
 
@@ -247,6 +265,12 @@ public:
     /// Attribute part of the current frame to a phase. Ignored during warm-up
     /// so phase totals and frame totals describe the same frames.
     void RecordPhase(FrameTimeBudgetPhase phase, double seconds);
+
+    /// Record one renderer-owned phase from its native microsecond audit.
+    /// Zero is a valid observation: short bookkeeping phases can complete
+    /// inside one clock tick and still need to cover the accepted frame.
+    void RecordPhaseMicroseconds(
+        FrameTimeBudgetPhase phase, std::uint64_t microseconds);
 
     /// Record the exact Ogre-Next main HDR scene-pass submissions for the
     /// current accepted frame. Zero, an inexact compositor split, a duplicate,

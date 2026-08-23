@@ -300,6 +300,22 @@ void FrameTimeBudgetSession::RecordPhase(
         phase_maximum_ns_[index] = sample_ns;
 }
 
+void FrameTimeBudgetSession::RecordPhaseMicroseconds(
+    FrameTimeBudgetPhase phase, std::uint64_t microseconds)
+{
+    const std::size_t index = static_cast<std::size_t>(phase);
+    if (index >= kFrameTimeBudgetPhaseCount || !Recording())
+        return;
+    if (microseconds > kFrameTimeBudgetMaximumSampleNs / 1000U)
+        return;
+
+    const std::uint64_t sample_ns = microseconds * 1000U;
+    ++phase_samples_[index];
+    phase_total_ns_[index] += sample_ns;
+    if (sample_ns > phase_maximum_ns_[index])
+        phase_maximum_ns_[index] = sample_ns;
+}
+
 void FrameTimeBudgetSession::RecordNativeSceneDrawSubmissions(
     std::uint64_t submissions, bool exact)
 {
@@ -458,7 +474,14 @@ FrameTimeBudgetReport FrameTimeBudgetSession::Finalize() const
             stats.share = total_frame_ms > 0.0
                 ? stats.total_ms / total_frame_ms
                 : 0.0;
-            attributed_ns += phase_total_ns_[index];
+            // Native phases are a nested breakdown of SCENE_DISPATCH. They
+            // remain visible against total frame time, but counting them in
+            // the remainder would double-charge the same renderer work.
+            if (index <= static_cast<std::size_t>(
+                    FrameTimeBudgetPhase::SCENE_DISPATCH))
+            {
+                attributed_ns += phase_total_ns_[index];
+            }
         }
         // The remainder is whatever the declared phases did not claim. A
         // negative remainder would mean the phases overlapped, so clamp at
@@ -588,6 +611,18 @@ const char* ToString(FrameTimeBudgetPhase phase) noexcept
     case FrameTimeBudgetPhase::SCENE_NORMALIZE: return "scene_normalize";
     case FrameTimeBudgetPhase::SCENE_PRODUCE: return "scene_produce";
     case FrameTimeBudgetPhase::SCENE_DISPATCH: return "scene_dispatch";
+    case FrameTimeBudgetPhase::NATIVE_VALIDATION: return "native_validation";
+    case FrameTimeBudgetPhase::NATIVE_FRAME_PREPARE:
+        return "native_frame_prepare";
+    case FrameTimeBudgetPhase::NATIVE_LIGHTS: return "native_lights";
+    case FrameTimeBudgetPhase::NATIVE_INSTANCES: return "native_instances";
+    case FrameTimeBudgetPhase::NATIVE_PREPARE: return "native_prepare";
+    case FrameTimeBudgetPhase::NATIVE_RENDER: return "native_render";
+    case FrameTimeBudgetPhase::NATIVE_POST_RENDER:
+        return "native_post_render";
+    case FrameTimeBudgetPhase::NATIVE_CLEANUP: return "native_cleanup";
+    case FrameTimeBudgetPhase::NATIVE_PUBLICATION:
+        return "native_publication";
     case FrameTimeBudgetPhase::COUNT: break;
     }
     return "unknown";

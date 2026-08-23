@@ -448,13 +448,19 @@ void TestPhaseAttribution()
     // accepted frame has been reported, not merely when warm-up is exhausted.
     CHECK(!session.Recording());
 
-    // A 10 ms frame: 6 ms producer, 3 ms renderer, 1 ms remainder.
+    // A 10 ms frame: 6 ms producer, 3 ms renderer, 1 ms remainder. The
+    // renderer includes a 2 ms native-render phase; that nested phase is
+    // reported but must not be charged to the remainder a second time.
     for (int frame = 0; frame < 100; ++frame)
     {
         CHECK(session.RecordFrame(0.010));
         CHECK(session.Recording());
         session.RecordPhase(RoR::FrameTimeBudgetPhase::PRODUCER, 0.006);
         session.RecordPhase(RoR::FrameTimeBudgetPhase::SCENE_DISPATCH, 0.003);
+        session.RecordPhaseMicroseconds(
+            RoR::FrameTimeBudgetPhase::NATIVE_RENDER, 2000U);
+        session.RecordPhaseMicroseconds(
+            RoR::FrameTimeBudgetPhase::NATIVE_PUBLICATION, 0U);
     }
 
     const RoR::FrameTimeBudgetReport report = session.Finalize();
@@ -463,17 +469,34 @@ void TestPhaseAttribution()
         static_cast<std::size_t>(RoR::FrameTimeBudgetPhase::PRODUCER);
     const std::size_t renderer =
         static_cast<std::size_t>(RoR::FrameTimeBudgetPhase::SCENE_DISPATCH);
+    const std::size_t native_render =
+        static_cast<std::size_t>(RoR::FrameTimeBudgetPhase::NATIVE_RENDER);
+    const std::size_t native_publication = static_cast<std::size_t>(
+        RoR::FrameTimeBudgetPhase::NATIVE_PUBLICATION);
     CHECK(report.phases[producer].samples == 100U);
     CHECK(NearlyEqual(report.phases[producer].mean_ms, 6.0, 1e-6));
     CHECK(NearlyEqual(report.phases[producer].share, 0.6, 1e-6));
     CHECK(NearlyEqual(report.phases[renderer].mean_ms, 3.0, 1e-6));
     CHECK(NearlyEqual(report.phases[renderer].share, 0.3, 1e-6));
+    CHECK(report.phases[native_render].samples == 100U);
+    CHECK(NearlyEqual(report.phases[native_render].mean_ms, 2.0, 1e-6));
+    CHECK(NearlyEqual(report.phases[native_render].share, 0.2, 1e-6));
+    CHECK(report.phases[native_publication].samples == 100U);
+    CHECK(report.phases[native_publication].total_ms == 0.0);
     CHECK(NearlyEqual(report.remainder.mean_ms, 1.0, 1e-6));
     CHECK(NearlyEqual(report.remainder.share, 0.1, 1e-6));
     CHECK(NearlyEqual(report.phases[producer].share +
                           report.phases[renderer].share +
                           report.remainder.share,
                       1.0, 1e-9));
+    const std::string phase_document =
+        RoR::SerializeFrameTimeBudgetReport(report);
+    CHECK(phase_document.find(
+              "\"phase_native_render_samples\": 100") !=
+          std::string::npos);
+    CHECK(phase_document.find(
+              "\"phase_native_publication_samples\": 100") !=
+          std::string::npos);
 
     // Overlapping phases cannot produce a negative remainder.
     RoR::FrameTimeBudgetSession overlapping(

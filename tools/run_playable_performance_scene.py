@@ -33,6 +33,17 @@ from typing import Mapping, Sequence
 
 
 RECEIPT_FORMAT = "ror-frame-time-budget-v1"
+NATIVE_PHASE_NAMES = (
+    "native_validation",
+    "native_frame_prepare",
+    "native_lights",
+    "native_instances",
+    "native_prepare",
+    "native_render",
+    "native_post_render",
+    "native_cleanup",
+    "native_publication",
+)
 REPORT_FORMAT = "ror-playable-performance-run-v1"
 
 #: Reserved by `kFrameTimeBudgetFailureExitCode`; 73/74 belong to the renderer
@@ -1115,6 +1126,44 @@ def validate_receipt(
                 "the native Ogre-Next scene draw budget failed: "
                 f"p99={native_values['native_scene_draw_p99']} "
                 f"limit={native_values['native_scene_draw_p99_limit']}"
+            )
+
+        dispatch_samples = document.get("phase_scene_dispatch_samples")
+        dispatch_total = document.get("phase_scene_dispatch_total_ms")
+        if dispatch_samples != accepted or not isinstance(
+            dispatch_total, (int, float)
+        ) or isinstance(dispatch_total, bool) or dispatch_total < 0:
+            raise PerformanceSceneFailure(
+                "the combined receipt does not attribute scene dispatch for "
+                "every accepted frame"
+            )
+        native_total = 0.0
+        for phase in NATIVE_PHASE_NAMES:
+            prefix = f"phase_{phase}_"
+            samples = document.get(prefix + "samples")
+            if samples != accepted:
+                raise PerformanceSceneFailure(
+                    f"the combined receipt phase {phase!r} covers "
+                    f"{samples!r} frames, expected {accepted}"
+                )
+            for suffix in ("total_ms", "mean_ms", "max_ms", "share"):
+                value = document.get(prefix + suffix)
+                if (
+                    not isinstance(value, (int, float))
+                    or isinstance(value, bool)
+                    or value < 0
+                ):
+                    raise PerformanceSceneFailure(
+                        f"the combined receipt field {prefix + suffix!r} "
+                        "is not a non-negative number"
+                    )
+            native_total += float(document[prefix + "total_ms"])
+        # These phases are a non-overlapping nested breakdown of dispatch.
+        # Microsecond truncation can only make the nested total smaller.
+        if native_total > float(dispatch_total) + 0.0001:
+            raise PerformanceSceneFailure(
+                "the Ogre-Next native phase total exceeds scene dispatch: "
+                f"native={native_total:.4f} ms dispatch={dispatch_total} ms"
             )
 
     ordered = (

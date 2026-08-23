@@ -213,6 +213,36 @@ class FrameTimeBudgetContractTests(unittest.TestCase):
         self.assertNotIn("bins_.resize", self.source)
         self.assertNotIn("bins_.push_back", self.source)
 
+    def test_combined_receipt_attributes_renderer_owned_native_phases(
+        self,
+    ) -> None:
+        for phase in (
+            "NATIVE_VALIDATION",
+            "NATIVE_FRAME_PREPARE",
+            "NATIVE_LIGHTS",
+            "NATIVE_INSTANCES",
+            "NATIVE_PREPARE",
+            "NATIVE_RENDER",
+            "NATIVE_POST_RENDER",
+            "NATIVE_CLEANUP",
+            "NATIVE_PUBLICATION",
+        ):
+            self.assertIn(f"FrameTimeBudgetPhase::{phase}", self.main)
+            self.assertIn(f"FrameTimeBudgetPhase::{phase}", self.source)
+
+        self.assertIn("RecordPhaseMicroseconds", self.main)
+        self.assertIn(
+            "last_native_renderer_frame_id ==\n"
+            "                        frontend_frame_id",
+            self.main,
+        )
+        self.assertIn("last_native_pass_metrics_exact", self.main)
+        self.assertIn(
+            "index <= static_cast<std::size_t>(\n"
+            "                    FrameTimeBudgetPhase::SCENE_DISPATCH)",
+            self.source,
+        )
+
     def test_build_graph_compiles_the_exact_production_kernel(self) -> None:
         game = (ROOT / "source/main/CMakeLists.txt").read_text()
         self.assertIn("system/FrameTimeBudget.{h,cpp}", game)
