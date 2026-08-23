@@ -789,6 +789,7 @@ jobs:
           $env:USERPROFILE = $profile
           $env:APPDATA = $appData
           $env:LOCALAPPDATA = $localData
+          $env:ROR_D0_SCENE_HOME = $profile
           $stdout = Join-Path $smoke 'renderer-smoke.stdout.log'
           $stderr = Join-Path $smoke 'renderer-smoke.stderr.log'
           $events = Join-Path $smoke 'renderer-smoke.windows-events.log'

@@ -764,6 +764,7 @@ class CombinedProviderContractTests(unittest.TestCase):
             "ror-combined-build-media-quarantine",
             "--native-visual-showcase",
             "Start-Process",
+            "$env:ROR_D0_SCENE_HOME = $profile",
             "Windows Error Reporting\\LocalDumps\\RoR-Combined.exe",
             "renderer-smoke.windows-events.log",
             "ror-combined-stage/RoR-Combined.exe",
