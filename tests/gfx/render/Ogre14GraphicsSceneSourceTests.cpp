@@ -2127,6 +2127,61 @@ void TestDynamicIdentityPayloadRevisionAndLifecycle() {
           "removed dynamic identity returned or modified retained output");
 }
 
+void TestConsumedDynamicInventoryTransfersJoinedStorage() {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneDynamicSectionCaptureInput input = MakeDynamicSection();
+  input.consumable_state =
+      std::make_shared<Ogre14GraphicsSceneJoinedDynamicState>(*input.state);
+  input.state.reset();
+  const Float3 *const joined_position_storage =
+      input.consumable_state->positions.data();
+  const Float3 *const joined_normal_storage =
+      input.consumable_state->normals.data();
+
+  Ogre14GraphicsSceneDynamicIdentityRegistry registry;
+  std::vector<GraphicsSceneAssetInput> assets;
+  std::vector<GraphicsSceneDynamicMeshInput> meshes;
+  std::vector<Ogre14GraphicsSceneDynamicSectionCaptureInput> inputs;
+  inputs.push_back(std::move(input));
+  const ValidationResult result = BuildOgre14GraphicsSceneDynamicInventory(
+      std::move(inputs), registry, assets, meshes);
+  Require(result.ok() && meshes.size() == 1U && meshes.front().state &&
+              meshes.front().state->positions.data() ==
+                  joined_position_storage &&
+              meshes.front().state->normals.data() == joined_normal_storage &&
+              meshes.front().state->deformation_revision == 2U,
+          "consumed joined state was deep-copied instead of transferring its "
+          "validated vertex storage");
+}
+
+void TestLvalueDynamicInventoryPreservesConsumableStorage() {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneDynamicSectionCaptureInput input = MakeDynamicSection();
+  input.consumable_state =
+      std::make_shared<Ogre14GraphicsSceneJoinedDynamicState>(*input.state);
+  input.state.reset();
+  const Float3 *const joined_position_storage =
+      input.consumable_state->positions.data();
+  const std::size_t joined_position_count =
+      input.consumable_state->positions.size();
+
+  Ogre14GraphicsSceneDynamicIdentityRegistry registry;
+  std::vector<GraphicsSceneAssetInput> assets;
+  std::vector<GraphicsSceneDynamicMeshInput> meshes;
+  std::vector<Ogre14GraphicsSceneDynamicSectionCaptureInput> inputs;
+  inputs.push_back(std::move(input));
+  const ValidationResult result = BuildOgre14GraphicsSceneDynamicInventory(
+      inputs, registry, assets, meshes);
+  Require(result.ok() && meshes.size() == 1U && meshes.front().state,
+          "lvalue consumable inventory was rejected");
+  Require(inputs.front().consumable_state != nullptr &&
+              inputs.front().consumable_state->positions.size() ==
+                  joined_position_count &&
+              inputs.front().consumable_state->positions.data() ==
+                  joined_position_storage,
+          "lvalue consumable inventory transferred caller-owned storage");
+}
+
 void TestDynamicSectionsPreserveTopologyAndMaterialBindings() {
   using namespace RoR::Render;
   Ogre14GraphicsSceneDynamicSectionCaptureInput first =
@@ -2653,6 +2708,8 @@ int main() {
   TestTerrainMaterialGateAndSectionAreTransactional();
   TestTerrainInventoryReusesPayloadAndFeedsProducer();
   TestDynamicIdentityPayloadRevisionAndLifecycle();
+  TestConsumedDynamicInventoryTransfersJoinedStorage();
+  TestLvalueDynamicInventoryPreservesConsumableStorage();
   TestDynamicSectionsPreserveTopologyAndMaterialBindings();
   TestConvertedDynamicInventoryFeedsProducer();
   TestPerspectiveAndOrthographicCameraConversion();

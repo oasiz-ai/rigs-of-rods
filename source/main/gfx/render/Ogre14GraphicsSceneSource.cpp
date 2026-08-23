@@ -2392,7 +2392,7 @@ ValidationResult SubtractRetainedOgre14GraphicsSceneAssets(
 }
 
 ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
-    const std::vector<Ogre14GraphicsSceneDynamicSectionCaptureInput> &inputs,
+    std::vector<Ogre14GraphicsSceneDynamicSectionCaptureInput> inputs,
     Ogre14GraphicsSceneDynamicIdentityRegistry &identity_registry,
     std::vector<GraphicsSceneAssetInput> &assets,
     std::vector<GraphicsSceneDynamicMeshInput> &dynamic_meshes,
@@ -2475,7 +2475,7 @@ ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
 
   for (std::size_t input_index = 0U; input_index < inputs.size();
        ++input_index) {
-    const Ogre14GraphicsSceneDynamicSectionCaptureInput &input =
+    Ogre14GraphicsSceneDynamicSectionCaptureInput &input =
         inputs[input_index];
     if (input.exact_entity_name.empty() ||
         input.exact_entity_name.find('\0') != std::string::npos) {
@@ -2495,12 +2495,16 @@ ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
           "dynamic section requires an immutable base mesh payload",
           input_index);
     }
-    if (input.state == nullptr) {
+    if ((input.state == nullptr) == (input.consumable_state == nullptr)) {
       return ValidationResult::Failure(
           ValidationCode::EMPTY_PAYLOAD, "dynamic_meshes.state",
-          "dynamic section requires one copied post-join CPU staging owner",
+          "dynamic section requires exactly one retained or consumable "
+          "post-join CPU staging owner",
           input_index);
     }
+    const Ogre14GraphicsSceneJoinedDynamicState &joined_state =
+        input.consumable_state != nullptr ? *input.consumable_state
+                                          : *input.state;
     if (input.has_dynamic_vertex_colors) {
       return ValidationResult::Failure(
           ValidationCode::UNSUPPORTED_FEATURE,
@@ -2577,7 +2581,7 @@ ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
             input_index);
       }
     }
-    if (input.state->topology_revision != mesh.topology_revision) {
+    if (joined_state.topology_revision != mesh.topology_revision) {
       return ValidationResult::Failure(
           ValidationCode::REVISION_MISMATCH,
           "dynamic_meshes.state.topology_revision",
@@ -2585,7 +2589,7 @@ ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
           input_index);
     }
 
-    validation = ValidateJoinedDynamicStateCompatibility(mesh, *input.state);
+    validation = ValidateJoinedDynamicStateCompatibility(mesh, joined_state);
     if (!validation) {
       return AtDynamicSection(std::move(validation), input_index);
     }
@@ -2821,6 +2825,28 @@ ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
       current_asset_keys.insert(material_key);
     }
 
+    const auto publish_joined_state =
+        [&input, &joined_state](std::uint64_t deformation_revision) {
+          auto published = std::make_shared<GraphicsSceneDynamicMeshState>();
+          published->topology_revision = joined_state.topology_revision;
+          published->deformation_revision = deformation_revision;
+          if (input.consumable_state != nullptr &&
+              input.consumable_state.use_count() == 1U) {
+            published->positions =
+                std::move(input.consumable_state->positions);
+            published->normals = std::move(input.consumable_state->normals);
+            published->tangents = std::move(input.consumable_state->tangents);
+            published->velocities =
+                std::move(input.consumable_state->velocities);
+          } else {
+            published->positions = joined_state.positions;
+            published->normals = joined_state.normals;
+            published->tangents = joined_state.tangents;
+            published->velocities = joined_state.velocities;
+          }
+          published->updated_local_bounds = joined_state.updated_local_bounds;
+          return published;
+        };
     std::shared_ptr<const GraphicsSceneDynamicMeshState> deformation;
     if (prior_object != identity_registry.object_states_.end()) {
       if (prior_object->second.deformation == nullptr) {
@@ -2830,7 +2856,7 @@ ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
             input_index);
       }
       if (EquivalentJoinedDynamicContents(
-              *prior_object->second.deformation, *input.state)) {
+              *prior_object->second.deformation, joined_state)) {
         deformation = prior_object->second.deformation;
       } else {
         const std::uint64_t prior_revision =
@@ -2841,26 +2867,10 @@ ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
               "dynamic_meshes.state.deformation_revision",
               "dynamic deformation revision would overflow", input_index);
         }
-        auto next = std::make_shared<GraphicsSceneDynamicMeshState>();
-        next->topology_revision = input.state->topology_revision;
-        next->deformation_revision = prior_revision + 1U;
-        next->positions = input.state->positions;
-        next->normals = input.state->normals;
-        next->tangents = input.state->tangents;
-        next->velocities = input.state->velocities;
-        next->updated_local_bounds = input.state->updated_local_bounds;
-        deformation = std::move(next);
+        deformation = publish_joined_state(prior_revision + 1U);
       }
     } else {
-      auto first = std::make_shared<GraphicsSceneDynamicMeshState>();
-      first->topology_revision = input.state->topology_revision;
-      first->deformation_revision = 2U;
-      first->positions = input.state->positions;
-      first->normals = input.state->normals;
-      first->tangents = input.state->tangents;
-      first->velocities = input.state->velocities;
-      first->updated_local_bounds = input.state->updated_local_bounds;
-      deformation = std::move(first);
+      deformation = publish_joined_state(2U);
     }
 
     Ogre14GraphicsSceneDynamicIdentityRegistry::ObjectState object_state;

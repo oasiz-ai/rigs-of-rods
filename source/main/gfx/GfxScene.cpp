@@ -3131,7 +3131,7 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
         state->topology_revision =
             std::get<RoR::Render::MeshResourceDescriptor>(
                 *section.mesh_payload).topology_revision;
-        section.state = std::move(state);
+        section.consumable_state = std::move(state);
         sections.push_back(std::move(section));
     }
     return RoR::Render::ValidationResult::Success();
@@ -5006,7 +5006,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
     ReportOgre14RigidActorCaptureCoverage(
         rigid_counters, m_ogre14_rigid_actor_capture_log_snapshot);
     return Render::BuildOgre14GraphicsSceneDynamicInventory(
-        sections, identity_registry, assets, dynamic_meshes);
+        std::move(sections), identity_registry, assets, dynamic_meshes);
 }
 
 namespace {

@@ -560,6 +560,12 @@ struct Ogre14GraphicsSceneDynamicSectionCaptureInput {
   bool visible_in_reflections = true;
   /// FlexBody blend colors are frame-varying and cannot be omitted silently.
   bool has_dynamic_vertex_colors = false;
+  /// Fresh adapter-owned staging may be transferred into the published
+  /// deformation when this input inventory itself is consumed. This avoids a
+  /// second full vertex-stream copy after the joined state has already been
+  /// validated. Ordinary callers keep using `state`; lvalue calls preserve
+  /// that owner and take the non-consuming copy/reuse path.
+  std::shared_ptr<Ogre14GraphicsSceneJoinedDynamicState> consumable_state;
   std::shared_ptr<const Ogre14GraphicsSceneJoinedDynamicState> state;
 };
 
@@ -620,7 +626,7 @@ private:
   };
 
   friend ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
-      const std::vector<Ogre14GraphicsSceneDynamicSectionCaptureInput> &,
+      std::vector<Ogre14GraphicsSceneDynamicSectionCaptureInput>,
       Ogre14GraphicsSceneDynamicIdentityRegistry &,
       std::vector<GraphicsSceneAssetInput> &,
       std::vector<GraphicsSceneDynamicMeshInput> &,
@@ -668,7 +674,7 @@ public:
 /// deformation revisions and immutable owner reuse, and commits lifecycle
 /// state only after every section succeeds.
 [[nodiscard]] ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
-    const std::vector<Ogre14GraphicsSceneDynamicSectionCaptureInput> &inputs,
+    std::vector<Ogre14GraphicsSceneDynamicSectionCaptureInput> inputs,
     Ogre14GraphicsSceneDynamicIdentityRegistry &identity_registry,
     std::vector<GraphicsSceneAssetInput> &assets,
     std::vector<GraphicsSceneDynamicMeshInput> &dynamic_meshes,
