@@ -76,6 +76,24 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
             REPOSITORY_ROOT / ".github/workflows/ogre-next-probe.yml"
         ).read_text(encoding="utf-8")
 
+    def test_stb_implementation_owner_pattern_accepts_lf_and_crlf(self) -> None:
+        pattern = AUDIT.STB_IMAGE_IMPLEMENTATION_PATTERN
+        for source in (
+            b"#define STB_IMAGE_IMPLEMENTATION\n",
+            b"#define STB_IMAGE_IMPLEMENTATION\r\n",
+            b"  #  define\tSTB_IMAGE_IMPLEMENTATION  \n",
+            b"  #  define\tSTB_IMAGE_IMPLEMENTATION  \r\n",
+        ):
+            with self.subTest(source=source):
+                self.assertEqual(len(pattern.findall(source)), 1)
+        for source in (
+            b"// #define STB_IMAGE_IMPLEMENTATION\n",
+            b"#define STB_IMAGE_IMPLEMENTATION_EXTRA\n",
+            b"#define STB_IMAGE_IMPLEMENTATION 1\n",
+        ):
+            with self.subTest(source=source):
+                self.assertEqual(len(pattern.findall(source)), 0)
+
     def test_canonical_lock_binds_conditional_fork_inputs(self) -> None:
         self.assertEqual(self.lock["schema_version"], 6)
         embedded = self.lock["embedded_namespace"]

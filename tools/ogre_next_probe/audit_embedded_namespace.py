@@ -14,7 +14,7 @@ from pathlib import Path
 
 CPP_SUFFIXES = {".cc", ".cpp", ".cxx", ".mm"}
 STB_IMAGE_IMPLEMENTATION_PATTERN = re.compile(
-    rb"^[ \t]*#[ \t]*define[ \t]+STB_IMAGE_IMPLEMENTATION(?:[ \t]|$)",
+    rb"^[ \t]*#[ \t]*define[ \t]+STB_IMAGE_IMPLEMENTATION[ \t]*\r?$",
     re.MULTILINE,
 )
 STB_IMAGE_COMMAND_CONFIGURATION_PATTERN = re.compile(
