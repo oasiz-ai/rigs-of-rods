@@ -121,14 +121,42 @@ string(FIND "${_ror_root_sdl_interface_serialized}"
     _ror_root_sdl_interface_target_index)
 set(_ror_root_sdl_expected_artifact
     "${sdl_PACKAGE_FOLDER_RELEASE}/lib/${_ror_root_sdl_expected_library_name}")
-if (NOT "${ROR_ROOT_SDL_IMPORTED_ARTIFACT}" STREQUAL
-            "${_ror_root_sdl_expected_artifact}" OR
-        _ror_root_sdl_interface_target_index EQUAL -1 OR
-        NOT EXISTS "${ROR_ROOT_SDL_IMPORTED_ARTIFACT}" OR
+if (NOT EXISTS "${ROR_ROOT_SDL_IMPORTED_ARTIFACT}" OR
         IS_DIRECTORY "${ROR_ROOT_SDL_IMPORTED_ARTIFACT}" OR
         IS_SYMLINK "${ROR_ROOT_SDL_IMPORTED_ARTIFACT}")
     message(FATAL_ERROR
-        "SDL2::SDL2 does not own the exact locked package archive")
+        "SDL2::SDL2 imported artifact is not one regular package archive")
+endif ()
+if (NOT EXISTS "${_ror_root_sdl_expected_artifact}" OR
+        IS_DIRECTORY "${_ror_root_sdl_expected_artifact}" OR
+        IS_SYMLINK "${_ror_root_sdl_expected_artifact}")
+    message(FATAL_ERROR "The exact locked SDL package archive is unavailable")
+endif ()
+file(REAL_PATH "${ROR_ROOT_SDL_IMPORTED_ARTIFACT}"
+    _ror_root_sdl_imported_artifact_real)
+file(REAL_PATH "${_ror_root_sdl_expected_artifact}"
+    _ror_root_sdl_expected_artifact_real)
+set(_ror_root_sdl_imported_artifact_compare
+    "${_ror_root_sdl_imported_artifact_real}")
+set(_ror_root_sdl_expected_artifact_compare
+    "${_ror_root_sdl_expected_artifact_real}")
+if (WIN32)
+    # The locked archive is on a case-insensitive filesystem, while Conan's
+    # generated target and package-folder variables may preserve different
+    # drive/path casing. Both paths were resolved and proven regular above.
+    string(TOLOWER "${_ror_root_sdl_imported_artifact_compare}"
+        _ror_root_sdl_imported_artifact_compare)
+    string(TOLOWER "${_ror_root_sdl_expected_artifact_compare}"
+        _ror_root_sdl_expected_artifact_compare)
+endif ()
+if (NOT "${_ror_root_sdl_imported_artifact_compare}" STREQUAL
+            "${_ror_root_sdl_expected_artifact_compare}")
+    message(FATAL_ERROR
+        "SDL2::SDL2 imported archive is outside the exact locked package path")
+endif ()
+if (_ror_root_sdl_interface_target_index EQUAL -1)
+    message(FATAL_ERROR
+        "SDL2::SDL2 does not link its exact imported archive target")
 endif ()
 file(SIZE "${ROR_ROOT_SDL_IMPORTED_ARTIFACT}"
     ROR_ROOT_SDL_IMPORTED_ARTIFACT_SIZE)
