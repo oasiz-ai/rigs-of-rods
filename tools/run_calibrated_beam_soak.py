@@ -102,9 +102,17 @@ def run_command(
     cwd: Path | None = None,
     environment: Mapping[str, str] | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
+    launch = list(command)
+    if not launch:
+        raise SoakFailure("cannot run an empty command")
+    # A shebang is not an executable format on Windows.  Qualification uses
+    # the native ror_state_trace binary, while unit tests and local diagnostic
+    # probes may intentionally provide a Python trace-tool double.
+    if Path(launch[0]).suffix.casefold() == ".py":
+        launch.insert(0, sys.executable)
     try:
         return subprocess.run(
-            list(command),
+            launch,
             cwd=None if cwd is None else str(cwd),
             env=None if environment is None else dict(environment),
             stdout=subprocess.PIPE,

@@ -73,6 +73,15 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Restore canonical Git object bytes
+        shell: bash
+        run: |
+          git config core.autocrlf false
+          git restore --source=HEAD --worktree -- .
+          git submodule foreach --recursive \
+            'git config core.autocrlf false && git restore --source=HEAD --worktree -- .'
+          test -z "$(git status --porcelain --untracked-files=no)"
+
       - name: Isolate all generated state from the source checkout
         shell: bash
         run: |
@@ -744,6 +753,15 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+
+      - name: Restore canonical Git object bytes
+        shell: bash
+        run: |
+          git config core.autocrlf false
+          git restore --source=HEAD --worktree -- .
+          git submodule foreach --recursive \
+            'git config core.autocrlf false && git restore --source=HEAD --worktree -- .'
+          test -z "$(git status --porcelain --untracked-files=no)"
 
       - name: Isolate all generated Windows state from the source checkout
         shell: pwsh
