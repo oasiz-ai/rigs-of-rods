@@ -190,18 +190,50 @@ def json_object(path: Path, label: str) -> dict[str, object]:
 
 
 def msvc_symbol_dump(path: Path) -> str:
-    option = "/EXPORTS" if path.suffix.lower() == ".dll" else "/SYMBOLS"
+    suffix = path.suffix.lower()
+    if suffix == ".dll":
+        option = "/EXPORTS"
+    elif suffix == ".lib":
+        option = "/LINKERMEMBER:2"
+    else:
+        option = "/SYMBOLS"
     return output("dumpbin", "/nologo", option, str(path))
 
 
-def msvc_defined_symbols(raw: str, *, exports: bool) -> set[str]:
+def msvc_defined_symbols(
+    raw: str,
+    *,
+    exports: bool,
+    link_members: bool = False,
+) -> set[str]:
     symbols: set[str] = set()
+    require(
+        not (exports and link_members),
+        "MSVC symbol payload cannot be exports and link members",
+    )
     if exports:
         for line in raw.splitlines():
             match = re.fullmatch(
                 r"\s*[0-9]+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+"
                 r"([^\s=]+)(?:\s+=.*)?\s*",
                 line,
+            )
+            if match is not None:
+                symbols.add(match.group(1))
+        return symbols
+    if link_members:
+        in_public_symbols = False
+        for line in raw.splitlines():
+            if re.fullmatch(r"\s*[0-9]+\s+public symbols\s*", line):
+                in_public_symbols = True
+                continue
+            if re.fullmatch(r"\s*[0-9]+\s+offsets\s*", line):
+                in_public_symbols = False
+                continue
+            if not in_public_symbols:
+                continue
+            match = re.fullmatch(
+                r"\s*[0-9A-Fa-f]+\s+(\S+)\s*", line
             )
             if match is not None:
                 symbols.add(match.group(1))
@@ -251,7 +283,7 @@ def cpp_symbol_present(
 ) -> bool:
     """Match one reviewed ABI owner without pretending c++filt handles MSVC."""
     if platform_policy == "windows-x64-d3d11":
-        return msvc_decorated_token in raw
+        return msvc_decorated_token in raw or readable_token in raw
     return readable_token in demangled
 
 
@@ -263,7 +295,10 @@ def cpp_namespace_present(
     msvc_decorated_namespace: str,
 ) -> bool:
     if platform_policy == "windows-x64-d3d11":
-        return msvc_decorated_namespace in raw
+        return (
+            msvc_decorated_namespace in raw
+            or readable_namespace in raw
+        )
     return readable_namespace in demangled
 
 
@@ -313,8 +348,11 @@ def defined_global_symbols(path: Path, platform_policy: str) -> set[str]:
     """Return exact global definitions, excluding undefined imports."""
     if platform_policy == "windows-x64-d3d11":
         raw = msvc_symbol_dump(path)
+        suffix = path.suffix.lower()
         return msvc_defined_symbols(
-            raw, exports=path.suffix.lower() == ".dll"
+            raw,
+            exports=suffix == ".dll",
+            link_members=suffix == ".lib",
         )
     if platform_policy != "macos-arm64-metal":
         return set(_gnu_defined_symbol_types(path))

@@ -370,6 +370,53 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
                 "named_export",
             },
         )
+        link_member_dump = "\n".join(
+            (
+                "    2 public symbols",
+                "      109 ?defined@Root@RoROgreNext@@SAXXZ",
+                "      20A ?other@Root@RoROgreNext@@SAXXZ",
+                "    2 offsets",
+                "      109",
+                "      20A",
+            )
+        )
+        self.assertEqual(
+            AUDIT.msvc_defined_symbols(
+                link_member_dump, exports=False, link_members=True
+            ),
+            {
+                "?defined@Root@RoROgreNext@@SAXXZ",
+                "?other@Root@RoROgreNext@@SAXXZ",
+            },
+        )
+        with self.assertRaisesRegex(RuntimeError, "cannot be exports"):
+            AUDIT.msvc_defined_symbols(
+                link_member_dump, exports=True, link_members=True
+            )
+
+    def test_windows_symbol_checks_accept_dumpbin_undecoration(self) -> None:
+        readable = (
+            "public: static class RoROgreNext::Root * __cdecl "
+            "RoROgreNext::Root::getSingletonPtr(void)"
+        )
+        self.assertTrue(
+            AUDIT.cpp_symbol_present(
+                readable,
+                "",
+                "windows-x64-d3d11",
+                "RoROgreNext::Root::getSingletonPtr",
+                "?getSingletonPtr@Root@RoROgreNext@@",
+            )
+        )
+        self.assertTrue(
+            AUDIT.cpp_namespace_present(
+                readable,
+                "",
+                "windows-x64-d3d11",
+                "RoROgreNext::",
+                "@RoROgreNext@@",
+            )
+        )
 
     def test_windows_link_map_requires_named_public_symbol_table(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
