@@ -281,6 +281,9 @@ ACTOR_CONTROL_FIELD_PATTERN = re.compile(
     r"(?P<name>[a-z][a-z0-9_]*)=(?P<value>\S+)"
 )
 ACTOR_CONTROL_SPAWN_MARKER = "== Spawning vehicle:"
+ACTOR_CONTROL_PRESENTED_SCENE_MARKER = (
+    "[RoR|RendererCombined|RetainedScene]"
+)
 
 
 def effective_graphics_settings(text: str) -> dict[str, str]:
@@ -1689,11 +1692,32 @@ def main(argv: Sequence[str] | None = None) -> int:
             started = time.monotonic()
             try:
                 if args.qualify_actor_control:
+                    readiness_timeout = min(
+                        120.0, float(args.timeout)
+                    )
                     wait_for_runtime_marker(
                         layout["logs"] / "RoR.log",
                         ACTOR_CONTROL_SPAWN_MARKER,
                         process,
-                        min(120.0, float(args.timeout)),
+                        readiness_timeout,
+                    )
+                    # Spawning precedes the first native scene submission. On
+                    # software Vulkan/D3D runners, that submission can spend
+                    # several seconds compiling shaders. Sending a bounded
+                    # press during that synchronous interval lets both OS
+                    # transitions accumulate before the game can resolve the
+                    # pressed state. Wait until Ogre-Next has completed and
+                    # retained the first actor scene, then drive the next
+                    # ordinary input/simulation/presentation boundaries.
+                    readiness_remaining = max(
+                        0.1,
+                        readiness_timeout - (time.monotonic() - started),
+                    )
+                    wait_for_runtime_marker(
+                        layout["logs"] / "RoR.log",
+                        ACTOR_CONTROL_PRESENTED_SCENE_MARKER,
+                        process,
+                        readiness_remaining,
                     )
                     driver = drive_external_actor_control(
                         request.target_platform,

@@ -715,6 +715,33 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(environment["ALSOFT_DRIVERS"], "null")
         self.assertNotIn("SNAP_USER_COMMON", environment)
 
+    def test_actor_control_waits_for_a_completed_native_actor_scene(
+        self,
+    ) -> None:
+        self.assertEqual(
+            runner.ACTOR_CONTROL_SPAWN_MARKER,
+            "== Spawning vehicle:",
+        )
+        self.assertEqual(
+            runner.ACTOR_CONTROL_PRESENTED_SCENE_MARKER,
+            "[RoR|RendererCombined|RetainedScene]",
+        )
+        source = (
+            ROOT / "tools/run_playable_performance_scene.py"
+        ).read_text(encoding="utf-8")
+        spawn_wait = source.index(
+            "ACTOR_CONTROL_SPAWN_MARKER,",
+            source.index("process = subprocess.Popen"),
+        )
+        presented_wait = source.index(
+            "ACTOR_CONTROL_PRESENTED_SCENE_MARKER,", spawn_wait
+        )
+        input_drive = source.index(
+            "driver = drive_external_actor_control(", presented_wait
+        )
+        self.assertLess(spawn_wait, presented_wait)
+        self.assertLess(presented_wait, input_drive)
+
 
 class ReceiptIoTests(unittest.TestCase):
     def test_missing_and_malformed_receipts_are_refused(self) -> None:
