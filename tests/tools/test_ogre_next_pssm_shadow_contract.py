@@ -457,13 +457,23 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
         for token in (
             "setCastShadows(casts_shadow)",
             "setReceiveShadows(false)",
-            "std::string(kOgreNextUvAffinePbsDatablockPrefix)",
             '"PssmNonReceiver_i"',
             "mIncludeOverlays = false",
             "PixelFormat::RGBA16_FLOAT",
             "PixelFormat::RGBA8_SRGB",
         ):
             self.assertTrue(token in self.frontend or token in self.smoke)
+        receiver_clone = self.frontend[
+            self.frontend.index("const auto create_receiver_clone") :
+            self.frontend.index("const auto create_retained_instance")
+        ]
+        for token in (
+            "OgreNextUvAffinePbs::SelectsThinSlabTransmissionShader",
+            "std::string(thin_slab_transmission",
+            "kOgreNextThinSlabPbsDatablockPrefix",
+            ": kOgreNextUvAffinePbsDatablockPrefix",
+        ):
+            self.assertIn(token, receiver_clone)
 
     def test_native_isolation_proof_toggles_only_casting_and_fails_closed(self) -> None:
         for token in (
