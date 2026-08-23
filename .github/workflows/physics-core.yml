@@ -16,6 +16,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: true
 
       - name: Configure debug tests
         run: >-
@@ -24,10 +26,14 @@ jobs:
           -DROR_TEST_GAME_FAST_MATH=OFF
 
       - name: Build debug tests
-        run: cmake --build build-physics-tests-debug --config Debug
+        run: >-
+          cmake --build build-physics-tests-debug
+          --target ror_physics_core_suite --config Debug
 
       - name: Run debug tests
-        run: cmake -E chdir build-physics-tests-debug ctest -C Debug --output-on-failure
+        run: >-
+          cmake -E chdir build-physics-tests-debug ctest -C Debug
+          -L physics-core --output-on-failure
 
       - name: Configure precise tests
         run: >-
@@ -36,10 +42,14 @@ jobs:
           -DROR_TEST_GAME_FAST_MATH=OFF
 
       - name: Build precise tests
-        run: cmake --build build-physics-tests-precise --config Release
+        run: >-
+          cmake --build build-physics-tests-precise
+          --target ror_physics_core_suite --config Release
 
       - name: Run precise tests
-        run: cmake -E chdir build-physics-tests-precise ctest -C Release --output-on-failure
+        run: >-
+          cmake -E chdir build-physics-tests-precise ctest -C Release
+          -L physics-core --output-on-failure
 
       - name: Configure game floating-point mode
         run: >-
@@ -48,10 +58,14 @@ jobs:
           -DROR_TEST_GAME_FAST_MATH=ON
 
       - name: Build game floating-point mode
-        run: cmake --build build-physics-tests-fast --config Release
+        run: >-
+          cmake --build build-physics-tests-fast
+          --target ror_physics_core_suite --config Release
 
       - name: Run game floating-point mode
-        run: cmake -E chdir build-physics-tests-fast ctest -C Release --output-on-failure
+        run: >-
+          cmake -E chdir build-physics-tests-fast ctest -C Release
+          -L physics-core --output-on-failure
 
   physics-sanitizers:
     name: Physics kernels (${{ matrix.name }})
@@ -68,6 +82,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: true
 
       - name: Configure
         env:
@@ -81,7 +97,11 @@ jobs:
           -DCMAKE_EXE_LINKER_FLAGS="${SANITIZER_FLAGS}"
 
       - name: Build
-        run: cmake --build build-physics-tests-sanitized --config Debug
+        run: >-
+          cmake --build build-physics-tests-sanitized
+          --target ror_physics_core_suite --config Debug
 
       - name: Test
-        run: cmake -E chdir build-physics-tests-sanitized ctest -C Debug --output-on-failure
+        run: >-
+          cmake -E chdir build-physics-tests-sanitized ctest -C Debug
+          -L physics-core --output-on-failure

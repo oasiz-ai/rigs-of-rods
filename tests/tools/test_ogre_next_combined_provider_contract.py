@@ -94,6 +94,25 @@ class CombinedProviderContractTests(unittest.TestCase):
         ):
             self.assertIn(gate, ROOT_CMAKE)
 
+    def test_combined_qualification_tool_is_opt_in_and_separate(self) -> None:
+        self.assertRegex(
+            ROOT_CMAKE,
+            r'option\(\s*ROR_BUILD_QUALIFICATION_TOOLS\s*\n'
+            r'\s*"[^"]+"\s*\n\s*OFF\)',
+        )
+        for token in (
+            "if (ROR_BUILD_QUALIFICATION_TOOLS)",
+            "add_executable(\n        ror_state_trace",
+            '"${CMAKE_BINARY_DIR}/qualification-tools"',
+            "PRIVATE /W4 /WX /fp:precise",
+            "PRIVATE -Wall -Wextra -Werror -pedantic -fno-fast-math",
+            "RUNTIME DESTINATION qualification/bin",
+            'COMPONENT "Qualification_Tools"',
+            "add_dependencies(\n            ror_ogre_next_combined_verified",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, ROOT_CMAKE)
+
     def test_provider_reuses_exact_root_sdl_and_never_fetches_it(self) -> None:
         for token in (
             "sdl_SDL2_SDL2_LIBRARIES_TARGETS",
@@ -695,6 +714,7 @@ class CombinedProviderContractTests(unittest.TestCase):
     def test_linux_combined_workflow_builds_installs_and_smokes_one_target(self) -> None:
         for token in (
             "-DROR_OGRE_NEXT_COMBINED_RUNTIME=ON",
+            "-DROR_BUILD_QUALIFICATION_TOOLS=ON",
             "-DROR_RENDERER_PUBLIC_LAUNCHER=OFF",
             "-DROR_OGRE_NEXT_PRODUCTION_PACKAGE=OFF",
             "-DROR_OGRE_NEXT_DEMO_ADMISSION=OFF",
@@ -732,6 +752,7 @@ class CombinedProviderContractTests(unittest.TestCase):
             'echo "Ogre-Next showcase produced no presented-scene receipt"',
             "Render packaged Simple2 and semi through Ogre-Next",
             "tools/run_playable_performance_scene.py",
+            "tests/tools/test_run_agora_impact_regression.py",
             "ci.ogre-next-combined.packaged-simple2-semi",
             "simple2_a.terrn2",
             "b6b0UID-semi.truck",
@@ -743,6 +764,18 @@ class CombinedProviderContractTests(unittest.TestCase):
             "--qualify-actor-control",
             "x11-xtest-xdotool",
             "packaged-scene-smoke",
+            "--component Qualification_Tools",
+            'test -x "$stage/qualification/bin/ror_state_trace"',
+            "Prove authenticated deterministic Agora impact through packaged RoR-Combined",
+            "tools/run_agora_impact_regression.py",
+            'LD_LIBRARY_PATH="$stage/lib"',
+            '"$stage/qualification/bin/ror_state_trace"',
+            "ror-p1-agora-impact-regression-v1",
+            '"workers": [1, 8]',
+            '"steps": 6000',
+            '"cross_worker_trace_comparisons"',
+            '"exact_state_trace_match": True',
+            "numerical-impact-fixture-not-physical-calibration",
             "if: success()",
         ):
             with self.subTest(token=token):
@@ -776,6 +809,7 @@ class CombinedProviderContractTests(unittest.TestCase):
             '"-DCONAN_BUILD_PROFILE=$conanProfile"',
             "& cmake @cmakeArguments",
             "-DROR_OGRE_NEXT_COMBINED_RUNTIME=ON",
+            "-DROR_BUILD_QUALIFICATION_TOOLS=ON",
             "-DROR_RENDERER_PUBLIC_LAUNCHER=OFF",
             "-DROR_OGRE_NEXT_PRODUCTION_PACKAGE=OFF",
             "-DROR_OGRE_NEXT_DEMO_ADMISSION=OFF",
@@ -817,6 +851,17 @@ class CombinedProviderContractTests(unittest.TestCase):
             "--qualify-actor-control",
             "win32-user32-window-message",
             "packaged-scene-smoke",
+            "tests/tools/test_run_agora_impact_regression.py",
+            "--component Qualification_Tools",
+            "qualification/bin/ror_state_trace.exe",
+            "Prove authenticated deterministic Agora impact through packaged RoR-Combined",
+            "tools/run_agora_impact_regression.py",
+            "ror-p1-agora-impact-regression-v1",
+            '"workers": [1, 8]',
+            '"steps": 6000',
+            '"cross_worker_trace_comparisons"',
+            '"exact_state_trace_match": True',
+            "numerical-impact-fixture-not-physical-calibration",
             "RoR-Combined-Windows-x64-D3D11-${{ github.sha }}",
             "if: success()",
         ):

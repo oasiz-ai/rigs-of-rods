@@ -175,10 +175,12 @@ jobs:
           python tests/tools/test_ogre_next_combined_provider_contract.py
           python tests/tools/test_ogre_next_embedded_namespace_contract.py
           python tests/tools/test_run_playable_performance_scene.py
+          python tests/tools/test_run_agora_impact_regression.py
           python tests/tools/test_renderer_combined_game_wiring_contract.py
           python -O tests/tools/test_ogre_next_combined_provider_contract.py
           python -O tests/tools/test_ogre_next_embedded_namespace_contract.py
           python -O tests/tools/test_run_playable_performance_scene.py
+          python -O tests/tools/test_run_agora_impact_regression.py
           python -O tests/tools/test_renderer_combined_game_wiring_contract.py
 
       - name: Verify the locked native Conan graph
@@ -202,6 +204,7 @@ jobs:
             -DCONAN_HOST_PROFILE="$GITHUB_WORKSPACE/cmake/conan/profiles/linux-x86_64-release" \
             -DCONAN_BUILD_PROFILE="$GITHUB_WORKSPACE/cmake/conan/profiles/linux-x86_64-release" \
             -DROR_BUILD_TESTS=OFF \
+            -DROR_BUILD_QUALIFICATION_TOOLS=ON \
             -DROR_CREATE_CONTENT_FOLDER=ON \
             -DROR_OGRE_NEXT_COMBINED_RUNTIME=ON \
             -DROR_RENDERER_PUBLIC_LAUNCHER=OFF \
@@ -254,6 +257,9 @@ jobs:
           cmake --install "$ROR_COMBINED_BUILD_DIR" \
             --prefix "$ROR_COMBINED_STAGE_DIR" \
             --component Base_Content
+          cmake --install "$ROR_COMBINED_BUILD_DIR" \
+            --prefix "$ROR_COMBINED_STAGE_DIR" \
+            --component Qualification_Tools
 
       - name: Audit relocated runtime and retain provenance
         shell: bash
@@ -262,6 +268,7 @@ jobs:
           build="$ROR_COMBINED_BUILD_DIR"
           test -x "$stage/RoR-Combined"
           test -x "$stage/RunRoR"
+          test -x "$stage/qualification/bin/ror_state_trace"
           test ! -e "$stage/RoR"
           test ! -e "$stage/RoR-Ogre14"
           test -d "$stage/lib/OGRE"
@@ -538,6 +545,66 @@ jobs:
           cmake -E copy "$scene/RoR.log" "$destination/RoR.log"
           cmake -E copy "$scene/console.txt" "$destination/console.txt"
 
+      - name: Prove authenticated deterministic Agora impact through packaged RoR-Combined
+        shell: bash
+        run: |
+          stage="$ROR_COMBINED_STAGE_DIR"
+          evidence="$stage/qualification/agora-impact-regression"
+          test -x "$stage/RoR-Combined"
+          test -x "$stage/qualification/bin/ror_state_trace"
+          test -f "$stage/content/agora.zip"
+          test -f "$stage/content/simple2-terrain.zip"
+          test ! -e "$evidence"
+          LD_LIBRARY_PATH="$stage/lib" \
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
+          python tools/run_agora_impact_regression.py \
+            --executable "$stage/RoR-Combined" \
+            --trace-tool "$stage/qualification/bin/ror_state_trace" \
+            --runtime-content "$stage/content" \
+            --artifact-dir "$evidence" \
+            --runs 1 \
+            --workers 1 8 \
+            --timeout 900
+          python - "$evidence/report.json" "$GITHUB_SHA" <<'PY'
+          import json
+          import sys
+
+          report = json.load(open(sys.argv[1], encoding="utf-8"))
+          expected = {
+              "format": "ror-p1-agora-impact-regression-v1",
+              "repository_commit": sys.argv[2],
+              "content_commit": "34fefdd126784bf87b068fc283f812525d159dd7",
+              "source_sha256": "09730ea7988b1f3c19ad88e78e0645d32d2ca84c004357fd2437cd97b124ea38",
+              "fixture_sha256": "f3f2b5672864fbe9fac7da657aad708b708d4511479ce103730a49856ebc41f2",
+              "scenario_id": 2026082001,
+              "steps": 6000,
+              "workers": [1, 8],
+              "runs_per_worker": 1,
+              "material_claim": "numerical-impact-fixture-not-physical-calibration",
+          }
+          for field, value in expected.items():
+              if report.get(field) != value:
+                  raise SystemExit(
+                      f"Agora impact report changed: {field}={report.get(field)!r}"
+                  )
+          results = report.get("results")
+          if not isinstance(results, list) or [row.get("workers") for row in results] != [1, 8]:
+              raise SystemExit("Agora impact report lacks exact 1/8-worker results")
+          for row in results:
+              digest = row.get("trace_sha256")
+              if not isinstance(digest, str) or len(digest) != 64:
+                  raise SystemExit("Agora impact result lacks a trace digest")
+          if report.get("cross_worker_trace_comparisons") != [{
+              "left_trace": "traces/worker-01-run-01.rortrace",
+              "left_workers": 1,
+              "right_trace": "traces/worker-08-run-01.rortrace",
+              "right_workers": 8,
+              "status": "match",
+              "steps_compared": 6000,
+          }]:
+              raise SystemExit("Agora impact report lacks the exact cross-worker match")
+          PY
+
       - name: Write deterministic package inventory
         shell: bash
         run: |
@@ -608,6 +675,14 @@ jobs:
                   "actor": "b6b0UID-semi.truck",
               },
               "actor_control_qualified": True,
+              "deterministic_impact_regression": {
+                  "qualified": True,
+                  "report": "qualification/agora-impact-regression/report.json",
+                  "workers": [1, 8],
+                  "steps": 6000,
+                  "exact_state_trace_match": True,
+                  "material_claim": "numerical-impact-fixture-not-physical-calibration",
+              },
               "playability_qualified": False,
               "artifact_transport": "github-actions-upload-artifact-v7",
               "transport_dereferences_file_symlinks": True,
@@ -746,10 +821,12 @@ jobs:
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_ogre_next_combined_provider_contract.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_ogre_next_embedded_namespace_contract.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_run_playable_performance_scene.py')
+          Invoke-CheckedPython -PythonArguments @('tests/tools/test_run_agora_impact_regression.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_renderer_combined_game_wiring_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_ogre_next_combined_provider_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_ogre_next_embedded_namespace_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_playable_performance_scene.py')
+          Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_agora_impact_regression.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_renderer_combined_game_wiring_contract.py')
 
       - name: Verify the locked native Conan graph
@@ -778,6 +855,7 @@ jobs:
             "-DCONAN_HOST_PROFILE=$conanProfile",
             "-DCONAN_BUILD_PROFILE=$conanProfile",
             '-DROR_BUILD_TESTS=OFF',
+            '-DROR_BUILD_QUALIFICATION_TOOLS=ON',
             '-DROR_CREATE_CONTENT_FOLDER=ON',
             '-DROR_OGRE_NEXT_COMBINED_RUNTIME=ON',
             '-DROR_RENDERER_PUBLIC_LAUNCHER=OFF',
@@ -840,6 +918,9 @@ jobs:
           cmake --install $env:ROR_COMBINED_BUILD_DIR `
             --prefix $env:ROR_COMBINED_STAGE_DIR `
             --component Base_Content
+          cmake --install $env:ROR_COMBINED_BUILD_DIR `
+            --prefix $env:ROR_COMBINED_STAGE_DIR `
+            --component Qualification_Tools
 
       - name: Audit relocated runtime and retain provenance
         shell: pwsh
@@ -849,6 +930,7 @@ jobs:
           $exe = Join-Path $stage 'RoR-Combined.exe'
           foreach ($path in @(
               $exe,
+              (Join-Path $stage 'qualification/bin/ror_state_trace.exe'),
               (Join-Path $stage 'resources/ogrenext/ShaderMedia'),
               (Join-Path $stage 'resources/ogrenext/Presentation'),
               (Join-Path $stage 'resources/ogrenext/.complete.json'),
@@ -1115,6 +1197,85 @@ jobs:
               -Destination (Join-Path $destination $name)
           }
 
+      - name: Prove authenticated deterministic Agora impact through packaged RoR-Combined
+        shell: pwsh
+        run: |
+          $stage = $env:ROR_COMBINED_STAGE_DIR
+          $evidence = Join-Path $stage 'qualification/agora-impact-regression'
+          $executable = Join-Path $stage 'RoR-Combined.exe'
+          $traceTool = Join-Path $stage 'qualification/bin/ror_state_trace.exe'
+          foreach ($path in @(
+              $executable,
+              $traceTool,
+              (Join-Path $stage 'content/agora.zip'),
+              (Join-Path $stage 'content/simple2-terrain.zip')
+          )) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Agora impact input is missing: $path"
+            }
+          }
+          if (Test-Path -LiteralPath $evidence) {
+            throw "Agora impact evidence already exists: $evidence"
+          }
+          python tools/run_agora_impact_regression.py `
+            --executable $executable `
+            --trace-tool $traceTool `
+            --runtime-content (Join-Path $stage 'content') `
+            --artifact-dir $evidence `
+            --runs 1 `
+            --workers 1 8 `
+            --timeout 900
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows Agora impact regression failed with exit code $LASTEXITCODE"
+          }
+          @'
+          import json
+          import os
+          from pathlib import Path
+
+          report_path = (
+              Path(os.environ["ROR_COMBINED_STAGE_DIR"])
+              / "qualification/agora-impact-regression/report.json"
+          )
+          report = json.loads(report_path.read_text(encoding="utf-8"))
+          expected = {
+              "format": "ror-p1-agora-impact-regression-v1",
+              "repository_commit": os.environ["GITHUB_SHA"],
+              "content_commit": "34fefdd126784bf87b068fc283f812525d159dd7",
+              "source_sha256": "09730ea7988b1f3c19ad88e78e0645d32d2ca84c004357fd2437cd97b124ea38",
+              "fixture_sha256": "f3f2b5672864fbe9fac7da657aad708b708d4511479ce103730a49856ebc41f2",
+              "scenario_id": 2026082001,
+              "steps": 6000,
+              "workers": [1, 8],
+              "runs_per_worker": 1,
+              "material_claim": "numerical-impact-fixture-not-physical-calibration",
+          }
+          for field, value in expected.items():
+              if report.get(field) != value:
+                  raise SystemExit(
+                      f"Agora impact report changed: {field}={report.get(field)!r}"
+                  )
+          results = report.get("results")
+          if not isinstance(results, list) or [row.get("workers") for row in results] != [1, 8]:
+              raise SystemExit("Agora impact report lacks exact 1/8-worker results")
+          for row in results:
+              digest = row.get("trace_sha256")
+              if not isinstance(digest, str) or len(digest) != 64:
+                  raise SystemExit("Agora impact result lacks a trace digest")
+          if report.get("cross_worker_trace_comparisons") != [{
+              "left_trace": "traces/worker-01-run-01.rortrace",
+              "left_workers": 1,
+              "right_trace": "traces/worker-08-run-01.rortrace",
+              "right_workers": 8,
+              "status": "match",
+              "steps_compared": 6000,
+          }]:
+              raise SystemExit("Agora impact report lacks the exact cross-worker match")
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows Agora impact report validation failed with exit code $LASTEXITCODE"
+          }
+
       - name: Write deterministic Windows package inventory
         shell: pwsh
         run: |
@@ -1159,6 +1320,14 @@ jobs:
                   "actor": "b6b0UID-semi.truck",
               },
               "actor_control_qualified": True,
+              "deterministic_impact_regression": {
+                  "qualified": True,
+                  "report": "qualification/agora-impact-regression/report.json",
+                  "workers": [1, 8],
+                  "steps": 6000,
+                  "exact_state_trace_match": True,
+                  "material_claim": "numerical-impact-fixture-not-physical-calibration",
+              },
               "playability_qualified": False,
               "artifact_transport": "github-actions-upload-artifact-v7",
               "all_transport_files_inventoried": True,

@@ -380,6 +380,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     baseline_telemetry: dict[str, float | int] | None = None
     cache_initialized = False
     results: list[dict[str, object]] = []
+    cross_worker_trace_comparisons: list[dict[str, object]] = []
 
     for workers in args.workers:
         for run_index in range(1, args.runs + 1):
@@ -439,13 +440,23 @@ def main(argv: Sequence[str] | None = None) -> int:
                 baseline_workers = workers
                 baseline_telemetry = telemetry
             else:
-                compare_traces(
+                comparison = compare_traces(
                     trace_tool,
                     baseline_trace,
                     trace_path,
                     baseline_workers,
                     workers,
                     args.timeout,
+                )
+                cross_worker_trace_comparisons.append(
+                    {
+                        "left_trace": str(baseline_trace.relative_to(artifact_dir)),
+                        "left_workers": baseline_workers,
+                        "right_trace": str(trace_path.relative_to(artifact_dir)),
+                        "right_workers": workers,
+                        "status": comparison["status"],
+                        "steps_compared": comparison["steps_compared"],
+                    }
                 )
                 if telemetry != baseline_telemetry:
                     raise ImpactFailure("impact telemetry diverged across runs")
@@ -466,6 +477,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     report = {
         "content_commit": CONTENT_COMMIT,
+        "cross_worker_trace_comparisons": cross_worker_trace_comparisons,
         "executable": str(executable),
         "executable_sha256": support.sha256_file(executable),
         "fixture_archive_sha256": fixture_archive_sha,

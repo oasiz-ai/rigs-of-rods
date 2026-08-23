@@ -493,9 +493,11 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
             self.physics_workflow,
         )
         self.assertIn(
-            "cmake --build build-physics-tests-sanitized --config Debug",
+            "--target ror_physics_core_suite --config Debug",
             self.physics_workflow,
         )
+        self.assertIn("-L physics-core --output-on-failure", self.physics_workflow)
+        self.assertIn("submodules: true", self.physics_workflow)
         self.assertIn("-DROR_BUILD_TESTS=ON", self.native_workflow)
         self.assertIn(
             "Configure OgreNext-first native Release",

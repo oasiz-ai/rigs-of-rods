@@ -2319,13 +2319,15 @@ else ()
     )
 endif ()
 
-add_executable(
-    ror_state_trace
-    "${ROR_REPOSITORY_ROOT}/tools/ror_state_trace.cpp"
-    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicStateDigest.cpp"
-    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicStateTrace.cpp"
-    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicStateTraceCli.cpp"
-)
+if (NOT TARGET ror_state_trace)
+    add_executable(
+        ror_state_trace
+        "${ROR_REPOSITORY_ROOT}/tools/ror_state_trace.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicStateDigest.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicStateTrace.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicStateTraceCli.cpp"
+    )
+endif ()
 
 add_executable(
     ror_calibrated_beam_material_tests
@@ -3229,6 +3231,80 @@ if (TARGET ror_jbeam_vehicle_importer_tests)
         CXX_EXTENSIONS NO
     )
 endif ()
+
+# The cross-platform Physics core workflow intentionally builds this target
+# instead of the entire renderer/content test graph. Keep the membership
+# explicit and fail closed so a renamed or conditionally missing kernel cannot
+# silently disappear from Linux, Windows, macOS, or sanitizer coverage.
+set(ROR_CROSS_PLATFORM_PHYSICS_CORE_TARGETS
+    ror_beam_axial_kinematics_tests
+    ror_beam_axial_response_tests
+    ror_jbeam_support_beam_tests
+    ror_beam_rest_length_scale_tests
+    ror_deterministic_counter_noise_tests
+    ror_deterministic_scenario_identity_tests
+    ror_deterministic_fixed_step_cadence_tests
+    ror_fixed_step_capture_bridge_tests
+    ror_deterministic_scenario_schedule_tests
+    ror_deterministic_contact_order_tests
+    ror_point_col_detector_production_oracle_tests
+    ror_deterministic_state_digest_tests
+    ror_deterministic_state_trace_tests
+    ror_state_trace
+    ror_deterministic_input_trace_tests
+    ror_deterministic_input_trace_runtime_tests
+    ror_deterministic_input_continuation_savegame_tests
+    ror_deterministic_vehicle_input_tests
+    ror_deterministic_vehicle_input_actor_adapter_tests
+    ror_calibrated_beam_material_tests
+    ror_calibrated_beam_material_adapter_tests
+    ror_deterministic_impact_initial_condition_tests
+    ror_deterministic_impact_initial_condition_fast_math_tests
+    ror_calibrated_beam_runtime_audit_tests
+    ror_calibrated_beam_runtime_audit_fast_math_tests
+    ror_calibrated_beam_step_sensitivity_tests
+    ror_calibrated_beam_mesh_refinement_tests
+    ror_calibrated_beam_savegame_tests
+    ror_rigdef_calibrated_beam_material_tests
+    ror_hydro_actuator_response_tests
+    ror_jbeam_hydro_runtime_tests
+    ror_jbeam_hydro_savegame_tests
+    ror_beamng_package_manifest_tests
+    ror_beamng_material_inventory_tests
+    ror_beamng_zip_archive_index_tests
+    ror_beamng_zip_index
+    ror_jbeam_expression_evaluator_tests
+    ror_jbeam_syntax_tests
+    ror_jbeam_coordinate_transform_tests
+    ror_jbeam_advanced_structure_ir_tests
+    ror_jbeam_part_resolver_tests
+    ror_jbeam_pressure_wheel_ir_tests
+    ror_jbeam_wheel2_approximation_tests
+    ror_jbeam_structural_ir_tests
+    ror_jbeam_to_rigdef_tests
+)
+foreach (physics_core_target IN LISTS ROR_CROSS_PLATFORM_PHYSICS_CORE_TARGETS)
+    if (NOT TARGET ${physics_core_target})
+        message(FATAL_ERROR
+            "Physics core target is unavailable: ${physics_core_target}")
+    endif ()
+endforeach ()
+add_custom_target(ror_physics_core_suite)
+add_dependencies(
+    ror_physics_core_suite
+    ${ROR_CROSS_PLATFORM_PHYSICS_CORE_TARGETS}
+)
+foreach (optional_physics_core_target IN ITEMS
+        ror_calibrated_beam_savegame_json_tests
+        ror_jbeam_hydro_savegame_json_tests
+        ror_jbeam_vehicle_importer_tests)
+    if (TARGET ${optional_physics_core_target})
+        add_dependencies(
+            ror_physics_core_suite
+            ${optional_physics_core_target}
+        )
+    endif ()
+endforeach ()
 
 add_test(
     NAME render_display_metrics
@@ -4149,6 +4225,78 @@ if (TARGET ror_jbeam_vehicle_importer_tests)
         COMMAND ror_jbeam_vehicle_importer_tests
     )
 endif ()
+
+set(ROR_CROSS_PLATFORM_PHYSICS_CORE_TESTS
+    deterministic_input_live_runtime_contract
+    deterministic_scenario_identity_contract
+    jbeam_hydro_savegame_integration
+    deterministic_savegame_resume_tool
+    deterministic_savegame_resume_tool_optimized
+    calibrated_beam_soak_tool
+    jbeam_spawn_soak_tool
+    jbeam_inter_actor_collision_tool
+    agora_impact_regression_tool
+    beam_axial_kinematics
+    beam_axial_response
+    jbeam_support_beam
+    beam_rest_length_scale
+    deterministic_counter_noise
+    deterministic_scenario_identity
+    deterministic_fixed_step_cadence
+    fixed_step_capture_bridge
+    deterministic_scenario_schedule
+    deterministic_contact_order
+    point_col_detector_production_oracle
+    deterministic_state_digest
+    deterministic_state_trace
+    deterministic_input_trace
+    deterministic_input_trace_runtime
+    deterministic_input_continuation_savegame
+    deterministic_vehicle_input
+    deterministic_vehicle_input_actor_adapter
+    calibrated_beam_material
+    calibrated_beam_material_adapter
+    deterministic_impact_initial_condition
+    deterministic_impact_initial_condition_fast_math
+    calibrated_beam_runtime_audit
+    calibrated_beam_runtime_audit_fast_math
+    calibrated_beam_step_sensitivity
+    calibrated_beam_mesh_refinement
+    calibrated_beam_savegame
+    rigdef_calibrated_beam_material
+    hydro_actuator_response
+    jbeam_hydro_runtime
+    jbeam_hydro_savegame
+    beamng_package_manifest
+    beamng_material_inventory
+    beamng_zip_archive_index
+    beamng_zip_index_help
+    beamng_formulacoupe_opt_in
+    jbeam_expression_evaluator
+    jbeam_syntax
+    jbeam_coordinate_transform
+    jbeam_advanced_structure_ir
+    jbeam_part_resolver
+    jbeam_pressure_wheel_ir
+    jbeam_wheel2_approximation
+    jbeam_structural_ir
+    jbeam_to_rigdef
+)
+foreach (optional_physics_core_test IN ITEMS
+        calibrated_beam_savegame_json
+        jbeam_hydro_savegame_json
+        jbeam_vehicle_importer)
+    if (TEST ${optional_physics_core_test})
+        list(APPEND
+            ROR_CROSS_PLATFORM_PHYSICS_CORE_TESTS
+            ${optional_physics_core_test}
+        )
+    endif ()
+endforeach ()
+set_property(
+    TEST ${ROR_CROSS_PLATFORM_PHYSICS_CORE_TESTS}
+    APPEND PROPERTY LABELS physics-core
+)
 
 if (APPLE)
     add_test(

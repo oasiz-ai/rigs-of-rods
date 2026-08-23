@@ -41,6 +41,10 @@ project(${PROJECT_NAME_UNDERSCORE} VERSION 2026.01)
 option(ROR_BUILD_DEV_VERSION "Disable this for official releases" ON)
 option(ROR_BUILD_DOC_DOXYGEN "Build documentation from sources with Doxygen" OFF)
 option(ROR_BUILD_TESTS "Build deterministic dependency-free physics tests" OFF)
+option(
+    ROR_BUILD_QUALIFICATION_TOOLS
+    "Build offline native runtime qualification tools"
+    OFF)
 option(ROR_USE_PCH "Use a Precompiled header for speeding up the build" ON)
 option(ROR_CREATE_CONTENT_FOLDER "Create the base content folder" ON)
 option(
@@ -331,6 +335,56 @@ endif ()
 add_subdirectory(external/angelscript_addons)
 add_subdirectory(source/version_info)
 add_subdirectory(source/main)
+
+if (ROR_BUILD_QUALIFICATION_TOOLS)
+    add_executable(
+        ror_state_trace
+        "${CMAKE_SOURCE_DIR}/tools/ror_state_trace.cpp"
+        "${CMAKE_SOURCE_DIR}/source/main/physics/DeterministicStateDigest.cpp"
+        "${CMAKE_SOURCE_DIR}/source/main/physics/DeterministicStateTrace.cpp"
+        "${CMAKE_SOURCE_DIR}/source/main/physics/DeterministicStateTraceCli.cpp"
+    )
+    target_include_directories(
+        ror_state_trace
+        PRIVATE "${CMAKE_SOURCE_DIR}/source/main/physics"
+    )
+    set_target_properties(
+        ror_state_trace
+        PROPERTIES
+            CXX_STANDARD 11
+            CXX_STANDARD_REQUIRED YES
+            CXX_EXTENSIONS NO
+            RUNTIME_OUTPUT_DIRECTORY
+                "${CMAKE_BINARY_DIR}/qualification-tools"
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG
+                "${CMAKE_BINARY_DIR}/qualification-tools"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE
+                "${CMAKE_BINARY_DIR}/qualification-tools"
+            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+                "${CMAKE_BINARY_DIR}/qualification-tools"
+            RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+                "${CMAKE_BINARY_DIR}/qualification-tools"
+    )
+    if (MSVC)
+        target_compile_options(ror_state_trace PRIVATE /W4 /WX /fp:precise)
+    else ()
+        target_compile_options(
+            ror_state_trace
+            PRIVATE -Wall -Wextra -Werror -pedantic -fno-fast-math
+        )
+    endif ()
+    install(
+        TARGETS ror_state_trace
+        RUNTIME DESTINATION qualification/bin
+        COMPONENT "Qualification_Tools"
+    )
+    if (TARGET ror_ogre_next_combined_verified)
+        add_dependencies(
+            ror_ogre_next_combined_verified
+            ror_state_trace
+        )
+    endif ()
+endif ()
 add_subdirectory(doc)
 
 if (ROR_BUILD_TESTS)

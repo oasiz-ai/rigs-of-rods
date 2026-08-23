@@ -159,16 +159,20 @@ class SceneLightingSnapshotContractTests(unittest.TestCase):
         )
         self.assertLess(success, store)
 
-    def test_dependency_free_cpp_tests_run_on_all_supported_hosts(self) -> None:
+    def test_dependency_free_physics_suite_runs_on_all_supported_hosts(self) -> None:
         workflow = (
             REPOSITORY_ROOT / ".github" / "workflows" / "physics-core.yml"
         ).read_text(encoding="utf-8")
         for runner in ("ubuntu-22.04", "windows-2025", "macos-15"):
             self.assertIn(runner, workflow)
         self.assertIn("cmake -S tests", workflow)
+        self.assertIn("--target ror_physics_core_suite", workflow)
+        self.assertIn("-L physics-core --output-on-failure", workflow)
         cmake = (REPOSITORY_ROOT / "tests" / "CMakeLists.txt").read_text(
             encoding="utf-8"
         )
+        self.assertIn("add_custom_target(ror_physics_core_suite)", cmake)
+        self.assertIn("APPEND PROPERTY LABELS physics-core", cmake)
         self.assertIn("graphics_scene_snapshot_producer", cmake)
         self.assertIn("render_scene_snapshot", cmake)
         self.assertIn("Threads::Threads", cmake)

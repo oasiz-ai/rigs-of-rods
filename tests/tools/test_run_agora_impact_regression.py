@@ -238,6 +238,8 @@ class AgoraImpactRegressionTests(unittest.TestCase):
             source,
         )
         self.assertIn("--allow-worker-count-difference", source)
+        self.assertIn('"cross_worker_trace_comparisons"', source)
+        self.assertIn('"steps_compared": comparison["steps_compared"]', source)
         self.assertNotIn("urlopen", source)
         self.assertNotIn("requests.", source)
 
