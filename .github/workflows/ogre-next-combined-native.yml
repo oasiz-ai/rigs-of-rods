@@ -647,21 +647,28 @@ jobs:
           if ($tracked) {
             throw "The source checkout is dirty before configure: $tracked"
           }
-          cmake `
-            -S . `
-            -B $env:ROR_COMBINED_BUILD_DIR `
-            -G Ninja `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_INSTALL_PREFIX=$env:ROR_COMBINED_STAGE_DIR `
-            -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake `
-            -DCONAN_HOST_PROFILE="$env:GITHUB_WORKSPACE/cmake/conan/profiles/windows-x86_64-release" `
-            -DCONAN_BUILD_PROFILE="$env:GITHUB_WORKSPACE/cmake/conan/profiles/windows-x86_64-release" `
-            -DROR_BUILD_TESTS=OFF `
-            -DROR_CREATE_CONTENT_FOLDER=ON `
-            -DROR_OGRE_NEXT_COMBINED_RUNTIME=ON `
-            -DROR_RENDERER_PUBLIC_LAUNCHER=OFF `
-            -DROR_OGRE_NEXT_PRODUCTION_PACKAGE=OFF `
-            -DROR_OGRE_NEXT_DEMO_ADMISSION=OFF
+          $conanProvider = Join-Path $env:GITHUB_WORKSPACE 'cmake/conan_provider.cmake'
+          $conanProfile = Join-Path $env:GITHUB_WORKSPACE 'cmake/conan/profiles/windows-x86_64-release'
+          $cmakeArguments = @(
+            '-S', '.',
+            '-B', $env:ROR_COMBINED_BUILD_DIR,
+            '-G', 'Ninja',
+            '-DCMAKE_BUILD_TYPE=Release',
+            "-DCMAKE_INSTALL_PREFIX=$env:ROR_COMBINED_STAGE_DIR",
+            "-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=$conanProvider",
+            "-DCONAN_HOST_PROFILE=$conanProfile",
+            "-DCONAN_BUILD_PROFILE=$conanProfile",
+            '-DROR_BUILD_TESTS=OFF',
+            '-DROR_CREATE_CONTENT_FOLDER=ON',
+            '-DROR_OGRE_NEXT_COMBINED_RUNTIME=ON',
+            '-DROR_RENDERER_PUBLIC_LAUNCHER=OFF',
+            '-DROR_OGRE_NEXT_PRODUCTION_PACKAGE=OFF',
+            '-DROR_OGRE_NEXT_DEMO_ADMISSION=OFF'
+          )
+          & cmake @cmakeArguments
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows RoR-Combined configure failed with exit code $LASTEXITCODE"
+          }
 
       - name: Build and prove the final combined PE closure
         shell: pwsh
