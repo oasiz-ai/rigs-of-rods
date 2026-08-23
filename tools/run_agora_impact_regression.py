@@ -4,8 +4,9 @@
 
 The runner performs no downloads. It derives one numerical material fixture
 from the pinned Agora source, applies an exact 12 m/s downward velocity while
-paused, records every 0.5 ms physics step, and requires one-worker/eight-worker
-state traces and impact telemetry to agree.
+paused, records every 0.5 ms physics step, samples scalar impact telemetry at
+100-step render boundaries, and requires one-worker/eight-worker state traces
+and telemetry to agree.
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ SCENARIO_ID = 2026082001
 SCENARIO_SCRIPT = "example_calibrated_agora_impact.as"
 TERRAIN = "simple2.terrn2"
 EXPECTED_STEPS = 6000
+FIXED_STEPS_PER_FRAME = 100
 EXPECTED_NODES = 297
 EXPECTED_CALIBRATED_BEAMS = 675
 
@@ -46,12 +48,13 @@ START_MARKER = (
 )
 ARM_MARKER = (
     "[RoR|P1|AgoraImpact] ARMED actors=1 nodes=297 "
-    "calibrated_beams=675 first_step=0 batch=1"
+    "calibrated_beams=675 first_step=0 batch=100 "
+    "trace_interval_steps=1 telemetry_interval_steps=100"
 )
 PASS_PATTERN = re.compile(
     r"\[RoR\|P1\|AgoraImpact\] PASS actors=1 nodes=297 "
     r"calibrated_beams=675 steps=6000 "
-    r"peak_deceleration=(?P<peak>[-+0-9.eE]+) "
+    r"sampled_peak_deceleration=(?P<sampled_peak>[-+0-9.eE]+) "
     r"initial_energy=(?P<initial>[-+0-9.eE]+) "
     r"final_energy=(?P<final>[-+0-9.eE]+) "
     r"absorbed_energy=(?P<absorbed>[-+0-9.eE]+) "
@@ -239,7 +242,7 @@ def validate_logs(
         raise ImpactFailure(f"expected one impact PASS receipt, found {len(matches)}")
     match = matches[0]
     telemetry: dict[str, float | int] = {
-        "peak_deceleration": float(match.group("peak")),
+        "sampled_peak_deceleration": float(match.group("sampled_peak")),
         "initial_energy": float(match.group("initial")),
         "final_energy": float(match.group("final")),
         "absorbed_energy": float(match.group("absorbed")),
@@ -250,8 +253,8 @@ def validate_logs(
         "disabled": int(match.group("disabled")),
         "final_com_speed": float(match.group("final_speed")),
     }
-    if not 0.0 < telemetry["peak_deceleration"] <= 1.0e6:
-        raise ImpactFailure("peak deceleration is outside (0, 1e6]")
+    if not 0.0 < telemetry["sampled_peak_deceleration"] <= 1.0e6:
+        raise ImpactFailure("sampled peak deceleration is outside (0, 1e6]")
     if not 0.0 < telemetry["absorbed_energy"] <= 1.0e8:
         raise ImpactFailure("absorbed energy is outside (0, 1e8]")
     if not 0.0 < telemetry["permanent_rms"] <= 20.0:
@@ -491,7 +494,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "fixture_archive_sha256": fixture_archive_sha,
         "fixture_member": FIXTURE_MEMBER,
         "fixture_sha256": FIXTURE_SHA256,
-        "format": "ror-p1-agora-impact-regression-v1",
+        "format": "ror-p1-agora-impact-regression-v2",
         "initial_velocity_meters_per_second": [0.0, -12.0, 0.0],
         "machine": platform.machine(),
         "material_claim": "numerical-impact-fixture-not-physical-calibration",
@@ -502,6 +505,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "scenario_id": SCENARIO_ID,
         "source_sha256": SOURCE_SHA256,
         "steps": EXPECTED_STEPS,
+        "state_trace_interval_steps": 1,
+        "telemetry_sample_interval_steps": FIXED_STEPS_PER_FRAME,
         "workers": list(args.workers),
     }
     temporary = artifact_dir / "report.json.tmp"

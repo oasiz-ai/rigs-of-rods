@@ -579,13 +579,15 @@ jobs:
 
           report = json.load(open(sys.argv[1], encoding="utf-8"))
           expected = {
-              "format": "ror-p1-agora-impact-regression-v1",
+              "format": "ror-p1-agora-impact-regression-v2",
               "repository_commit": sys.argv[2],
               "content_commit": "34fefdd126784bf87b068fc283f812525d159dd7",
               "source_sha256": "09730ea7988b1f3c19ad88e78e0645d32d2ca84c004357fd2437cd97b124ea38",
               "fixture_sha256": "f3f2b5672864fbe9fac7da657aad708b708d4511479ce103730a49856ebc41f2",
               "scenario_id": 2026082001,
               "steps": 6000,
+              "state_trace_interval_steps": 1,
+              "telemetry_sample_interval_steps": 100,
               "workers": [1, 8],
               "runs_per_worker": 1,
               "material_claim": "numerical-impact-fixture-not-physical-calibration",
@@ -1247,13 +1249,15 @@ jobs:
           )
           report = json.loads(report_path.read_text(encoding="utf-8"))
           expected = {
-              "format": "ror-p1-agora-impact-regression-v1",
+              "format": "ror-p1-agora-impact-regression-v2",
               "repository_commit": os.environ["GITHUB_SHA"],
               "content_commit": "34fefdd126784bf87b068fc283f812525d159dd7",
               "source_sha256": "09730ea7988b1f3c19ad88e78e0645d32d2ca84c004357fd2437cd97b124ea38",
               "fixture_sha256": "f3f2b5672864fbe9fac7da657aad708b708d4511479ce103730a49856ebc41f2",
               "scenario_id": 2026082001,
               "steps": 6000,
+              "state_trace_interval_steps": 1,
+              "telemetry_sample_interval_steps": 100,
               "workers": [1, 8],
               "runs_per_worker": 1,
               "material_claim": "numerical-impact-fixture-not-physical-calibration",

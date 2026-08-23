@@ -136,7 +136,8 @@ class AgoraImpactRegressionTests(unittest.TestCase):
     def test_log_gate_requires_complete_impact_receipt(self) -> None:
         pass_receipt = (
             "[RoR|P1|AgoraImpact] PASS actors=1 nodes=297 "
-            "calibrated_beams=675 steps=6000 peak_deceleration=150.5 "
+            "calibrated_beams=675 steps=6000 "
+            "sampled_peak_deceleration=150.5 "
             "initial_energy=2000000 final_energy=500000 "
             "absorbed_energy=1500000 permanent_rms=0.12 "
             "permanent_max=0.8 broken_beams=24 fractures=20 "
@@ -147,6 +148,7 @@ class AgoraImpactRegressionTests(unittest.TestCase):
         )
         engine_log = "\n".join(IMPACT.ENGINE_MARKERS)
         telemetry = IMPACT.validate_logs(0, "", engine_log, script_log)
+        self.assertEqual(telemetry["sampled_peak_deceleration"], 150.5)
         self.assertEqual(telemetry["fractures"], 20)
         self.assertEqual(telemetry["absorbed_energy"], 1500000.0)
 
@@ -208,7 +210,9 @@ class AgoraImpactRegressionTests(unittest.TestCase):
         for token in (
             "EXPECTED_PHYSICS_STEPS = 6000",
             "EXPECTED_CALIBRATED_BEAMS = 675",
-            '"sim_deterministic_fixed_steps_per_frame", "1"',
+            "FIXED_STEPS_PER_FRAME = 100",
+            "TELEMETRY_SAMPLE_SECONDS",
+            "trace_interval_steps=1 telemetry_interval_steps=100",
             "trySetDeterministicImpactVelocity",
             "getBrokenBeamCount",
             "CenterOfMassVelocity",
@@ -238,7 +242,12 @@ class AgoraImpactRegressionTests(unittest.TestCase):
 
     def test_report_contract_is_bounded_and_offline(self) -> None:
         source = TOOL_PATH.read_text(encoding="utf-8")
-        self.assertIn("ror-p1-agora-impact-regression-v1", source)
+        self.assertIn("ror-p1-agora-impact-regression-v2", source)
+        self.assertIn('"state_trace_interval_steps": 1', source)
+        self.assertIn(
+            '"telemetry_sample_interval_steps": FIXED_STEPS_PER_FRAME',
+            source,
+        )
         self.assertIn(
             "numerical-impact-fixture-not-physical-calibration",
             source,

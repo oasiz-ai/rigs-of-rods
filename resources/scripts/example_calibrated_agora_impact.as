@@ -1,5 +1,5 @@
 /// \title calibrated-beam P1 Agora impact regression
-/// \brief Measures one fixed-speed full-vehicle impact at exact solver steps.
+/// \brief Traces every solver step and samples impact telemetry every 100 steps.
 ///
 /// Invoke through tools/run_agora_impact_regression.py. The derived material is
 /// a numerical regression fixture, not a claim of physical Agora calibration.
@@ -12,7 +12,10 @@ const int EXPECTED_NODES = 297;
 const int AUTHORED_NODES = 151;
 const int EXPECTED_CALIBRATED_BEAMS = 675;
 const uint64 EXPECTED_PHYSICS_STEPS = 6000;
+const uint64 FIXED_STEPS_PER_FRAME = 100;
 const double FIXED_STEP_SECONDS = 0.0005;
+const double TELEMETRY_SAMPLE_SECONDS =
+    FIXED_STEP_SECONDS * double(FIXED_STEPS_PER_FRAME);
 const string SCENARIO_ID = "2026082001";
 const string VEHICLE = "P1CalibratedAgoraImpact.truck";
 const vector3 INITIAL_VELOCITY(0.0f, -12.0f, 0.0f);
@@ -210,7 +213,9 @@ void main()
         return;
     }
 
-    console.cVarSet("sim_deterministic_fixed_steps_per_frame", "1");
+    console.cVarSet(
+        "sim_deterministic_fixed_steps_per_frame",
+        "" + FIXED_STEPS_PER_FRAME);
     console.cVarSet("sim_deterministic_sleeping_engine", "true");
     console.cVarSet("sim_deterministic_state_trace", "false");
     console.cVarSet(
@@ -313,7 +318,8 @@ void frameStep(float dt)
         gState = RUNNING_IMPACT;
         game.log(
             "[RoR|P1|AgoraImpact] ARMED actors=1 nodes=297 "
-            "calibrated_beams=675 first_step=0 batch=1");
+            "calibrated_beams=675 first_step=0 batch=100 "
+            "trace_interval_steps=1 telemetry_interval_steps=100");
         return;
     }
 
@@ -322,7 +328,7 @@ void frameStep(float dt)
         const uint64 completed = game.getCompletedPhysicsSteps();
         if (completed == gLastCompletedStep)
             return;
-        if (completed != gLastCompletedStep + 1)
+        if (completed != gLastCompletedStep + FIXED_STEPS_PER_FRAME)
         {
             FailScenario(
                 "physics-step-discontinuity-" + gLastCompletedStep + "-" +
@@ -341,7 +347,7 @@ void frameStep(float dt)
         const vector3 currentComVelocity = CenterOfMassVelocity(actor);
         const double acceleration =
             double((currentComVelocity - gPreviousComVelocity).length()) /
-            FIXED_STEP_SECONDS;
+            TELEMETRY_SAMPLE_SECONDS;
         if (!IsFiniteMetric(acceleration))
         {
             FailScenario("nonfinite-deceleration-" + completed);
@@ -386,7 +392,8 @@ void frameStep(float dt)
             game.log(
                 "[RoR|P1|AgoraImpact] PASS actors=1 nodes=297 "
                 "calibrated_beams=675 steps=" + completed +
-                " peak_deceleration=" + FormatMetric(gPeakDeceleration) +
+                " sampled_peak_deceleration=" +
+                FormatMetric(gPeakDeceleration) +
                 " initial_energy=" + FormatMetric(gInitialMechanicalEnergy) +
                 " final_energy=" + FormatMetric(finalEnergy) +
                 " absorbed_energy=" + FormatMetric(absorbedEnergy) +
