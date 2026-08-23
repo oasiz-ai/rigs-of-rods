@@ -208,6 +208,60 @@ def nm(path: Path, *, global_only: bool = True) -> tuple[str, str]:
     return raw, demangled
 
 
+def cpp_symbol_present(
+    raw: str,
+    demangled: str,
+    platform_policy: str,
+    readable_token: str,
+    msvc_decorated_token: str,
+) -> bool:
+    """Match one reviewed ABI owner without pretending c++filt handles MSVC."""
+    if platform_policy == "windows-x64-d3d11":
+        return msvc_decorated_token in raw
+    return readable_token in demangled
+
+
+def cpp_namespace_present(
+    raw: str,
+    demangled: str,
+    platform_policy: str,
+    readable_namespace: str,
+    msvc_decorated_namespace: str,
+) -> bool:
+    if platform_policy == "windows-x64-d3d11":
+        return msvc_decorated_namespace in raw
+    return readable_namespace in demangled
+
+
+def read_msvc_link_map(path: Path, executable: Path) -> str:
+    payload = path.read_bytes()
+    if payload.startswith((b"\xff\xfe", b"\xfe\xff")):
+        text = payload.decode("utf-16", errors="strict")
+    else:
+        text = payload.decode("utf-8", errors="strict")
+    leading = [line.strip() for line in text.splitlines() if line.strip()]
+    require(
+        executable.stem in leading[:8],
+        "MSVC link map does not name the audited dual-runtime executable",
+    )
+    require(
+        sum(
+            "Publics by Value" in line and "Rva+Base" in line
+            for line in text.splitlines()
+        ) == 1,
+        "MSVC link map lacks one exact public-symbol table",
+    )
+    require(
+        re.search(
+            r"^\s*[0-9A-Fa-f]+:[0-9A-Fa-f]+\s+\S+\s+[0-9A-Fa-f]+",
+            text,
+            flags=re.MULTILINE,
+        ) is not None,
+        "MSVC link map has no public symbol ownership rows",
+    )
+    return text
+
+
 def _gnu_defined_symbol_types(path: Path) -> dict[str, str]:
     raw = output("nm", "--defined-only", "--extern-only", str(path))
     symbols: dict[str, str] = {}
@@ -503,6 +557,7 @@ def main() -> int:
         "--legacy-runtime-directory", action="append", default=[]
     )
     parser.add_argument("--executable", required=True)
+    parser.add_argument("--executable-link-map")
     parser.add_argument("--compile-commands", required=True)
     parser.add_argument("--require-upstream-strict-fp", action="store_true")
     parser.add_argument("--next-source-root", required=True)
@@ -577,6 +632,20 @@ def main() -> int:
         args.legacy_main_library, "OGRE14 main library"
     )
     executable = exact_regular_file(args.executable, "dual-runtime executable")
+    executable_link_map = None
+    if args.platform_policy == "windows-x64-d3d11":
+        require(
+            args.executable_link_map is not None,
+            "Windows dual-runtime evidence requires an MSVC executable link map",
+        )
+        executable_link_map = exact_regular_file(
+            args.executable_link_map, "dual-runtime executable link map"
+        )
+    else:
+        require(
+            args.executable_link_map is None,
+            "an executable link map is only valid for the Windows policy",
+        )
     compile_commands = exact_regular_file(
         args.compile_commands, "compile commands"
     )
@@ -741,42 +810,60 @@ def main() -> int:
         next_demangled_parts.append(demangled)
     next_raw = "\n".join(next_raw_parts)
     next_demangled = "\n".join(next_demangled_parts)
-    require("RoROgreNext::" in next_demangled,
+    require(cpp_namespace_present(
+                next_raw, next_demangled, args.platform_policy,
+                "RoROgreNext::", "@RoROgreNext@@"),
             "OgreNext archives contain no RoROgreNext C++ owner")
     require(
-        "RoROgreNextRapidJson::" in next_demangled,
+        cpp_namespace_present(
+            next_raw, next_demangled, args.platform_policy,
+            "RoROgreNextRapidJson::", "@RoROgreNextRapidJson@@"),
         "OgreNext archives contain no private RapidJSON namespace owner",
     )
     require(
-        "rapidjson::" not in next_demangled,
+        not cpp_namespace_present(
+            next_raw, next_demangled, args.platform_policy,
+            "rapidjson::", "@rapidjson@@"),
         "an unremapped RapidJSON symbol remains in the OgreNext archives",
     )
-    require("Ogre::" not in next_demangled,
+    require(not cpp_namespace_present(
+                next_raw, next_demangled, args.platform_policy,
+                "Ogre::", "@Ogre@@"),
             "an Ogre namespace symbol remains in the namespaced OgreNext archives")
     require(not UNREMAPPED_OGRE_MANGLED_PATTERN.search(next_raw),
             "an Itanium Ogre namespace symbol remains in the OgreNext archives")
 
     embedded_raw, embedded_demangled = nm(embedded_runtime_archive)
     require(
-        "RoR::Render::OgreNextN1Frontend::OgreNextN1Frontend" in
-        embedded_demangled,
+        cpp_symbol_present(
+            embedded_raw, embedded_demangled, args.platform_policy,
+            "RoR::Render::OgreNextN1Frontend::OgreNextN1Frontend",
+            "??0OgreNextN1Frontend@Render@RoR@@"),
         "the embedded runtime archive lacks the production N1 frontend",
     )
     require(
-        "Ogre::" not in embedded_demangled
+        not cpp_namespace_present(
+            embedded_raw, embedded_demangled, args.platform_policy,
+            "Ogre::", "@Ogre@@")
         and not UNREMAPPED_OGRE_MANGLED_PATTERN.search(embedded_raw),
         "an unremapped Ogre owner remains in the embedded N1 runtime archive",
     )
 
-    _, direct_demangled = nm(direct_contract_archive)
+    direct_raw, direct_demangled = nm(direct_contract_archive)
     require(
-        "RoR::RendererInProcessSession::RendererInProcessSession" in
-        direct_demangled,
+        cpp_symbol_present(
+            direct_raw, direct_demangled, args.platform_policy,
+            "RoR::RendererInProcessSession::RendererInProcessSession",
+            "??0RendererInProcessSession@RoR@@"),
         "the direct contract archive lacks RendererInProcessSession",
     )
     require(
-        "Ogre::" not in direct_demangled
-        and "RoROgreNext::" not in direct_demangled,
+        not cpp_namespace_present(
+            direct_raw, direct_demangled, args.platform_policy,
+            "Ogre::", "@Ogre@@")
+        and not cpp_namespace_present(
+            direct_raw, direct_demangled, args.platform_policy,
+            "RoROgreNext::", "@RoROgreNext@@"),
         "the renderer-neutral direct contract archive imports an Ogre ABI owner",
     )
     require(
@@ -800,7 +887,9 @@ def main() -> int:
                     f"expected prefixed Objective-C runtime class is absent: {new_name}")
 
     plugin_raw, plugin_demangled = nm(plugin_object)
-    require("Ogre::" not in plugin_demangled,
+    require(not cpp_namespace_present(
+                plugin_raw, plugin_demangled, args.platform_policy,
+                "Ogre::", "@Ogre@@"),
             "plugin export probe references the legacy C++ namespace")
 
     archive_strings = "\n".join(output("strings", str(path)) for path in next_archives)
@@ -810,17 +899,22 @@ def main() -> int:
         args.next_plugin_linkage,
     )
 
-    _, legacy_main_demangled = nm(legacy_main_library)
-    require("Ogre::Root::getSingletonPtr()" in legacy_main_demangled,
+    legacy_main_raw, legacy_main_demangled = nm(legacy_main_library)
+    require(cpp_symbol_present(
+                legacy_main_raw, legacy_main_demangled, args.platform_policy,
+                "Ogre::Root::getSingletonPtr()",
+                "?getSingletonPtr@Root@Ogre@@"),
             "the explicit legacy runtime lacks Ogre::Root")
     legacy_definitions: set[str] = set()
     legacy_weak_definitions: set[str] = set()
     legacy_strong_definitions: set[str] = set()
     legacy_library_reports: list[dict[str, object]] = []
     for legacy_library in legacy_libraries:
-        _, legacy_demangled = nm(legacy_library)
+        legacy_raw, legacy_demangled = nm(legacy_library)
         require(
-            "RoROgreNext::" not in legacy_demangled,
+            not cpp_namespace_present(
+                legacy_raw, legacy_demangled, args.platform_policy,
+                "RoROgreNext::", "@RoROgreNext@@"),
             f"legacy runtime was modified by the namespace fork: {legacy_library}",
         )
         definitions = defined_global_symbols(
@@ -886,33 +980,59 @@ def main() -> int:
     # OgreNext is linked statically with hidden visibility, so its resolved
     # symbols are local in the final executable. Inspect the complete symbol
     # table here; the archive/plugin rejection gates above remain global-only.
-    _, executable_demangled = nm(executable, global_only=False)
-    require("Ogre::Root::getSingletonPtr()" in executable_demangled and
-            "RoROgreNext::Root::getSingletonPtr()" in executable_demangled,
+    if executable_link_map is not None:
+        executable_raw = read_msvc_link_map(executable_link_map, executable)
+        executable_demangled = ""
+    else:
+        executable_raw, executable_demangled = nm(
+            executable, global_only=False
+        )
+    require(cpp_symbol_present(
+                executable_raw, executable_demangled, args.platform_policy,
+                "Ogre::Root::getSingletonPtr()",
+                "?getSingletonPtr@Root@Ogre@@") and
+            cpp_symbol_present(
+                executable_raw, executable_demangled, args.platform_policy,
+                "RoROgreNext::Root::getSingletonPtr()",
+                "?getSingletonPtr@Root@RoROgreNext@@"),
             "dual-runtime executable does not resolve both Root ABI owners")
     require(
-        "RoROgreNextRapidJson::" in executable_demangled,
+        cpp_namespace_present(
+            executable_raw, executable_demangled, args.platform_policy,
+            "RoROgreNextRapidJson::", "@RoROgreNextRapidJson@@"),
         "provider link smoke does not resolve the private OgreNext RapidJSON owner",
     )
     require(
-        "RoR::Render::OgreNextN1Frontend::OgreNextN1Frontend" in
-        executable_demangled
-        and "RoR::RendererInProcessSession::RendererInProcessSession" in
-        executable_demangled,
+        cpp_symbol_present(
+            executable_raw, executable_demangled, args.platform_policy,
+            "RoR::Render::OgreNextN1Frontend::OgreNextN1Frontend",
+            "??0OgreNextN1Frontend@Render@RoR@@")
+        and cpp_symbol_present(
+            executable_raw, executable_demangled, args.platform_policy,
+            "RoR::RendererInProcessSession::RendererInProcessSession",
+            "??0RendererInProcessSession@RoR@@"),
         "dual-runtime executable does not contain the production N1/direct session lifecycle",
     )
     require(
-        "RoR::Render::OgreNextN1Frontend::~OgreNextN1Frontend" in
-        executable_demangled
-        and "RoR::RendererInProcessSession::~RendererInProcessSession" in
-        executable_demangled,
+        cpp_symbol_present(
+            executable_raw, executable_demangled, args.platform_policy,
+            "RoR::Render::OgreNextN1Frontend::~OgreNextN1Frontend",
+            "??1OgreNextN1Frontend@Render@RoR@@")
+        and cpp_symbol_present(
+            executable_raw, executable_demangled, args.platform_policy,
+            "RoR::RendererInProcessSession::~RendererInProcessSession",
+            "??1RendererInProcessSession@RoR@@"),
         "dual-runtime executable does not contain both production destructors",
     )
     require(
-        "RoR::RendererOgreNextInProcessPresenter::RendererOgreNextInProcessPresenter" in
-        executable_demangled
-        and "RoR::RendererOgreNextInProcessPresenter::~RendererOgreNextInProcessPresenter" in
-        executable_demangled,
+        cpp_symbol_present(
+            executable_raw, executable_demangled, args.platform_policy,
+            "RoR::RendererOgreNextInProcessPresenter::RendererOgreNextInProcessPresenter",
+            "??0RendererOgreNextInProcessPresenter@RoR@@")
+        and cpp_symbol_present(
+            executable_raw, executable_demangled, args.platform_policy,
+            "RoR::RendererOgreNextInProcessPresenter::~RendererOgreNextInProcessPresenter",
+            "??1RendererOgreNextInProcessPresenter@RoR@@"),
         "dual-runtime executable does not contain the concrete presenter lifecycle",
     )
     if args.platform_policy == "macos-arm64-metal":
@@ -1191,7 +1311,17 @@ def main() -> int:
         "legacy_runtime_directories": sorted(
             str(path) for path in legacy_runtime_directories
         ),
-        "executable": {"path": str(executable), "sha256": digest(executable)},
+        "executable": {
+            "path": str(executable),
+            "sha256": digest(executable),
+            "link_map": (
+                {
+                    "path": str(executable_link_map),
+                    "sha256": digest(executable_link_map),
+                }
+                if executable_link_map is not None else None
+            ),
+        },
         "compile_commands_sha256": digest(compile_commands),
         "stb_image_implementation": stb_implementation_report,
         "defined_global_intersections": global_intersections,

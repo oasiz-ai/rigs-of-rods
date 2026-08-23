@@ -308,6 +308,66 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
                 "static",
             )
 
+    def test_windows_symbol_checks_use_exact_msvc_decorations(self) -> None:
+        raw = "\n".join(
+            (
+                "?getSingletonPtr@Root@Ogre@@SAPEAV12@XZ",
+                "?getSingletonPtr@Root@RoROgreNext@@SAPEAV12@XZ",
+                "??0OgreNextN1Frontend@Render@RoR@@QEAA@XZ",
+                "?owner@Widget@RoROgreNextRapidJson@@QEAAXXZ",
+            )
+        )
+        self.assertTrue(
+            AUDIT.cpp_symbol_present(
+                raw,
+                "",
+                "windows-x64-d3d11",
+                "Ogre::Root::getSingletonPtr()",
+                "?getSingletonPtr@Root@Ogre@@",
+            )
+        )
+        self.assertTrue(
+            AUDIT.cpp_namespace_present(
+                raw,
+                "",
+                "windows-x64-d3d11",
+                "RoROgreNextRapidJson::",
+                "@RoROgreNextRapidJson@@",
+            )
+        )
+        self.assertFalse(
+            AUDIT.cpp_namespace_present(
+                "?owner@Root@RoROgreNext@@QEAAXXZ",
+                "",
+                "windows-x64-d3d11",
+                "Ogre::",
+                "@Ogre@@",
+            )
+        )
+
+    def test_windows_link_map_requires_named_public_symbol_table(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            executable = root / "ror_ogre_next_root_provider_link_smoke.exe"
+            executable.write_bytes(b"fixture")
+            link_map = root / "provider.map"
+            payload = "\n".join(
+                (
+                    " ror_ogre_next_root_provider_link_smoke",
+                    "",
+                    "  Address         Publics by Value              Rva+Base       Lib:Object",
+                    " 0001:00000000 ?getSingletonPtr@Root@Ogre@@SAPEAV12@XZ 0000000140001000 f OgreMain.lib:OgreRoot.obj",
+                )
+            )
+            link_map.write_bytes(payload.encode("utf-16"))
+            self.assertIn(
+                "?getSingletonPtr@Root@Ogre@@",
+                AUDIT.read_msvc_link_map(link_map, executable),
+            )
+            link_map.write_text("wrong executable\n", encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "does not name"):
+                AUDIT.read_msvc_link_map(link_map, executable)
+
     def test_only_itanium_std_symbols_are_toolchain_owned_collisions(self) -> None:
         for symbol in (
             "_ZNKSt5ctypeIcE8do_widenEc",
@@ -321,13 +381,14 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
 
     def test_audit_requires_private_rapidjson_namespace_in_final_link(self) -> None:
         self.assertIn(
-            '"RoROgreNextRapidJson::" in next_demangled', self.audit_source
+            '"RoROgreNextRapidJson::", "@RoROgreNextRapidJson@@"',
+            self.audit_source,
         )
         self.assertIn(
-            '"rapidjson::" not in next_demangled', self.audit_source
+            '"rapidjson::", "@rapidjson@@"', self.audit_source
         )
         self.assertIn(
-            '"RoROgreNextRapidJson::" in executable_demangled',
+            "cpp_namespace_present(",
             self.audit_source,
         )
         self.assertNotIn(

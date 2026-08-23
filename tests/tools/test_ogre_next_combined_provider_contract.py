@@ -1048,6 +1048,17 @@ class CombinedProviderContractTests(unittest.TestCase):
             "${_ror_namespace_audit_next_archive_arguments}", namespace_audit
         )
 
+    def test_windows_namespace_audit_uses_the_provider_link_map(self) -> None:
+        for token in (
+            '"/MAP:${_ror_ogre_next_root_provider_link_map}"',
+            "--executable-link-map",
+            "${_ror_namespace_audit_executable_link_map_arguments}",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, PROVIDER)
+        self.assertIn("cpp_symbol_present", NAMESPACE_AUDIT)
+        self.assertIn("@RoROgreNext@@", NAMESPACE_AUDIT)
+
     def test_dirty_development_build_is_explicit_and_unqualified(self) -> None:
         self.assertIn(
             "ROR_OGRE_NEXT_ALLOW_DIRTY_DEVELOPMENT_BUILD", PROVIDER

@@ -1410,6 +1410,17 @@ target_link_libraries(ror_ogre_next_root_provider_link_smoke PRIVATE
 _ror_combined_strict_target(ror_ogre_next_root_provider_link_smoke)
 set_target_properties(ror_ogre_next_root_provider_link_smoke PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+set(_ror_namespace_audit_executable_link_map_arguments "")
+if (MSVC)
+    set(_ror_ogre_next_root_provider_link_map
+        "${CMAKE_CURRENT_BINARY_DIR}/ror-ogre-next-root-provider-link-smoke.map")
+    target_link_options(ror_ogre_next_root_provider_link_smoke PRIVATE
+        "/MAP:${_ror_ogre_next_root_provider_link_map}")
+    set_property(TARGET ror_ogre_next_root_provider_link_smoke APPEND PROPERTY
+        ADDITIONAL_CLEAN_FILES "${_ror_ogre_next_root_provider_link_map}")
+    list(APPEND _ror_namespace_audit_executable_link_map_arguments
+        --executable-link-map "${_ror_ogre_next_root_provider_link_map}")
+endif ()
 
 if (APPLE)
     set(_ror_ogre_next_plugin_export_source
@@ -1561,6 +1572,7 @@ add_custom_target(ror_ogre_next_root_namespace_audit
         ${_ror_namespace_audit_legacy_arguments}
         --executable
             "$<TARGET_FILE:ror_ogre_next_root_provider_link_smoke>"
+        ${_ror_namespace_audit_executable_link_map_arguments}
         --compile-commands "${CMAKE_BINARY_DIR}/compile_commands.json"
         --require-upstream-strict-fp
         --next-source-root "${ogre_next_SOURCE_DIR}"
