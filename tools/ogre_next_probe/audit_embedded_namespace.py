@@ -428,6 +428,10 @@ def command_text(entry: dict[str, object]) -> str:
     return " ".join(str(value) for value in arguments)
 
 
+def normalized_command_path_text(entry: dict[str, object]) -> str:
+    return command_text(entry).replace("\\", "/")
+
+
 def count_stb_implementation_definitions(source: bytes) -> int:
     return sum(
         1
@@ -504,7 +508,7 @@ def one_target_compile_entry(
         entry
         for entry in entries
         if Path(str(entry.get("file", ""))).resolve() == source.resolve()
-        and target_token in command_text(entry)
+        and target_token in normalized_command_path_text(entry)
     ]
     require(
         len(matches) == 1,
@@ -1206,7 +1210,7 @@ def main() -> int:
         stb_target_token = f"CMakeFiles/{args.stb_decoder_target_name}.dir/"
         stb_target_entries = [
             entry for entry in entries
-            if stb_target_token in command_text(entry)
+            if stb_target_token in normalized_command_path_text(entry)
             and Path(str(entry.get("file", ""))).suffix.lower()
                 in {".c", ".cc", ".cpp", ".cxx", ".m", ".mm"}
         ]

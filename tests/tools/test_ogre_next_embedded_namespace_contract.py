@@ -97,6 +97,17 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
                     AUDIT.count_stb_implementation_definitions(source), 0
                 )
 
+    def test_compile_target_paths_are_separator_neutral(self) -> None:
+        windows = {
+            "command": (
+                r"cl /Fosource\main\CMakeFiles\RoR-Combined.dir\decoder.obj"
+            )
+        }
+        self.assertIn(
+            "CMakeFiles/RoR-Combined.dir/",
+            AUDIT.normalized_command_path_text(windows),
+        )
+
     def test_canonical_lock_binds_conditional_fork_inputs(self) -> None:
         self.assertEqual(self.lock["schema_version"], 6)
         embedded = self.lock["embedded_namespace"]
