@@ -84,6 +84,11 @@ float4 main
 		if( screenRadius >= 1.0f )
 		{
 			float occlusion = 0.0f;
+			// The trip count is a validated runtime tier. Keep it dynamic on
+			// D3D11: FXC otherwise attempts a speculative 501-iteration
+			// unroll and rejects this shader before the Ogre-Next frontend can
+			// create its visible window.
+			[loop]
 			for( int i = 0; i < sampleCount; ++i )
 			{
 				float alphaS = ( float( i ) + 0.5f ) / float( sampleCount );
@@ -127,6 +132,9 @@ float4 main
 	{
 		float3 sunDir = shadeSunDirView.xyz;
 		float occluded = 0.0f;
+		// Contact-shadow tiers are runtime-selected too; preserve the loop
+		// instead of asking FXC to infer and unroll an artificial upper bound.
+		[loop]
 		for( int i = 0; i < contactSteps; ++i )
 		{
 			float t = contactLength * ( float( i ) + ign ) /

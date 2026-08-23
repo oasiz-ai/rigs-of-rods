@@ -224,6 +224,11 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         cls.media_integrity = (
             RENDER_ROOT / "ogrenext" / "OgreNextN1MediaIntegrity.cpp"
         ).read_text(encoding="utf-8")
+        cls.screen_shade_hlsl = (
+            PROBE_ROOT
+            / "media/2.0/scripts/materials/RoRHaze/HLSL"
+            / "RoRScreenShadeAO_ps.hlsl"
+        ).read_text(encoding="utf-8")
         cls.policy = (
             RENDER_ROOT / "ogrenext" / "OgreNextN1Policy.cpp"
         ).read_text(encoding="utf-8")
@@ -333,6 +338,17 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         ):
             self.assertIn(token, temporal_material)
         self.assertEqual(temporal_material.count("root_layout high"), 2)
+
+    def test_d3d11_screen_shade_keeps_runtime_tier_loops_dynamic(self) -> None:
+        self.assertEqual(self.screen_shade_hlsl.count("[loop]"), 2)
+        self.assertIn(
+            "[loop]\n\t\t\tfor( int i = 0; i < sampleCount; ++i )",
+            self.screen_shade_hlsl,
+        )
+        self.assertIn(
+            "[loop]\n\t\tfor( int i = 0; i < contactSteps; ++i )",
+            self.screen_shade_hlsl,
+        )
 
     def test_dependency_policy_is_shared_pinned_and_isolated(self) -> None:
         self.assertIn("cmake/PinnedOgreNext.cmake", self.entry_cmake)

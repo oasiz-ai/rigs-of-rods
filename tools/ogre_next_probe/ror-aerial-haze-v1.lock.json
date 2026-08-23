@@ -101,7 +101,7 @@
     },
     {
       "path": "media/2.0/scripts/materials/RoRHaze/HLSL/RoRScreenShadeAO_ps.hlsl",
-      "sha256": "f4ecb3acb60341bb97f74aae8ab88c3a26e9e500974892372fd63ac3181410d9"
+      "sha256": "cde473c86271f69ee1154b84702df4840cc995aeeab89f1474544005c4fd80bb"
     },
     {
       "path": "media/2.0/scripts/materials/RoRHaze/Metal/RoRScreenShadeAO_ps.metal",
