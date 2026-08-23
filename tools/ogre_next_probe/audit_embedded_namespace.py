@@ -189,7 +189,41 @@ def json_object(path: Path, label: str) -> dict[str, object]:
     return payload
 
 
-def nm(path: Path, *, global_only: bool = True) -> tuple[str, str]:
+def msvc_symbol_dump(path: Path) -> str:
+    option = "/EXPORTS" if path.suffix.lower() == ".dll" else "/SYMBOLS"
+    return output("dumpbin", "/nologo", option, str(path))
+
+
+def msvc_defined_symbols(raw: str, *, exports: bool) -> set[str]:
+    symbols: set[str] = set()
+    if exports:
+        for line in raw.splitlines():
+            match = re.fullmatch(
+                r"\s*[0-9]+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+"
+                r"([^\s=]+)(?:\s+=.*)?\s*",
+                line,
+            )
+            if match is not None:
+                symbols.add(match.group(1))
+        return symbols
+    for line in raw.splitlines():
+        if "UNDEF" in line or "External" not in line or "|" not in line:
+            continue
+        symbol = line.split("|", maxsplit=1)[1].strip().split(maxsplit=1)[0]
+        if symbol:
+            symbols.add(symbol)
+    return symbols
+
+
+def nm(
+    path: Path,
+    platform_policy: str,
+    *,
+    global_only: bool = True,
+) -> tuple[str, str]:
+    if platform_policy == "windows-x64-d3d11":
+        raw = msvc_symbol_dump(path)
+        return raw, raw
     argv = ["nm"]
     if global_only:
         argv.append("-g")
@@ -277,6 +311,11 @@ def _gnu_defined_symbol_types(path: Path) -> dict[str, str]:
 
 def defined_global_symbols(path: Path, platform_policy: str) -> set[str]:
     """Return exact global definitions, excluding undefined imports."""
+    if platform_policy == "windows-x64-d3d11":
+        raw = msvc_symbol_dump(path)
+        return msvc_defined_symbols(
+            raw, exports=path.suffix.lower() == ".dll"
+        )
     if platform_policy != "macos-arm64-metal":
         return set(_gnu_defined_symbol_types(path))
     raw = output("nm", "-gU", str(path))
@@ -294,6 +333,8 @@ def global_definition_linkages(
     path: Path, definitions: set[str], platform_policy: str
 ) -> tuple[set[str], set[str]]:
     """Partition global definitions into weak and strong linkage."""
+    if platform_policy == "windows-x64-d3d11":
+        return set(), set(definitions)
     if platform_policy != "macos-arm64-metal":
         symbol_types = _gnu_defined_symbol_types(path)
         weak_types = {"W", "V", "w", "v"}
@@ -805,7 +846,7 @@ def main() -> int:
     next_raw_parts: list[str] = []
     next_demangled_parts: list[str] = []
     for archive in next_archives:
-        raw, demangled = nm(archive)
+        raw, demangled = nm(archive, args.platform_policy)
         next_raw_parts.append(raw)
         next_demangled_parts.append(demangled)
     next_raw = "\n".join(next_raw_parts)
@@ -833,7 +874,9 @@ def main() -> int:
     require(not UNREMAPPED_OGRE_MANGLED_PATTERN.search(next_raw),
             "an Itanium Ogre namespace symbol remains in the OgreNext archives")
 
-    embedded_raw, embedded_demangled = nm(embedded_runtime_archive)
+    embedded_raw, embedded_demangled = nm(
+        embedded_runtime_archive, args.platform_policy
+    )
     require(
         cpp_symbol_present(
             embedded_raw, embedded_demangled, args.platform_policy,
@@ -849,7 +892,9 @@ def main() -> int:
         "an unremapped Ogre owner remains in the embedded N1 runtime archive",
     )
 
-    direct_raw, direct_demangled = nm(direct_contract_archive)
+    direct_raw, direct_demangled = nm(
+        direct_contract_archive, args.platform_policy
+    )
     require(
         cpp_symbol_present(
             direct_raw, direct_demangled, args.platform_policy,
@@ -886,7 +931,7 @@ def main() -> int:
             require(f"$_{new_name}" in next_raw,
                     f"expected prefixed Objective-C runtime class is absent: {new_name}")
 
-    plugin_raw, plugin_demangled = nm(plugin_object)
+    plugin_raw, plugin_demangled = nm(plugin_object, args.platform_policy)
     require(not cpp_namespace_present(
                 plugin_raw, plugin_demangled, args.platform_policy,
                 "Ogre::", "@Ogre@@"),
@@ -899,7 +944,9 @@ def main() -> int:
         args.next_plugin_linkage,
     )
 
-    legacy_main_raw, legacy_main_demangled = nm(legacy_main_library)
+    legacy_main_raw, legacy_main_demangled = nm(
+        legacy_main_library, args.platform_policy
+    )
     require(cpp_symbol_present(
                 legacy_main_raw, legacy_main_demangled, args.platform_policy,
                 "Ogre::Root::getSingletonPtr()",
@@ -910,7 +957,9 @@ def main() -> int:
     legacy_strong_definitions: set[str] = set()
     legacy_library_reports: list[dict[str, object]] = []
     for legacy_library in legacy_libraries:
-        legacy_raw, legacy_demangled = nm(legacy_library)
+        legacy_raw, legacy_demangled = nm(
+            legacy_library, args.platform_policy
+        )
         require(
             not cpp_namespace_present(
                 legacy_raw, legacy_demangled, args.platform_policy,
@@ -985,7 +1034,7 @@ def main() -> int:
         executable_demangled = ""
     else:
         executable_raw, executable_demangled = nm(
-            executable, global_only=False
+            executable, args.platform_policy, global_only=False
         )
     require(cpp_symbol_present(
                 executable_raw, executable_demangled, args.platform_policy,

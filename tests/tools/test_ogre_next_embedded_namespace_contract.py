@@ -345,6 +345,32 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
             )
         )
 
+    def test_windows_dumpbin_parser_rejects_undefined_owners(self) -> None:
+        archive_dump = "\n".join(
+            (
+                "00A 00000000 SECT3 notype () External | ?defined@Root@RoROgreNext@@SAXXZ",
+                "00B 00000000 UNDEF notype () External | ?missing@Root@Ogre@@SAXXZ",
+                "00C 00000000 SECT4 notype Static | local_symbol",
+            )
+        )
+        self.assertEqual(
+            AUDIT.msvc_defined_symbols(archive_dump, exports=False),
+            {"?defined@Root@RoROgreNext@@SAXXZ"},
+        )
+        export_dump = "\n".join(
+            (
+                "    1    0 00001000 ?getSingletonPtr@Root@Ogre@@SAPEAV12@XZ",
+                "    2    1 00002000 named_export = forwarded.target",
+            )
+        )
+        self.assertEqual(
+            AUDIT.msvc_defined_symbols(export_dump, exports=True),
+            {
+                "?getSingletonPtr@Root@Ogre@@SAPEAV12@XZ",
+                "named_export",
+            },
+        )
+
     def test_windows_link_map_requires_named_public_symbol_table(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
