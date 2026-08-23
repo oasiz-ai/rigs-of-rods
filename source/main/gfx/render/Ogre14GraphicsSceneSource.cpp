@@ -2396,7 +2396,11 @@ ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
     Ogre14GraphicsSceneDynamicIdentityRegistry &identity_registry,
     std::vector<GraphicsSceneAssetInput> &assets,
     std::vector<GraphicsSceneDynamicMeshInput> &dynamic_meshes,
-    IOgre14GraphicsSceneDynamicInventoryFaultInjector *fault_injector) try {
+    IOgre14GraphicsSceneDynamicInventoryFaultInjector *fault_injector,
+    Ogre14GraphicsSceneDynamicInventoryTiming *timing) try {
+  if (timing != nullptr) {
+    *timing = {};
+  }
   if (inputs.size() > kMaximumOgre14GraphicsSceneDynamicSections) {
     return ValidationResult::Failure(
         ValidationCode::VALUE_OUT_OF_RANGE, "dynamic_inventory.sections",
@@ -2433,8 +2437,15 @@ ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
       (std::min)(reserve_asset_count,
                  kMaximumOgre14GraphicsSceneDynamicAssets);
 
+  const auto registry_clone_started = std::chrono::steady_clock::now();
   Ogre14GraphicsSceneDynamicIdentityRegistry candidate_registry =
       identity_registry;
+  if (timing != nullptr) {
+    timing->registry_clone_ns += static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - registry_clone_started)
+            .count());
+  }
   std::vector<GraphicsSceneAssetInput> candidate_assets;
   std::vector<GraphicsSceneDynamicMeshInput> candidate_meshes;
   candidate_assets.reserve(reserve_asset_count);
@@ -2475,6 +2486,7 @@ ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
 
   for (std::size_t input_index = 0U; input_index < inputs.size();
        ++input_index) {
+    const auto input_validation_started = std::chrono::steady_clock::now();
     Ogre14GraphicsSceneDynamicSectionCaptureInput &input =
         inputs[input_index];
     if (input.exact_entity_name.empty() ||
@@ -2592,6 +2604,13 @@ ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
     validation = ValidateJoinedDynamicStateCompatibility(mesh, joined_state);
     if (!validation) {
       return AtDynamicSection(std::move(validation), input_index);
+    }
+    const auto input_validation_ended = std::chrono::steady_clock::now();
+    if (timing != nullptr) {
+      timing->input_validation_ns += static_cast<std::uint64_t>(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(
+              input_validation_ended - input_validation_started)
+              .count());
     }
 
     const std::string mesh_key = BuildDynamicSectionKey(
@@ -2824,6 +2843,13 @@ ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
     if (resolved_material == nullptr) {
       current_asset_keys.insert(material_key);
     }
+    const auto identity_and_assets_ended = std::chrono::steady_clock::now();
+    if (timing != nullptr) {
+      timing->identity_and_assets_ns += static_cast<std::uint64_t>(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(
+              identity_and_assets_ended - input_validation_ended)
+              .count());
+    }
 
     const auto publish_joined_state =
         [&input, &joined_state](std::uint64_t deformation_revision) {
@@ -2898,8 +2924,16 @@ ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
     }
     instance.state = std::move(deformation);
     candidate_meshes.push_back(std::move(instance));
+    if (timing != nullptr) {
+      timing->state_publication_ns += static_cast<std::uint64_t>(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(
+              std::chrono::steady_clock::now() -
+              identity_and_assets_ended)
+              .count());
+    }
   }
 
+  const auto lifecycle_finalize_started = std::chrono::steady_clock::now();
   // Dynamic base meshes and factor-fallback materials remain owned for the
   // adapter lifetime. Exact closure dependencies are translator-owned and
   // therefore never enter this per-domain lifecycle set. Object identities
@@ -2946,6 +2980,12 @@ ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
   identity_registry = std::move(candidate_registry);
   assets = std::move(candidate_assets);
   dynamic_meshes = std::move(candidate_meshes);
+  if (timing != nullptr) {
+    timing->lifecycle_finalize_ns += static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - lifecycle_finalize_started)
+            .count());
+  }
   return ValidationResult::Success();
 } catch (const std::bad_alloc &) {
   return ValidationResult::Failure(

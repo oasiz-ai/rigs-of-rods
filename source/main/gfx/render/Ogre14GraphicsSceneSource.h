@@ -630,7 +630,8 @@ private:
       Ogre14GraphicsSceneDynamicIdentityRegistry &,
       std::vector<GraphicsSceneAssetInput> &,
       std::vector<GraphicsSceneDynamicMeshInput> &,
-      class IOgre14GraphicsSceneDynamicInventoryFaultInjector *);
+      class IOgre14GraphicsSceneDynamicInventoryFaultInjector *,
+      struct Ogre14GraphicsSceneDynamicInventoryTiming *);
 
   std::map<std::uint64_t, std::string> asset_names_by_id_;
   std::map<std::string, std::uint64_t, std::less<>> asset_ids_by_name_;
@@ -657,6 +658,17 @@ public:
       Ogre14GraphicsSceneDynamicInventoryFaultPoint point) = 0;
 };
 
+/// Optional renderer-neutral attribution for the dynamic inventory builder.
+/// Every field is a disjoint successful-path span; callers may use the
+/// remainder of their outer timer to account for call/exception overhead.
+struct Ogre14GraphicsSceneDynamicInventoryTiming {
+  std::uint64_t registry_clone_ns = 0U;
+  std::uint64_t input_validation_ns = 0U;
+  std::uint64_t identity_and_assets_ns = 0U;
+  std::uint64_t state_publication_ns = 0U;
+  std::uint64_t lifecycle_finalize_ns = 0U;
+};
+
 [[nodiscard]] ValidationResult DeriveOgre14GraphicsSceneDynamicMeshAssetId(
     const Ogre14GraphicsSceneDynamicSectionIdentity &identity,
     std::uint64_t &stable_id);
@@ -679,7 +691,8 @@ public:
     std::vector<GraphicsSceneAssetInput> &assets,
     std::vector<GraphicsSceneDynamicMeshInput> &dynamic_meshes,
     IOgre14GraphicsSceneDynamicInventoryFaultInjector *fault_injector =
-        nullptr);
+        nullptr,
+    Ogre14GraphicsSceneDynamicInventoryTiming *timing = nullptr);
 
 struct Ogre14GraphicsSceneUnsupportedGeometry {
   bool terrain = false;

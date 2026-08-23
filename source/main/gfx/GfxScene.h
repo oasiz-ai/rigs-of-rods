@@ -161,13 +161,31 @@ private:
     /// mutates none of them. Silent unless demo capture is enabled.
     void ProbeOgre14ActorCaptureCoverage(RoR::GfxActor* gfx_actor);
 
+    struct Ogre14DynamicCaptureTiming
+    {
+        std::uint64_t actor_setup_ns = 0U;
+        std::uint64_t deformable_sections_ns = 0U;
+        std::uint64_t rigid_sections_ns = 0U;
+        std::uint64_t declaration_validation_ns = 0U;
+        std::uint64_t inventory_build_ns = 0U;
+        Render::Ogre14GraphicsSceneDynamicInventoryTiming inventory_detail;
+
+        std::uint64_t MeasuredNs() const noexcept
+        {
+            return actor_setup_ns + deformable_sections_ns +
+                rigid_sections_ns + declaration_validation_ns +
+                inventory_build_ns;
+        }
+    };
+
     Render::ValidationResult CaptureOgre14DynamicActorInventory(
         Render::Ogre14GraphicsSceneDynamicIdentityRegistry& identity_registry,
         std::map<std::string,
                  Render::Ogre14GraphicsSceneDynamicMeshCacheEntry,
                  std::less<>>& mesh_cache,
         std::vector<Render::GraphicsSceneAssetInput>& assets,
-        std::vector<Render::GraphicsSceneDynamicMeshInput>& dynamic_meshes);
+        std::vector<Render::GraphicsSceneDynamicMeshInput>& dynamic_meshes,
+        Ogre14DynamicCaptureTiming& timing);
 
     std::map<std::string, DustPool *> m_dustpools;
     Ogre::SceneManager*               m_scene_manager = nullptr;
@@ -317,6 +335,17 @@ private:
     std::uint64_t m_ogre14_section_log_terrain_ns = 0U;
     std::uint64_t m_ogre14_section_log_static_ns = 0U;
     std::uint64_t m_ogre14_section_log_dynamic_ns = 0U;
+    std::uint64_t m_ogre14_section_log_dynamic_setup_ns = 0U;
+    std::uint64_t m_ogre14_section_log_dynamic_deformable_ns = 0U;
+    std::uint64_t m_ogre14_section_log_dynamic_rigid_ns = 0U;
+    std::uint64_t m_ogre14_section_log_dynamic_validation_ns = 0U;
+    std::uint64_t m_ogre14_section_log_dynamic_inventory_ns = 0U;
+    std::uint64_t m_ogre14_section_log_dynamic_inventory_clone_ns = 0U;
+    std::uint64_t m_ogre14_section_log_dynamic_inventory_validate_ns = 0U;
+    std::uint64_t m_ogre14_section_log_dynamic_inventory_assets_ns = 0U;
+    std::uint64_t m_ogre14_section_log_dynamic_inventory_state_ns = 0U;
+    std::uint64_t m_ogre14_section_log_dynamic_inventory_finalize_ns = 0U;
+    std::uint64_t m_ogre14_section_log_dynamic_other_ns = 0U;
     std::uint64_t m_ogre14_section_log_retained_ns = 0U;
     std::uint64_t m_ogre14_section_log_merge_ns = 0U;
     std::uint64_t m_ogre14_section_log_union_ns = 0U;
@@ -454,6 +483,7 @@ private:
         std::uint64_t section_terrain_ns = 0U;
         std::uint64_t section_static_ns = 0U;
         std::uint64_t section_dynamic_ns = 0U;
+        Ogre14DynamicCaptureTiming dynamic_timing;
         std::uint64_t section_retained_ns = 0U;
         std::uint64_t section_merge_ns = 0U;
         std::uint64_t section_union_ns = 0U;

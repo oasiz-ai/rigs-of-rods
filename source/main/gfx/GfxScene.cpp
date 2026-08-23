@@ -2745,6 +2745,36 @@ RoR::Render::ValidationResult BuildOgre14JoinedVertexRanges(
     return RoR::Render::ValidationResult::Success();
 }
 
+/// Attributes synchronous work inside the dynamic actor capture without
+/// changing the joined-scene contract. These spans are deliberately disjoint;
+/// the caller reports the measured remainder as dynamic_other.
+class Ogre14DynamicSubsectionTimer final
+{
+public:
+    explicit Ogre14DynamicSubsectionTimer(
+        std::uint64_t& accumulator) noexcept
+        : m_accumulator(accumulator)
+        , m_started(std::chrono::steady_clock::now())
+    {
+    }
+
+    ~Ogre14DynamicSubsectionTimer() noexcept
+    {
+        m_accumulator += static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - m_started).count());
+    }
+
+    Ogre14DynamicSubsectionTimer(
+        const Ogre14DynamicSubsectionTimer&) = delete;
+    Ogre14DynamicSubsectionTimer& operator=(
+        const Ogre14DynamicSubsectionTimer&) = delete;
+
+private:
+    std::uint64_t& m_accumulator;
+    std::chrono::steady_clock::time_point m_started;
+};
+
 RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
     Ogre::Entity* entity,
     RoR::Render::Ogre14GraphicsSceneDynamicSectionIdentity identity,
@@ -4653,8 +4683,10 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
              Render::Ogre14GraphicsSceneDynamicMeshCacheEntry,
              std::less<>>& mesh_cache,
     std::vector<Render::GraphicsSceneAssetInput>& assets,
-    std::vector<Render::GraphicsSceneDynamicMeshInput>& dynamic_meshes)
+    std::vector<Render::GraphicsSceneDynamicMeshInput>& dynamic_meshes,
+    Ogre14DynamicCaptureTiming& timing)
 {
+    timing = {};
     std::vector<Render::Ogre14GraphicsSceneDynamicSectionCaptureInput>
         sections;
     Ogre14RigidActorCaptureCounters rigid_counters;
@@ -4682,24 +4714,9 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
         }
         Render::Ogre14GraphicsSceneDynamicSectionIdentity identity;
         identity.actor_instance_id = actor->GetActorId();
-        const ActorPtr managed_material_owner = actor->GetActor();
-        if (!managed_material_owner)
-        {
-            return Render::ValidationResult::Failure(
-                Render::ValidationCode::MISSING_REFERENCE,
-                "dynamic_meshes.managed_material_owner",
-                "live GfxActor has no managed-material Actor owner");
-        }
+        ActorPtr managed_material_owner;
         Render::ManagedMaterialDeclarationSnapshot managed_material_snapshot;
-        Render::ValidationResult managed_snapshot_validation =
-            managed_material_owner->CaptureManagedMaterialDeclarationSnapshot(
-                managed_material_snapshot);
-        if (!managed_snapshot_validation)
-        {
-            managed_snapshot_validation.field =
-                "dynamic_meshes." + managed_snapshot_validation.field;
-            return managed_snapshot_validation;
-        }
+        Render::ValidationResult managed_snapshot_validation;
         JoinedCpuStagingView staging;
         std::vector<Render::Ogre14ManagedMaterialDeclarationBinding>
             projected_managed_material_bindings;
@@ -4708,11 +4725,34 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
         // would publish whichever flare state happened to be live when it was
         // first seen; those sections are refused by name instead.
         std::set<const Ogre::Material*> runtime_mutated_materials;
-        for (const FlareMaterial& flare_material : actor->m_flare_materials)
         {
-            if (flare_material.mat_instance)
-                runtime_mutated_materials.insert(
-                    flare_material.mat_instance.get());
+            Ogre14DynamicSubsectionTimer setup_timer(timing.actor_setup_ns);
+            managed_material_owner = actor->GetActor();
+            if (!managed_material_owner)
+            {
+                return Render::ValidationResult::Failure(
+                    Render::ValidationCode::MISSING_REFERENCE,
+                    "dynamic_meshes.managed_material_owner",
+                    "live GfxActor has no managed-material Actor owner");
+            }
+            managed_snapshot_validation = managed_material_owner->
+                CaptureManagedMaterialDeclarationSnapshot(
+                    managed_material_snapshot);
+            if (!managed_snapshot_validation)
+            {
+                managed_snapshot_validation.field =
+                    "dynamic_meshes." + managed_snapshot_validation.field;
+                return managed_snapshot_validation;
+            }
+            for (const FlareMaterial& flare_material :
+                 actor->m_flare_materials)
+            {
+                if (flare_material.mat_instance)
+                {
+                    runtime_mutated_materials.insert(
+                        flare_material.mat_instance.get());
+                }
+            }
         }
 
         if ((actor->m_cab_mesh == nullptr) !=
@@ -4725,27 +4765,33 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
         }
         if (actor->m_cab_mesh != nullptr)
         {
-            if (!actor->m_cab_mesh->viewJoinedCpuStaging(staging))
             {
-                return Render::ValidationResult::Failure(
-                    Render::ValidationCode::EMPTY_PAYLOAD,
-                    "dynamic_meshes.cab.joined_staging",
-                    "cab did not expose completed CPU staging");
+                Ogre14DynamicSubsectionTimer deformable_timer(
+                    timing.deformable_sections_ns);
+                if (!actor->m_cab_mesh->viewJoinedCpuStaging(staging))
+                {
+                    return Render::ValidationResult::Failure(
+                        Render::ValidationCode::EMPTY_PAYLOAD,
+                        "dynamic_meshes.cab.joined_staging",
+                        "cab did not expose completed CPU staging");
+                }
+                identity.component_kind = Render::
+                    Ogre14GraphicsSceneDynamicComponentKind::CAB;
+                identity.component_id = 0U;
+                managed_snapshot_validation =
+                    CaptureOgre14DynamicEntitySections(
+                        actor->m_cab_entity, identity,
+                        actor_record.second.lifecycle,
+                        staging,
+                        actor->m_cab_mesh->getCpuTopologySections(), false,
+                        managed_material_owner.GetRef(),
+                        &managed_material_snapshot,
+                        projected_managed_material_bindings,
+                        m_ogre_next_demo_material_source, mesh_cache,
+                        sections);
             }
-            identity.component_kind = Render::
-                Ogre14GraphicsSceneDynamicComponentKind::CAB;
-            identity.component_id = 0U;
-            Render::ValidationResult validation =
-                CaptureOgre14DynamicEntitySections(
-                    actor->m_cab_entity, identity,
-                    actor_record.second.lifecycle,
-                    staging,
-                    actor->m_cab_mesh->getCpuTopologySections(), false,
-                    managed_material_owner.GetRef(), &managed_material_snapshot,
-                    projected_managed_material_bindings,
-                    m_ogre_next_demo_material_source, mesh_cache, sections);
-            if (!validation)
-                return validation;
+            if (!managed_snapshot_validation)
+                return managed_snapshot_validation;
         }
 
         for (FlexBody* const flexbody : actor->m_flexbodies)
@@ -4772,28 +4818,35 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                     "dynamic_meshes.flexbody_id",
                     "FlexBody has no stable uint32 creation ID");
             }
-            if (!flexbody->viewJoinedCpuStaging(staging))
             {
-                return Render::ValidationResult::Failure(
-                    Render::ValidationCode::EMPTY_PAYLOAD,
-                    "dynamic_meshes.flexbody.joined_staging",
-                    "FlexBody did not expose completed CPU staging");
+                Ogre14DynamicSubsectionTimer deformable_timer(
+                    timing.deformable_sections_ns);
+                if (!flexbody->viewJoinedCpuStaging(staging))
+                {
+                    return Render::ValidationResult::Failure(
+                        Render::ValidationCode::EMPTY_PAYLOAD,
+                        "dynamic_meshes.flexbody.joined_staging",
+                        "FlexBody did not expose completed CPU staging");
+                }
+                identity.component_kind = Render::
+                    Ogre14GraphicsSceneDynamicComponentKind::FLEXBODY;
+                identity.component_id =
+                    static_cast<std::uint32_t>(flexbody_id);
+                managed_snapshot_validation =
+                    CaptureOgre14DynamicEntitySections(
+                        flexbody->getEntity(), identity,
+                        actor_record.second.lifecycle,
+                        staging,
+                        flexbody->getCpuTopologySections(),
+                        flexbody->hasDynamicTextureBlend(),
+                        managed_material_owner.GetRef(),
+                        &managed_material_snapshot,
+                        projected_managed_material_bindings,
+                        m_ogre_next_demo_material_source, mesh_cache,
+                        sections);
             }
-            identity.component_kind = Render::
-                Ogre14GraphicsSceneDynamicComponentKind::FLEXBODY;
-            identity.component_id = static_cast<std::uint32_t>(flexbody_id);
-            Render::ValidationResult validation =
-                CaptureOgre14DynamicEntitySections(
-                    flexbody->getEntity(), identity,
-                    actor_record.second.lifecycle,
-                    staging,
-                    flexbody->getCpuTopologySections(),
-                    flexbody->hasDynamicTextureBlend(),
-                    managed_material_owner.GetRef(), &managed_material_snapshot,
-                    projected_managed_material_bindings,
-                    m_ogre_next_demo_material_source, mesh_cache, sections);
-            if (!validation)
-                return validation;
+            if (!managed_snapshot_validation)
+                return managed_snapshot_validation;
         }
 
         for (const WheelGfx& wheel : actor->m_wheels)
@@ -4810,59 +4863,65 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                     "dynamic_meshes.wheel_id",
                     "deformable wheel has no stable uint32 wheel ID");
             }
-            Ogre::Entity* entity = nullptr;
-            const std::vector<FlexMeshTopologySection>* topology = nullptr;
-            if (FlexMesh* const flexmesh =
-                    dynamic_cast<FlexMesh*>(wheel.wx_flex_mesh))
+            Render::ValidationResult validation;
             {
-                if (!flexmesh->viewJoinedCpuStaging(staging) ||
-                    wheel.wx_scenenode == nullptr ||
-                    wheel.wx_scenenode->numAttachedObjects() != 1U)
+                Ogre14DynamicSubsectionTimer deformable_timer(
+                    timing.deformable_sections_ns);
+                Ogre::Entity* entity = nullptr;
+                const std::vector<FlexMeshTopologySection>* topology = nullptr;
+                if (FlexMesh* const flexmesh =
+                        dynamic_cast<FlexMesh*>(wheel.wx_flex_mesh))
+                {
+                    if (!flexmesh->viewJoinedCpuStaging(staging) ||
+                        wheel.wx_scenenode == nullptr ||
+                        wheel.wx_scenenode->numAttachedObjects() != 1U)
+                    {
+                        return Render::ValidationResult::Failure(
+                            Render::ValidationCode::EMPTY_PAYLOAD,
+                            "dynamic_meshes.flexmesh_wheel.joined_staging",
+                            "FlexMesh wheel staging or Entity is incomplete");
+                    }
+                    entity = dynamic_cast<Ogre::Entity*>(
+                        wheel.wx_scenenode->getAttachedObject(0U));
+                    topology = &flexmesh->getCpuTopologySections();
+                    identity.component_kind = Render::
+                        Ogre14GraphicsSceneDynamicComponentKind::
+                            FLEXMESH_WHEEL;
+                }
+                else if (FlexMeshWheel* const meshwheel =
+                             dynamic_cast<FlexMeshWheel*>(
+                                 wheel.wx_flex_mesh))
+                {
+                    if (!meshwheel->viewJoinedCpuStaging(staging))
+                    {
+                        return Render::ValidationResult::Failure(
+                            Render::ValidationCode::EMPTY_PAYLOAD,
+                            "dynamic_meshes.meshwheel_tire.joined_staging",
+                            "MeshWheel tire did not expose completed CPU staging");
+                    }
+                    entity = meshwheel->GetTireEntity();
+                    topology = &meshwheel->getCpuTopologySections();
+                    identity.component_kind = Render::
+                        Ogre14GraphicsSceneDynamicComponentKind::
+                            MESHWHEEL_TIRE;
+                }
+                else
                 {
                     return Render::ValidationResult::Failure(
-                        Render::ValidationCode::EMPTY_PAYLOAD,
-                        "dynamic_meshes.flexmesh_wheel.joined_staging",
-                        "FlexMesh wheel staging or Entity is incomplete");
+                        Render::ValidationCode::UNSUPPORTED_FEATURE,
+                        "dynamic_meshes.flexable_kind",
+                        "actor wheel uses an unknown Flexable subtype");
                 }
-                entity = dynamic_cast<Ogre::Entity*>(
-                    wheel.wx_scenenode->getAttachedObject(0U));
-                topology = &flexmesh->getCpuTopologySections();
-                identity.component_kind = Render::
-                    Ogre14GraphicsSceneDynamicComponentKind::FLEXMESH_WHEEL;
-            }
-            else if (FlexMeshWheel* const meshwheel =
-                         dynamic_cast<FlexMeshWheel*>(wheel.wx_flex_mesh))
-            {
-                if (!meshwheel->viewJoinedCpuStaging(staging))
-                {
-                    return Render::ValidationResult::Failure(
-                        Render::ValidationCode::EMPTY_PAYLOAD,
-                        "dynamic_meshes.meshwheel_tire.joined_staging",
-                        "MeshWheel tire did not expose completed CPU staging");
-                }
-                entity = meshwheel->GetTireEntity();
-                topology = &meshwheel->getCpuTopologySections();
-                identity.component_kind = Render::
-                    Ogre14GraphicsSceneDynamicComponentKind::MESHWHEEL_TIRE;
-            }
-            else
-            {
-                return Render::ValidationResult::Failure(
-                    Render::ValidationCode::UNSUPPORTED_FEATURE,
-                    "dynamic_meshes.flexable_kind",
-                    "actor wheel uses an unknown Flexable subtype");
-            }
-            identity.component_id = static_cast<std::uint32_t>(wheel_id);
-            Render::ValidationResult validation =
-                CaptureOgre14DynamicEntitySections(
+                identity.component_id = static_cast<std::uint32_t>(wheel_id);
+                validation = CaptureOgre14DynamicEntitySections(
                     entity, identity, actor_record.second.lifecycle,
-                    staging,
-                    *topology,
-                    false, managed_material_owner.GetRef(),
+                    staging, *topology, false,
+                    managed_material_owner.GetRef(),
                     &managed_material_snapshot,
                     projected_managed_material_bindings,
                     m_ogre_next_demo_material_source,
                     mesh_cache, sections);
+            }
             if (!validation)
                 return validation;
             if (kOgre14CaptureEnumeratesMeshWheelRims)
@@ -4876,18 +4935,22 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                 {
                     identity.component_kind = Render::
                         Ogre14GraphicsSceneDynamicComponentKind::MESHWHEEL_RIM;
-                    validation = CaptureOgre14FrozenRigidActorComponent(
-                        meshwheel->GetRimEntity(),
-                        meshwheel->GetRimSceneNode(), identity,
-                        actor_record.second.lifecycle, false,
-                        runtime_mutated_materials,
-                        managed_material_owner.GetRef(),
-                        &managed_material_snapshot,
-                        projected_managed_material_bindings,
-                        m_ogre_next_demo_material_source, mesh_cache,
-                        m_ogre14_rigid_actor_state_cache,
-                        m_ogre14_rigid_actor_capture_decisions,
-                        rigid_counters, sections);
+                    {
+                        Ogre14DynamicSubsectionTimer rigid_timer(
+                            timing.rigid_sections_ns);
+                        validation = CaptureOgre14FrozenRigidActorComponent(
+                            meshwheel->GetRimEntity(),
+                            meshwheel->GetRimSceneNode(), identity,
+                            actor_record.second.lifecycle, false,
+                            runtime_mutated_materials,
+                            managed_material_owner.GetRef(),
+                            &managed_material_snapshot,
+                            projected_managed_material_bindings,
+                            m_ogre_next_demo_material_source, mesh_cache,
+                            m_ogre14_rigid_actor_state_cache,
+                            m_ogre14_rigid_actor_capture_decisions,
+                            rigid_counters, sections);
+                    }
                     if (!validation)
                         return validation;
                 }
@@ -4896,6 +4959,8 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
 
         if (kOgre14CaptureEnumeratesProps)
         {
+            Ogre14DynamicSubsectionTimer rigid_timer(
+                timing.rigid_sections_ns);
             // Props are the actor's rigid attachments - suspension arms and
             // shock bodies, exhausts, mirrors, dashboards, beacon housings.
             // Nothing enumerated them before, so none of this geometry had
@@ -4989,11 +5054,15 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                     return validation;
             }
         }
-        managed_snapshot_validation =
-            managed_material_owner->
-                ValidateManagedMaterialDeclarationSnapshotReachability(
-                    managed_material_snapshot,
-                    projected_managed_material_bindings);
+        {
+            Ogre14DynamicSubsectionTimer validation_timer(
+                timing.declaration_validation_ns);
+            managed_snapshot_validation =
+                managed_material_owner->
+                    ValidateManagedMaterialDeclarationSnapshotReachability(
+                        managed_material_snapshot,
+                        projected_managed_material_bindings);
+        }
         if (!managed_snapshot_validation)
         {
             managed_snapshot_validation.field =
@@ -5004,8 +5073,15 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
 
     ReportOgre14RigidActorCaptureCoverage(
         rigid_counters, m_ogre14_rigid_actor_capture_log_snapshot);
-    return Render::BuildOgre14GraphicsSceneDynamicInventory(
-        std::move(sections), identity_registry, assets, dynamic_meshes);
+    Render::ValidationResult inventory_validation;
+    {
+        Ogre14DynamicSubsectionTimer inventory_timer(
+            timing.inventory_build_ns);
+        inventory_validation = Render::BuildOgre14GraphicsSceneDynamicInventory(
+            std::move(sections), identity_registry, assets, dynamic_meshes,
+            nullptr, &timing.inventory_detail);
+    }
+    return inventory_validation;
 }
 
 namespace {
@@ -6102,6 +6178,7 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
 
             std::vector<Render::GraphicsSceneAssetInput> dynamic_assets;
             Render::ValidationResult dynamic_validation;
+            Ogre14DynamicCaptureTiming dynamic_timing;
             {
                 // The section timer must end with the joined staging
                 // consumption it names. Left unbraced it lived to the end of
@@ -6113,10 +6190,12 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 dynamic_validation = CaptureOgre14DynamicActorInventory(
                     pending->dynamic_registry,
                     pending->dynamic_mesh_cache,
-                    dynamic_assets, candidate.frame.dynamic_meshes);
+                    dynamic_assets, candidate.frame.dynamic_meshes,
+                    dynamic_timing);
             }
             if (!dynamic_validation)
                 return dynamic_validation;
+            pending->dynamic_timing = dynamic_timing;
             std::vector<Render::GraphicsSceneAssetInput> nonterrain_assets;
             const std::vector<Render::GraphicsSceneAssetInput> empty_assets;
             {
@@ -7221,6 +7300,37 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
         m_ogre14_pending_capture->section_static_ns;
     m_ogre14_section_log_dynamic_ns +=
         m_ogre14_pending_capture->section_dynamic_ns;
+    m_ogre14_section_log_dynamic_setup_ns +=
+        m_ogre14_pending_capture->dynamic_timing.actor_setup_ns;
+    m_ogre14_section_log_dynamic_deformable_ns +=
+        m_ogre14_pending_capture->dynamic_timing.deformable_sections_ns;
+    m_ogre14_section_log_dynamic_rigid_ns +=
+        m_ogre14_pending_capture->dynamic_timing.rigid_sections_ns;
+    m_ogre14_section_log_dynamic_validation_ns +=
+        m_ogre14_pending_capture->dynamic_timing.declaration_validation_ns;
+    m_ogre14_section_log_dynamic_inventory_ns +=
+        m_ogre14_pending_capture->dynamic_timing.inventory_build_ns;
+    m_ogre14_section_log_dynamic_inventory_clone_ns +=
+        m_ogre14_pending_capture->dynamic_timing.inventory_detail.
+            registry_clone_ns;
+    m_ogre14_section_log_dynamic_inventory_validate_ns +=
+        m_ogre14_pending_capture->dynamic_timing.inventory_detail.
+            input_validation_ns;
+    m_ogre14_section_log_dynamic_inventory_assets_ns +=
+        m_ogre14_pending_capture->dynamic_timing.inventory_detail.
+            identity_and_assets_ns;
+    m_ogre14_section_log_dynamic_inventory_state_ns +=
+        m_ogre14_pending_capture->dynamic_timing.inventory_detail.
+            state_publication_ns;
+    m_ogre14_section_log_dynamic_inventory_finalize_ns +=
+        m_ogre14_pending_capture->dynamic_timing.inventory_detail.
+            lifecycle_finalize_ns;
+    m_ogre14_section_log_dynamic_other_ns +=
+        m_ogre14_pending_capture->section_dynamic_ns >
+                m_ogre14_pending_capture->dynamic_timing.MeasuredNs()
+            ? m_ogre14_pending_capture->section_dynamic_ns -
+                m_ogre14_pending_capture->dynamic_timing.MeasuredNs()
+            : 0U;
     m_ogre14_section_log_retained_ns +=
         m_ogre14_pending_capture->section_retained_ns;
     m_ogre14_section_log_merge_ns +=
@@ -7248,7 +7358,12 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
     {
         LOG(fmt::format(
             "[RoR|SceneSource] captures={} mean_ns terrain={} static={} "
-            "dynamic={} retained={} merge={} union={} particles={} "
+            "dynamic={} dynamic_setup={} dynamic_deformable={} "
+            "dynamic_rigid={} dynamic_validation={} dynamic_inventory={} "
+            "dynamic_inventory_clone={} dynamic_inventory_validate={} "
+            "dynamic_inventory_assets={} dynamic_inventory_state={} "
+            "dynamic_inventory_finalize={} dynamic_other={} retained={} "
+            "merge={} union={} particles={} "
             "material_apply={} other={} material_index={} material_plan={} "
             "material_authority={} material_owners={} material_finalize={} "
             "material_authority_plan_cache_hit={} "
@@ -7257,6 +7372,28 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
             m_ogre14_section_log_terrain_ns / m_ogre14_section_log_captures,
             m_ogre14_section_log_static_ns / m_ogre14_section_log_captures,
             m_ogre14_section_log_dynamic_ns / m_ogre14_section_log_captures,
+            m_ogre14_section_log_dynamic_setup_ns /
+                m_ogre14_section_log_captures,
+            m_ogre14_section_log_dynamic_deformable_ns /
+                m_ogre14_section_log_captures,
+            m_ogre14_section_log_dynamic_rigid_ns /
+                m_ogre14_section_log_captures,
+            m_ogre14_section_log_dynamic_validation_ns /
+                m_ogre14_section_log_captures,
+            m_ogre14_section_log_dynamic_inventory_ns /
+                m_ogre14_section_log_captures,
+            m_ogre14_section_log_dynamic_inventory_clone_ns /
+                m_ogre14_section_log_captures,
+            m_ogre14_section_log_dynamic_inventory_validate_ns /
+                m_ogre14_section_log_captures,
+            m_ogre14_section_log_dynamic_inventory_assets_ns /
+                m_ogre14_section_log_captures,
+            m_ogre14_section_log_dynamic_inventory_state_ns /
+                m_ogre14_section_log_captures,
+            m_ogre14_section_log_dynamic_inventory_finalize_ns /
+                m_ogre14_section_log_captures,
+            m_ogre14_section_log_dynamic_other_ns /
+                m_ogre14_section_log_captures,
             m_ogre14_section_log_retained_ns / m_ogre14_section_log_captures,
             m_ogre14_section_log_merge_ns / m_ogre14_section_log_captures,
             m_ogre14_section_log_union_ns / m_ogre14_section_log_captures,
