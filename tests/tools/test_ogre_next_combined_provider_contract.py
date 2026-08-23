@@ -688,6 +688,15 @@ class CombinedProviderContractTests(unittest.TestCase):
 
     def test_linux_install_and_launcher_select_the_combined_executable(self) -> None:
         for token in (
+            '"schema": "ror.ogre_next_combined_executable.v2"',
+            '"visible_presentation_owner": "ogre-next"',
+            '"legacy_visible_presentation": false',
+            '"legacy_visible_fallback": false',
+            '"legacy_host_role": "hidden-transitional-resource-and-simulation-host"',
+            '"presentation_failure_policy": "fail-closed"',
+        ):
+            self.assertIn(token, EXECUTABLE_CONTRACT)
+        for token in (
             'set(_ror_linux_launcher_source',
             '"${CMAKE_SOURCE_DIR}/tools/linux/RunRoR-combined"',
             'set(_ror_linux_installed_game_executable "RoR-Combined")',

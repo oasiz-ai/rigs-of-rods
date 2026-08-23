@@ -9,43 +9,57 @@
 
 namespace RoR {
 
+bool IsKnownRendererOgre14HostMode(
+    RendererOgre14HostMode host_mode) noexcept {
+  switch (host_mode) {
+  case RendererOgre14HostMode::LEGACY_STANDALONE:
+  case RendererOgre14HostMode::OGRE_NEXT_BRIDGE_HOST:
+  case RendererOgre14HostMode::OGRE_NEXT_COMBINED_HOST:
+    return true;
+  }
+  return false;
+}
+
 bool RendererOgre14RuntimeOwnership::valid() const noexcept {
-  if (version != kRendererOgre14RuntimeOwnershipContractVersion) {
+  if (version != kRendererOgre14RuntimeOwnershipContractVersion ||
+      !IsKnownRendererOgre14HostMode(host_mode)) {
     return false;
   }
   const unsigned visible_owners =
       static_cast<unsigned>(legacy_window_visible) +
-      static_cast<unsigned>(child_window_visible);
+      static_cast<unsigned>(ogre_next_presenter_window_visible);
   const unsigned physical_input_owners =
       static_cast<unsigned>(legacy_physical_input_enabled) +
-      static_cast<unsigned>(child_physical_input_enabled);
+      static_cast<unsigned>(ogre_next_presenter_physical_input_enabled);
   if (visible_owners != 1U || physical_input_owners != 1U) {
     return false;
   }
   if (legacy_frame_presentation_enabled != legacy_window_visible) {
     return false;
   }
-  return bridge_active
-             ? !legacy_window_visible &&
-                   !legacy_frame_presentation_enabled &&
-                   !legacy_physical_input_enabled && child_window_visible &&
-                   child_physical_input_enabled
-             : legacy_window_visible &&
-                   legacy_frame_presentation_enabled &&
-                   legacy_physical_input_enabled && !child_window_visible &&
-                   !child_physical_input_enabled;
+  if (host_mode == RendererOgre14HostMode::LEGACY_STANDALONE) {
+    return legacy_window_visible && legacy_frame_presentation_enabled &&
+           legacy_physical_input_enabled &&
+           !ogre_next_presenter_window_visible &&
+           !ogre_next_presenter_physical_input_enabled;
+  }
+  return !legacy_window_visible && !legacy_frame_presentation_enabled &&
+         !legacy_physical_input_enabled &&
+         ogre_next_presenter_window_visible &&
+         ogre_next_presenter_physical_input_enabled;
 }
 
 RendererOgre14RuntimeOwnership ResolveRendererOgre14RuntimeOwnership(
-    bool bridge_active) noexcept {
+    RendererOgre14HostMode host_mode) noexcept {
   RendererOgre14RuntimeOwnership ownership;
-  ownership.bridge_active = bridge_active;
-  if (bridge_active) {
+  ownership.host_mode = host_mode;
+  if (host_mode == RendererOgre14HostMode::OGRE_NEXT_BRIDGE_HOST ||
+      host_mode == RendererOgre14HostMode::OGRE_NEXT_COMBINED_HOST) {
     ownership.legacy_window_visible = false;
     ownership.legacy_frame_presentation_enabled = false;
     ownership.legacy_physical_input_enabled = false;
-    ownership.child_window_visible = true;
-    ownership.child_physical_input_enabled = true;
+    ownership.ogre_next_presenter_window_visible = true;
+    ownership.ogre_next_presenter_physical_input_enabled = true;
   }
   return ownership;
 }

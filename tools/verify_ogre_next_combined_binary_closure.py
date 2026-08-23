@@ -1215,9 +1215,21 @@ def main() -> int:
             executable_contract, "combined executable contract"
         )
         if contract_document.get("schema") != (
-            "ror.ogre_next_combined_executable.v1"
+            "ror.ogre_next_combined_executable.v2"
         ):
             raise ValueError("combined executable contract schema changed")
+        if (
+            contract_document.get("visible_presentation_owner") != "ogre-next"
+            or contract_document.get("legacy_visible_presentation") is not False
+            or contract_document.get("legacy_visible_fallback") is not False
+            or contract_document.get("legacy_host_role")
+            != "hidden-transitional-resource-and-simulation-host"
+            or contract_document.get("presentation_failure_policy")
+            != "fail-closed"
+        ):
+            raise ValueError(
+                "combined executable contract permits legacy-visible presentation"
+            )
         if (
             contract_document.get("provider_contract") != str(provider_contract)
             or contract_document.get("namespace_audit_report")

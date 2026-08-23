@@ -148,8 +148,14 @@ def main() -> int:
         )
         if (
             executable.get("schema")
-            != "ror.ogre_next_combined_executable.v1"
+            != "ror.ogre_next_combined_executable.v2"
             or executable.get("target") != "RoR-Combined"
+            or executable.get("visible_presentation_owner") != "ogre-next"
+            or executable.get("legacy_visible_presentation") is not False
+            or executable.get("legacy_visible_fallback") is not False
+            or executable.get("legacy_host_role")
+            != "hidden-transitional-resource-and-simulation-host"
+            or executable.get("presentation_failure_policy") != "fail-closed"
             or executable.get("transport_or_bridge_sources_linked") is not False
             or executable.get("provider_contract") != str(provider_contract)
             or executable.get("namespace_audit_report") != str(namespace_report)

@@ -580,7 +580,7 @@ bool AppContext::SetUpRendering(
     if (!ownership.valid())
         return false;
     m_renderer_child_owns_presentation =
-        ownership.child_window_visible;
+        ownership.ogre_next_presenter_window_visible;
     // Create 'OGRE root' facade
     // * leave 'plugins' param empty, we load manually below
     // * note file 'ogre.cfg' isn't read immediatelly but only after calling 'restoreConfig()' below.

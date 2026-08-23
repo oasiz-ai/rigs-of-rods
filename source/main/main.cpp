@@ -1015,7 +1015,8 @@ int main(int argc, char *argv[])
     // transport handles. Ogre 14 is retained only as a hidden joined-scene and
     // resource host; the in-process OgreNext presenter owns visibility/input.
     const RendererOgre14RuntimeOwnership renderer_runtime_ownership =
-        ResolveRendererOgre14RuntimeOwnership(true);
+        ResolveRendererOgre14RuntimeOwnership(
+            RendererOgre14HostMode::OGRE_NEXT_COMBINED_HOST);
     if (!renderer_runtime_ownership.valid())
     {
         std::fputs(
@@ -1088,7 +1089,9 @@ int main(int argc, char *argv[])
     }
     const RendererOgre14RuntimeOwnership renderer_runtime_ownership =
         ResolveRendererOgre14RuntimeOwnership(
-            renderer_game_bridge.active());
+            renderer_game_bridge.active()
+                ? RendererOgre14HostMode::OGRE_NEXT_BRIDGE_HOST
+                : RendererOgre14HostMode::LEGACY_STANDALONE);
     if (!renderer_runtime_ownership.valid())
     {
         std::fputs(

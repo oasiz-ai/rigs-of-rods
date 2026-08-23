@@ -1,6 +1,11 @@
 {
-  "schema": "ror.ogre_next_combined_executable.v1",
+  "schema": "ror.ogre_next_combined_executable.v2",
   "target": "RoR-Combined",
+  "visible_presentation_owner": "ogre-next",
+  "legacy_visible_presentation": false,
+  "legacy_visible_fallback": false,
+  "legacy_host_role": "hidden-transitional-resource-and-simulation-host",
+  "presentation_failure_policy": "fail-closed",
   "combined_runtime_definition": "ROR_OGRE_NEXT_COMBINED_RUNTIME=1",
   "provider_target": "RoR::OgreNextEmbeddedRuntime",
   "resource_stage_target": "ror_ogre_next_combined_resources",
