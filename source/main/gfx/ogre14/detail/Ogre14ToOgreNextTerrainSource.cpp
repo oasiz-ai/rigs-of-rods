@@ -526,12 +526,12 @@ Render::ValidationResult CaptureExactNativeState(
       unit != nullptr ? unit->_getTexturePtr() : Ogre::TexturePtr{};
   const Ogre::SamplerPtr sampler =
       unit != nullptr ? unit->getSampler() : Ogre::SamplerPtr{};
-  Ogre::SceneManager *const scene_manager = terrain->getSceneManager();
   if (technique == nullptr || technique->getParent() != material.get() ||
       technique->getLodIndex() != 1U || pass == nullptr ||
       pass->getParent() != technique || pass->getIndex() != 0U ||
       unit == nullptr || unit->getParent() != pass || !bound_texture ||
-      bound_texture.get() != &texture || !sampler || scene_manager == nullptr) {
+      bound_texture.get() != &texture || !sampler ||
+      terrain->getSceneManager() == nullptr) {
     return Failure(Render::ValidationCode::REVISION_MISMATCH,
                    "ogre_next_demo.terrain.sampling.binding",
                    "LOD-one TUS0 no longer owns the exact composite, sampler, and scene");
@@ -575,8 +575,6 @@ Render::ValidationResult CaptureExactNativeState(
   candidate_observation.gamma_disabled =
       !texture.isHardwareGammaEnabled() &&
       !unit->isHardwareGammaEnabled();
-  candidate_observation.fog_disabled =
-      scene_manager->getFogMode() == Ogre::FOG_NONE;
   Render::ValidationResult validation =
       ValidateOgreNextDemoSampling(candidate_observation);
   if (!validation) {
@@ -611,7 +609,7 @@ Render::ValidationResult CaptureExactNativeState(
   AppendPointer(candidate, pass);
   AppendPointer(candidate, unit);
   AppendPointer(candidate, sampler.get());
-  AppendPointer(candidate, scene_manager);
+  AppendPointer(candidate, terrain->getSceneManager());
   AppendPointer(candidate, &texture);
   AppendU64(candidate, static_cast<std::uint64_t>(texture.getHandle()));
   AppendString(candidate, texture.getGroup());

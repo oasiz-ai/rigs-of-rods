@@ -1453,12 +1453,6 @@ Render::ValidationResult ValidateOgreNextDemoSampling(
                    "display-domain filtering requires native hardware gamma "
                    "decode to remain disabled");
   }
-  if (!observation.fog_disabled) {
-    return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
-                   "ogre_next_demo.terrain.sampling.fog",
-                   "the disposable opaque terrain lowering cannot preserve "
-                   "OGRE scene fog");
-  }
   return Render::ValidationResult::Success();
 }
 

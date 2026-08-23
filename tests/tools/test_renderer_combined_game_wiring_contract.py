@@ -46,7 +46,7 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             ROOT / "cmake/conan/recipes/ogre3d/conanfile.py"
         ).read_text(encoding="utf-8")
 
-    def test_finder_launch_is_exact_cityworld_alexis_demo(self) -> None:
+    def test_bare_launch_uses_the_packaged_simple2_semi_scene(self) -> None:
         start = self.main.index(
             "// The menu/HUD is transported as a GUI-RTT texture asset"
         )
@@ -59,9 +59,9 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         for argument in (
             '"-checkcache"',
             '"-map"',
-            '"CityWorld.terrn2"',
+            '"simple2_a.terrn2"',
             '"-truck"',
-            '"AlexisSaber.truck"',
+            '"b6b0UID-semi.truck"',
             '"-enter"',
         ):
             self.assertEqual(block.count(argument), 1)
@@ -240,6 +240,14 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         self.assertIn('"preparation failed: status=\'{}\'"', failure)
         self.assertIn("return 70;", failure)
         self.assertNotIn("SetUpRendering", failure)
+        self.assertIn(
+            '"[RoR|RendererCombined|Startup] presentation_owner=ogre-next "',
+            self.main[prepare:legacy_setup],
+        )
+        self.assertIn(
+            '"visible_window=true legacy_visible_fallback=false"',
+            self.main[prepare:legacy_setup],
+        )
 
         protect = self.main.index(
             "renderer_combined_presenter.ProtectHiddenResourceWindow(",
@@ -252,6 +260,15 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         self.assertIn("renderer_resource_window == nullptr", protection_failure)
         self.assertIn("return 70;", protection_failure)
         self.assertNotIn("showRenderWindow", protection_failure)
+        protected_success = self.main[protect:protect_end]
+        self.assertIn(
+            '"[RoR|RendererCombined|Startup] resource_host=ogre14 "',
+            protected_success,
+        )
+        self.assertIn(
+            '"visible_window=false protected=true"',
+            protected_success,
+        )
 
     def test_metal_v2_presents_only_after_external_lighting_completion(self) -> None:
         render_start = self.presenter.index(

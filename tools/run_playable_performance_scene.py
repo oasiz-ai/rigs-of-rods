@@ -237,17 +237,34 @@ NATIVE_LIGHTING_FIELD_PATTERN = re.compile(
 )
 SCENE_SOURCE_TIMING_PATTERN = re.compile(
     r"\[RoR\|SceneSource\] captures=(?P<captures>[0-9]+) mean_ns "
-    r"terrain=(?P<terrain>[0-9]+) static=(?P<static>[0-9]+) "
-    r"dynamic=(?P<dynamic>[0-9]+) retained=(?P<retained>[0-9]+) "
-    r"merge=(?P<merge>[0-9]+) union=(?P<union>[0-9]+) "
-    r"particles=(?P<particles>[0-9]+) "
-    r"material_apply=(?P<material_apply>[0-9]+) "
-    r"other=(?P<other>[0-9]+) "
-    r"material_index=(?P<material_index>[0-9]+) "
-    r"material_plan=(?P<material_plan>[0-9]+) "
-    r"material_authority=(?P<material_authority>[0-9]+) "
-    r"material_owners=(?P<material_owners>[0-9]+) "
-    r"material_finalize=(?P<material_finalize>[0-9]+)"
+    r"(?P<body>[^\r\n]+)"
+)
+SCENE_SOURCE_TIMING_FIELD_PATTERN = re.compile(
+    r"(?P<name>[a-z][a-z0-9_]*)=(?P<value>[0-9]+)"
+)
+SCENE_SOURCE_REQUIRED_TIMINGS = (
+    "terrain",
+    "static",
+    "dynamic",
+    "retained",
+    "merge",
+    "union",
+    "particles",
+    "material_apply",
+    "other",
+    "material_index",
+    "material_plan",
+    "material_authority",
+    "material_owners",
+    "material_finalize",
+)
+OGRE_NEXT_PRESENTATION_OWNER_RECEIPT = (
+    "[RoR|RendererCombined|Startup] presentation_owner=ogre-next "
+    "visible_window=true legacy_visible_fallback=false"
+)
+OGRE14_HIDDEN_RESOURCE_HOST_RECEIPT = (
+    "[RoR|RendererCombined|Startup] resource_host=ogre14 "
+    "visible_window=false protected=true"
 )
 
 
@@ -489,16 +506,56 @@ def read_scene_source_timing(text: str) -> dict[str, object]:
         raise PerformanceSceneFailure(
             "the combined runtime emitted no scene-source phase receipt"
         )
-    fields = {
-        name: int(value)
-        for name, value in matches[-1].groupdict().items()
-    }
-    if fields["captures"] <= 0:
+    latest = matches[-1]
+    captures = int(latest.group("captures"))
+    if captures <= 0:
         raise PerformanceSceneFailure(
             "the scene-source phase receipt has no accepted captures"
         )
-    captures = fields.pop("captures")
+    fields: dict[str, int] = {}
+    for match in SCENE_SOURCE_TIMING_FIELD_PATTERN.finditer(
+        latest.group("body")
+    ):
+        name = match.group("name")
+        if name in fields:
+            raise PerformanceSceneFailure(
+                f"the scene-source phase receipt repeats field {name}"
+            )
+        fields[name] = int(match.group("value"))
+    missing = [
+        name for name in SCENE_SOURCE_REQUIRED_TIMINGS if name not in fields
+    ]
+    if missing:
+        raise PerformanceSceneFailure(
+            "the scene-source phase receipt is missing timing fields: "
+            + ", ".join(missing)
+        )
     return {"captures": captures, "mean_ns": fields}
+
+
+def verify_combined_presentation_ownership(text: str) -> dict[str, object]:
+    """Prove Ogre-Next, not the hidden resource host, owns presentation."""
+
+    visible_receipts = text.count(OGRE_NEXT_PRESENTATION_OWNER_RECEIPT)
+    hidden_receipts = text.count(OGRE14_HIDDEN_RESOURCE_HOST_RECEIPT)
+    if visible_receipts != 1:
+        raise PerformanceSceneFailure(
+            "the combined runtime did not emit exactly one Ogre-Next visible "
+            f"presentation receipt: observed={visible_receipts}"
+        )
+    if hidden_receipts != 1:
+        raise PerformanceSceneFailure(
+            "the combined runtime did not emit exactly one protected hidden "
+            f"resource-host receipt: observed={hidden_receipts}"
+        )
+    return {
+        "presentation_owner": "ogre-next",
+        "visible_window": True,
+        "legacy_visible_fallback": False,
+        "resource_host": "ogre14",
+        "resource_host_visible": False,
+        "resource_host_protected": True,
+    }
 
 
 def render_system_name(target_platform: str) -> str:
@@ -1255,6 +1312,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             combined_runtime=combined_runtime,
         )
         if combined_runtime:
+            identity["presentation_ownership"] = (
+                verify_combined_presentation_ownership(log_text)
+            )
             identity["native_distance_lod"] = (
                 verify_combined_native_distance_lod(log_text)
             )

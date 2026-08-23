@@ -682,13 +682,15 @@ ValidateOgreNextDemoCachedTextureSourceAuthority(
 
 /// Canonicalized result of observing the exact OGRE terrain TUS0. Native
 /// pointer/layout identity is retained in exact_native_state; the booleans
-/// admit only the one sampling policy the demo can reproduce honestly.
+/// admit only the one material-sampling policy the native renderer can
+/// reproduce honestly. Scene fog is deliberately outside this material
+/// observation: every published combined-runtime scene replaces it with the
+/// renderer-neutral analytic sky's native aerial-haze pass.
 struct OgreNextDemoSamplingObservation final {
   bool ordinary_texture = true;
   bool uv0_identity = true;
   bool sampler_identity = true;
   bool gamma_disabled = true;
-  bool fog_disabled = true;
   std::string exact_native_state;
 };
 

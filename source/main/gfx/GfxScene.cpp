@@ -7354,7 +7354,8 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
         m_ogre14_pending_capture->material_apply_timing.accounting_and_sort_ns;
     m_ogre14_section_log_other_ns +=
         m_ogre14_pending_capture->section_other_ns;
-    if ((m_ogre14_section_log_captures % 300U) == 0U)
+    if (m_ogre14_section_log_captures == 1U ||
+        (m_ogre14_section_log_captures % 300U) == 0U)
     {
         LOG(fmt::format(
             "[RoR|SceneSource] captures={} mean_ns terrain={} static={} "

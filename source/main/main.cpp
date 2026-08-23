@@ -848,15 +848,15 @@ int main(int argc, char *argv[])
     // The menu/HUD is transported as a GUI-RTT texture asset (see
     // Ogre14GuiOverlayCapture) riding SIMULATION-state snapshots only, so a
     // bare launch must land in a simulation. A Finder launch supplies only
-    // argv[0]; make exactly that case an immediately visible CityWorld/Alexis
-    // renderer demonstration. The explicit forward-native showcase is
-    // consumed above and remains in MAIN_MENU; every other caller argument
-    // retains pointer identity/order.
+    // argv[0]; make exactly that case an immediately visible simulation using
+    // the terrain and truck shipped in every Base_Content package. The
+    // explicit forward-native showcase is consumed above and remains in
+    // MAIN_MENU; every other caller argument retains pointer identity/order.
     static char combined_check_cache[] = "-checkcache";
     static char combined_map_option[] = "-map";
-    static char combined_map[] = "CityWorld.terrn2";
+    static char combined_map[] = "simple2_a.terrn2";
     static char combined_truck_option[] = "-truck";
-    static char combined_truck[] = "AlexisSaber.truck";
+    static char combined_truck[] = "b6b0UID-semi.truck";
     static char combined_enter[] = "-enter";
     std::array<char*, 8U> renderer_combined_demo_arguments{};
     if (!renderer_combined_native_visual_showcase && argc == 1)
@@ -1159,6 +1159,8 @@ int main(int argc, char *argv[])
                 ToString(presenter_prepared)));
             return 70;
         }
+        LOG("[RoR|RendererCombined|Startup] presentation_owner=ogre-next "
+            "visible_window=true legacy_visible_fallback=false");
 #endif
 
         // Make sure config directory exists - to save 'ogre.cfg'
@@ -1197,6 +1199,8 @@ int main(int argc, char *argv[])
                 ToString(resource_protected)));
             return 70;
         }
+        LOG("[RoR|RendererCombined|Startup] resource_host=ogre14 "
+            "visible_window=false protected=true");
 #endif
 
         Ogre::TextureManager::getSingleton().setDefaultNumMipmaps(5);
@@ -1532,7 +1536,8 @@ int main(int argc, char *argv[])
             &PumpCombinedRendererLoadingWindow);
         LOG(fmt::format(
             "[RoR|RendererCombined|Startup] Transport-free OgreNext "
-            "session ready with clear-only native presentation (registry={})",
+            "session ready after authenticated bootstrap presentation "
+            "(registry={})",
             renderer_combined_session->registry_id()));
 #else
         if (renderer_game_bridge.active())

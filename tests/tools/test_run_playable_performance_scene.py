@@ -550,15 +550,18 @@ class ConfigurationTests(unittest.TestCase):
 
     def test_scene_source_timing_reads_real_separate_material_apply(self) -> None:
         statement = (
-            "[RoR|SceneSource] captures=300 mean_ns terrain=1675902 "
-            "static=30859736 dynamic=2943982 retained=3141 merge=579941 "
+            "[RoR|SceneSource] captures=1 mean_ns terrain=1675902 "
+            "static=30859736 dynamic=2943982 dynamic_setup=111 "
+            "dynamic_deformable=222 dynamic_rigid=333 "
+            "dynamic_validation=444 dynamic_inventory=555 retained=3141 merge=579941 "
             "union=40911 particles=81234 material_apply=6278541 "
             "other=526984 material_index=671204 material_plan=148226 "
             "material_authority=3547001 material_owners=912104 "
-            "material_finalize=602817\n"
+            "material_finalize=602817 material_authority_plan_cache_hit=1\n"
         )
         timing = runner.read_scene_source_timing(statement)
-        self.assertEqual(timing["captures"], 300)
+        self.assertEqual(timing["captures"], 1)
+        self.assertEqual(timing["mean_ns"]["dynamic_inventory"], 555)
         self.assertEqual(timing["mean_ns"]["particles"], 81234)
         self.assertEqual(timing["mean_ns"]["material_apply"], 6278541)
         self.assertEqual(timing["mean_ns"]["material_index"], 671204)
@@ -570,6 +573,27 @@ class ConfigurationTests(unittest.TestCase):
                 "[RoR|SceneSource] captures=300 mean_ns "
                 "terrain=1 static=2 dynamic=3 retained=4 merge=5 union=6 "
                 "particles=7 other=8\n"
+            )
+
+    def test_combined_presentation_ownership_rejects_legacy_visibility(self) -> None:
+        receipts = (
+            runner.OGRE_NEXT_PRESENTATION_OWNER_RECEIPT
+            + "\n"
+            + runner.OGRE14_HIDDEN_RESOURCE_HOST_RECEIPT
+            + "\n"
+        )
+        ownership = runner.verify_combined_presentation_ownership(receipts)
+        self.assertEqual(ownership["presentation_owner"], "ogre-next")
+        self.assertFalse(ownership["legacy_visible_fallback"])
+        self.assertFalse(ownership["resource_host_visible"])
+
+        with self.assertRaises(runner.PerformanceSceneFailure):
+            runner.verify_combined_presentation_ownership(
+                receipts.replace("visible_window=false", "visible_window=true")
+            )
+        with self.assertRaises(runner.PerformanceSceneFailure):
+            runner.verify_combined_presentation_ownership(
+                receipts + runner.OGRE_NEXT_PRESENTATION_OWNER_RECEIPT
             )
 
     def test_a_missing_or_repeated_statement_is_refused(self) -> None:

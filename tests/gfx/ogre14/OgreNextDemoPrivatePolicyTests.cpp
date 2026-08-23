@@ -1500,9 +1500,6 @@ void CheckSamplingRejectionsAndMutation() {
          "ogre_next_demo.terrain.sampling.sampler");
   reject(&OgreNextDemoSamplingObservation::gamma_disabled,
          "ogre_next_demo.terrain.sampling.gamma");
-  reject(&OgreNextDemoSamplingObservation::fog_disabled,
-         "ogre_next_demo.terrain.sampling.fog");
-
   Require(RevalidateOgreNextDemoSampling(canonical, canonical).ok(),
           "identical before/after sampling state was rejected");
   OgreNextDemoSamplingObservation after = canonical;
