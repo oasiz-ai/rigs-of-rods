@@ -1129,9 +1129,9 @@ private:
   Index(const RenderAssetReference &mesh,
         const RenderAssetReference &material) noexcept {
     constexpr std::uint64_t kOffset = 1469598103934665603ULL;
-    constexpr std::uint64_t kPrime = 1099511628211ULL;
     std::uint64_t hash = kOffset;
     const auto add = [&hash](std::uint64_t value) noexcept {
+      constexpr std::uint64_t kPrime = 1099511628211ULL;
       hash ^= value;
       hash *= kPrime;
     };
