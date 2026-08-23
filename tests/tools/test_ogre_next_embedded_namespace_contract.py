@@ -421,7 +421,7 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
     def test_windows_final_root_proof_accepts_only_retained_adapter_owner(self) -> None:
         windows_map = "ror_embedded_ogre_next_root_address\n"
         self.assertTrue(
-            AUDIT.final_root_owner_present(
+            AUDIT.final_symbol_owner_present(
                 windows_map,
                 "",
                 "windows-x64-d3d11",
@@ -431,7 +431,7 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
             )
         )
         self.assertFalse(
-            AUDIT.final_root_owner_present(
+            AUDIT.final_symbol_owner_present(
                 windows_map,
                 "",
                 "windows-x64-d3d11",
@@ -441,7 +441,7 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
             )
         )
         self.assertFalse(
-            AUDIT.final_root_owner_present(
+            AUDIT.final_symbol_owner_present(
                 "ror_embedded_ogre_next_root_address",
                 "",
                 "linux-x86_64-vulkan",

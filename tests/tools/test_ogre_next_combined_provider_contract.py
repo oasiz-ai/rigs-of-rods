@@ -1058,6 +1058,14 @@ class CombinedProviderContractTests(unittest.TestCase):
                 self.assertIn(token, PROVIDER)
         self.assertIn("cpp_symbol_present", NAMESPACE_AUDIT)
         self.assertIn("@RoROgreNext@@", NAMESPACE_AUDIT)
+        for adapter in (
+            "ror_embedded_ogre_next_root_address",
+            "ror_ogre14_root_address",
+            "ror_embedded_ogre_next_n1_session_lifecycle",
+            "ror_embedded_ogre_next_presenter_lifecycle",
+        ):
+            with self.subTest(adapter=adapter):
+                self.assertIn(f'"/INCLUDE:{adapter}"', PROVIDER)
 
     def test_windows_plugin_export_probe_uses_archive_symbol_index(self) -> None:
         for token in (

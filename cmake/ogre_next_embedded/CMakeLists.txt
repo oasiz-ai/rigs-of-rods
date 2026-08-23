@@ -1415,7 +1415,11 @@ if (MSVC)
     set(_ror_ogre_next_root_provider_link_map
         "${CMAKE_CURRENT_BINARY_DIR}/ror-ogre-next-root-provider-link-smoke.map")
     target_link_options(ror_ogre_next_root_provider_link_smoke PRIVATE
-        "/MAP:${_ror_ogre_next_root_provider_link_map}")
+        "/MAP:${_ror_ogre_next_root_provider_link_map}"
+        "/INCLUDE:ror_embedded_ogre_next_root_address"
+        "/INCLUDE:ror_ogre14_root_address"
+        "/INCLUDE:ror_embedded_ogre_next_n1_session_lifecycle"
+        "/INCLUDE:ror_embedded_ogre_next_presenter_lifecycle")
     set_property(TARGET ror_ogre_next_root_provider_link_smoke APPEND PROPERTY
         ADDITIONAL_CLEAN_FILES "${_ror_ogre_next_root_provider_link_map}")
     list(APPEND _ror_namespace_audit_executable_link_map_arguments

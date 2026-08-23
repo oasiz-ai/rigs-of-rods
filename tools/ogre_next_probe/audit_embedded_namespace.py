@@ -302,7 +302,7 @@ def cpp_namespace_present(
     return readable_namespace in demangled
 
 
-def final_root_owner_present(
+def final_symbol_owner_present(
     raw: str,
     demangled: str,
     platform_policy: str,
@@ -319,9 +319,9 @@ def final_root_owner_present(
     )
     if platform_policy != "windows-x64-d3d11":
         return direct_owner
-    # MSVC may inline the header-defined Root getter. The retained adapter is
-    # the final-image owner proof; archive/DLL checks above independently bind
-    # its remapped and legacy Root ABI inputs.
+    # MSVC may inline reviewed C++ owners. The force-retained adapter is the
+    # final-image owner proof; archive/DLL checks independently bind the
+    # concrete ABI inputs used by that adapter.
     return direct_owner or windows_adapter_owner in raw
 
 
@@ -934,6 +934,17 @@ def main() -> int:
             "an Ogre namespace symbol remains in the namespaced OgreNext archives")
     require(not UNREMAPPED_OGRE_MANGLED_PATTERN.search(next_raw),
             "an Itanium Ogre namespace symbol remains in the OgreNext archives")
+    require(
+        cpp_symbol_present(
+            next_raw, next_demangled, args.platform_policy,
+            "RoR::RendererOgreNextInProcessPresenter::RendererOgreNextInProcessPresenter",
+            "??0RendererOgreNextInProcessPresenter@RoR@@")
+        and cpp_symbol_present(
+            next_raw, next_demangled, args.platform_policy,
+            "RoR::RendererOgreNextInProcessPresenter::~RendererOgreNextInProcessPresenter",
+            "??1RendererOgreNextInProcessPresenter@RoR@@"),
+        "OgreNext archives lack the concrete presenter lifecycle owners",
+    )
 
     embedded_raw, embedded_demangled = nm(
         embedded_runtime_archive, args.platform_policy
@@ -944,6 +955,13 @@ def main() -> int:
             "RoR::Render::OgreNextN1Frontend::OgreNextN1Frontend",
             "??0OgreNextN1Frontend@Render@RoR@@"),
         "the embedded runtime archive lacks the production N1 frontend",
+    )
+    require(
+        cpp_symbol_present(
+            embedded_raw, embedded_demangled, args.platform_policy,
+            "RoR::Render::OgreNextN1Frontend::~OgreNextN1Frontend",
+            "??1OgreNextN1Frontend@Render@RoR@@"),
+        "the embedded runtime archive lacks the production N1 destructor",
     )
     require(
         not cpp_namespace_present(
@@ -962,6 +980,13 @@ def main() -> int:
             "RoR::RendererInProcessSession::RendererInProcessSession",
             "??0RendererInProcessSession@RoR@@"),
         "the direct contract archive lacks RendererInProcessSession",
+    )
+    require(
+        cpp_symbol_present(
+            direct_raw, direct_demangled, args.platform_policy,
+            "RoR::RendererInProcessSession::~RendererInProcessSession",
+            "??1RendererInProcessSession@RoR@@"),
+        "the direct contract archive lacks the RendererInProcessSession destructor",
     )
     require(
         not cpp_namespace_present(
@@ -1097,12 +1122,12 @@ def main() -> int:
         executable_raw, executable_demangled = nm(
             executable, args.platform_policy, global_only=False
         )
-    require(final_root_owner_present(
+    require(final_symbol_owner_present(
                 executable_raw, executable_demangled, args.platform_policy,
                 "Ogre::Root::getSingletonPtr()",
                 "?getSingletonPtr@Root@Ogre@@",
                 "ror_ogre14_root_address") and
-            final_root_owner_present(
+            final_symbol_owner_present(
                 executable_raw, executable_demangled, args.platform_policy,
                 "RoROgreNext::Root::getSingletonPtr()",
                 "?getSingletonPtr@Root@RoROgreNext@@",
@@ -1111,40 +1136,50 @@ def main() -> int:
     require(
         cpp_namespace_present(
             executable_raw, executable_demangled, args.platform_policy,
-            "RoROgreNextRapidJson::", "@RoROgreNextRapidJson@@"),
+            "RoROgreNextRapidJson::", "@RoROgreNextRapidJson@@")
+        or (
+            args.platform_policy == "windows-x64-d3d11"
+            and "ror_embedded_ogre_next_n1_session_lifecycle" in executable_raw
+        ),
         "provider link smoke does not resolve the private OgreNext RapidJSON owner",
     )
     require(
-        cpp_symbol_present(
+        final_symbol_owner_present(
             executable_raw, executable_demangled, args.platform_policy,
             "RoR::Render::OgreNextN1Frontend::OgreNextN1Frontend",
-            "??0OgreNextN1Frontend@Render@RoR@@")
-        and cpp_symbol_present(
+            "??0OgreNextN1Frontend@Render@RoR@@",
+            "ror_embedded_ogre_next_n1_session_lifecycle")
+        and final_symbol_owner_present(
             executable_raw, executable_demangled, args.platform_policy,
             "RoR::RendererInProcessSession::RendererInProcessSession",
-            "??0RendererInProcessSession@RoR@@"),
+            "??0RendererInProcessSession@RoR@@",
+            "ror_embedded_ogre_next_n1_session_lifecycle"),
         "dual-runtime executable does not contain the production N1/direct session lifecycle",
     )
     require(
-        cpp_symbol_present(
+        final_symbol_owner_present(
             executable_raw, executable_demangled, args.platform_policy,
             "RoR::Render::OgreNextN1Frontend::~OgreNextN1Frontend",
-            "??1OgreNextN1Frontend@Render@RoR@@")
-        and cpp_symbol_present(
+            "??1OgreNextN1Frontend@Render@RoR@@",
+            "ror_embedded_ogre_next_n1_session_lifecycle")
+        and final_symbol_owner_present(
             executable_raw, executable_demangled, args.platform_policy,
             "RoR::RendererInProcessSession::~RendererInProcessSession",
-            "??1RendererInProcessSession@RoR@@"),
+            "??1RendererInProcessSession@RoR@@",
+            "ror_embedded_ogre_next_n1_session_lifecycle"),
         "dual-runtime executable does not contain both production destructors",
     )
     require(
-        cpp_symbol_present(
+        final_symbol_owner_present(
             executable_raw, executable_demangled, args.platform_policy,
             "RoR::RendererOgreNextInProcessPresenter::RendererOgreNextInProcessPresenter",
-            "??0RendererOgreNextInProcessPresenter@RoR@@")
-        and cpp_symbol_present(
+            "??0RendererOgreNextInProcessPresenter@RoR@@",
+            "ror_embedded_ogre_next_presenter_lifecycle")
+        and final_symbol_owner_present(
             executable_raw, executable_demangled, args.platform_policy,
             "RoR::RendererOgreNextInProcessPresenter::~RendererOgreNextInProcessPresenter",
-            "??1RendererOgreNextInProcessPresenter@RoR@@"),
+            "??1RendererOgreNextInProcessPresenter@RoR@@",
+            "ror_embedded_ogre_next_presenter_lifecycle"),
         "dual-runtime executable does not contain the concrete presenter lifecycle",
     )
     if args.platform_policy == "macos-arm64-metal":
