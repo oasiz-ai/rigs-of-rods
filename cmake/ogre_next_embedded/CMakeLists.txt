@@ -110,8 +110,54 @@ list(GET sdl_SDL2_SDL2_LIBRARIES_TARGETS 0
 if (NOT TARGET ${ROR_ROOT_SDL_IMPORTED_ARTIFACT_TARGET})
     message(FATAL_ERROR "The root SDL imported artifact target is missing")
 endif ()
-get_target_property(ROR_ROOT_SDL_IMPORTED_ARTIFACT
-    ${ROR_ROOT_SDL_IMPORTED_ARTIFACT_TARGET} IMPORTED_LOCATION_RELEASE)
+get_target_property(_ror_root_sdl_imported_target_type
+    ${ROR_ROOT_SDL_IMPORTED_ARTIFACT_TARGET} TYPE)
+get_target_property(_ror_root_sdl_imported_target_flag
+    ${ROR_ROOT_SDL_IMPORTED_ARTIFACT_TARGET} IMPORTED)
+get_target_property(_ror_root_sdl_imported_target_configs
+    ${ROR_ROOT_SDL_IMPORTED_ARTIFACT_TARGET} IMPORTED_CONFIGURATIONS)
+if (NOT _ror_root_sdl_imported_target_type STREQUAL "STATIC_LIBRARY" OR
+        NOT _ror_root_sdl_imported_target_flag)
+    message(FATAL_ERROR
+        "The root SDL archive target is not one imported static library")
+endif ()
+set(_ror_root_sdl_location_configs RELEASE)
+if (_ror_root_sdl_imported_target_configs AND
+        NOT _ror_root_sdl_imported_target_configs MATCHES "-NOTFOUND$")
+    list(APPEND _ror_root_sdl_location_configs
+        ${_ror_root_sdl_imported_target_configs})
+endif ()
+list(REMOVE_DUPLICATES _ror_root_sdl_location_configs)
+set(_ror_root_sdl_imported_locations "")
+foreach (_ror_root_sdl_location_config IN LISTS
+        _ror_root_sdl_location_configs)
+    string(TOUPPER "${_ror_root_sdl_location_config}"
+        _ror_root_sdl_location_config_upper)
+    get_target_property(_ror_root_sdl_location_candidate
+        ${ROR_ROOT_SDL_IMPORTED_ARTIFACT_TARGET}
+        "IMPORTED_LOCATION_${_ror_root_sdl_location_config_upper}")
+    if (_ror_root_sdl_location_candidate AND
+            NOT _ror_root_sdl_location_candidate MATCHES "-NOTFOUND$")
+        list(APPEND _ror_root_sdl_imported_locations
+            "${_ror_root_sdl_location_candidate}")
+    endif ()
+endforeach ()
+get_target_property(_ror_root_sdl_location_candidate
+    ${ROR_ROOT_SDL_IMPORTED_ARTIFACT_TARGET} IMPORTED_LOCATION)
+if (_ror_root_sdl_location_candidate AND
+        NOT _ror_root_sdl_location_candidate MATCHES "-NOTFOUND$")
+    list(APPEND _ror_root_sdl_imported_locations
+        "${_ror_root_sdl_location_candidate}")
+endif ()
+list(REMOVE_DUPLICATES _ror_root_sdl_imported_locations)
+list(LENGTH _ror_root_sdl_imported_locations
+    _ror_root_sdl_imported_location_count)
+if (NOT _ror_root_sdl_imported_location_count EQUAL 1)
+    message(FATAL_ERROR
+        "The root SDL target must expose exactly one imported archive location")
+endif ()
+list(GET _ror_root_sdl_imported_locations 0
+    ROR_ROOT_SDL_IMPORTED_ARTIFACT)
 get_target_property(_ror_root_sdl_interface
     SDL2::SDL2 INTERFACE_LINK_LIBRARIES)
 string(JOIN ";" _ror_root_sdl_interface_serialized

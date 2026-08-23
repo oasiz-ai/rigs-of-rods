@@ -97,7 +97,14 @@ class CombinedProviderContractTests(unittest.TestCase):
     def test_provider_reuses_exact_root_sdl_and_never_fetches_it(self) -> None:
         for token in (
             "sdl_SDL2_SDL2_LIBRARIES_TARGETS",
-            "IMPORTED_LOCATION_RELEASE",
+            "_ror_root_sdl_imported_target_type",
+            "_ror_root_sdl_imported_target_flag",
+            "IMPORTED_CONFIGURATIONS",
+            'set(_ror_root_sdl_location_configs RELEASE)',
+            '"IMPORTED_LOCATION_${_ror_root_sdl_location_config_upper}"',
+            "IMPORTED_LOCATION)",
+            "_ror_root_sdl_imported_location_count",
+            "must expose exactly one imported archive location",
             "_ror_root_sdl_imported_artifact_real",
             "_ror_root_sdl_expected_artifact_real",
             "_ror_root_sdl_imported_artifact_compare",
