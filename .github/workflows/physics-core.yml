@@ -23,10 +23,11 @@ jobs:
         shell: bash
         run: |
           git config core.autocrlf false
-          git restore --source=HEAD --worktree -- .
+          git checkout-index --force --all
           git submodule foreach --recursive \
-            'git config core.autocrlf false && git restore --source=HEAD --worktree -- .'
-          test -z "$(git status --porcelain --untracked-files=no)"
+            'git config core.autocrlf false && git checkout-index --force --all'
+          git diff --exit-code --ignore-submodules=all
+          git submodule foreach --recursive 'git diff --exit-code'
 
       - name: Configure debug tests
         run: >-
@@ -98,10 +99,11 @@ jobs:
         shell: bash
         run: |
           git config core.autocrlf false
-          git restore --source=HEAD --worktree -- .
+          git checkout-index --force --all
           git submodule foreach --recursive \
-            'git config core.autocrlf false && git restore --source=HEAD --worktree -- .'
-          test -z "$(git status --porcelain --untracked-files=no)"
+            'git config core.autocrlf false && git checkout-index --force --all'
+          git diff --exit-code --ignore-submodules=all
+          git submodule foreach --recursive 'git diff --exit-code'
 
       - name: Configure
         env:
