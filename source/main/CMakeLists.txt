@@ -622,14 +622,14 @@ if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
         string(APPEND _ror_combined_selected_source_manifest_serialized
             "${_ror_combined_selected_source}|${_ror_combined_selected_source_size}|${_ror_combined_selected_source_sha256}\n")
     endforeach ()
-    string(SHA256
-        ROR_OGRE_NEXT_COMBINED_EXECUTABLE_SELECTED_SOURCE_MANIFEST_SHA256
-        "${_ror_combined_selected_source_manifest_serialized}")
     set(ROR_OGRE_NEXT_COMBINED_EXECUTABLE_SELECTED_SOURCE_MANIFEST
         "${CMAKE_CURRENT_BINARY_DIR}/RoR-Combined.selected-sources.txt")
     file(WRITE
         "${ROR_OGRE_NEXT_COMBINED_EXECUTABLE_SELECTED_SOURCE_MANIFEST}"
         "${_ror_combined_selected_source_manifest_serialized}")
+    file(SHA256
+        "${ROR_OGRE_NEXT_COMBINED_EXECUTABLE_SELECTED_SOURCE_MANIFEST}"
+        ROR_OGRE_NEXT_COMBINED_EXECUTABLE_SELECTED_SOURCE_MANIFEST_SHA256)
     set(ROR_OGRE_NEXT_COMBINED_EXECUTABLE_PROVIDER_SOURCES
         "${_ror_combined_provider_implementations}"
         CACHE INTERNAL "Implementations removed in favor of the embedded provider" FORCE)

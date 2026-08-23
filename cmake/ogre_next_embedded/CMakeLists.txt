@@ -637,19 +637,18 @@ foreach (_ror_provider_relative IN LISTS _ror_provider_manifest_files)
         "${_ror_provider_relative}|${_ror_provider_size}|${_ror_provider_sha256}\n")
 endforeach ()
 list(LENGTH _ror_provider_manifest_files _ror_source_manifest_file_count)
-string(SHA256 _ror_source_manifest_sha256
+set(ROR_SOURCE_MANIFEST
+    "${CMAKE_CURRENT_BINARY_DIR}/ogre-next-combined-provider-sources.txt"
+    CACHE INTERNAL "Exact combined provider source manifest" FORCE)
+file(WRITE "${ROR_SOURCE_MANIFEST}"
     "${_ror_provider_manifest_serialized}")
+file(SHA256 "${ROR_SOURCE_MANIFEST}" _ror_source_manifest_sha256)
 set(ROR_SOURCE_MANIFEST_FILE_COUNT
     "${_ror_source_manifest_file_count}"
     CACHE INTERNAL "Exact combined provider source manifest entry count" FORCE)
 set(ROR_SOURCE_MANIFEST_SHA256
     "${_ror_source_manifest_sha256}"
     CACHE INTERNAL "Exact combined provider source manifest digest" FORCE)
-set(ROR_SOURCE_MANIFEST
-    "${CMAKE_CURRENT_BINARY_DIR}/ogre-next-combined-provider-sources.txt"
-    CACHE INTERNAL "Exact combined provider source manifest" FORCE)
-file(WRITE "${ROR_SOURCE_MANIFEST}"
-    "${_ror_provider_manifest_serialized}")
 
 function(_ror_record_media_file _ror_source _ror_manifest_relative
         _ror_stage_relative _ror_entries_variable _ror_serialized_variable)

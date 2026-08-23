@@ -924,6 +924,7 @@ jobs:
             ${{ runner.temp }}/ror-combined-build/CMakeFiles/CMakeConfigureLog.yaml
             ${{ runner.temp }}/ror-combined-build/source/main/ogre-next-combined-executable-contract.json
             ${{ runner.temp }}/ror-combined-build/ogre-next-embedded/ogre-next-combined-namespace-audit.json
+            ${{ runner.temp }}/ror-combined-build/ogre-next-embedded/ogre-next-combined-provider-sources.txt
             ${{ runner.temp }}/ror-combined-build/conan/generators/SDL2*.cmake
             ${{ runner.temp }}/ror-combined-build/conan/generators/cmakedeps_macros.cmake
             ${{ runner.temp }}/ror-combined-build/ogre-next-embedded/*.json

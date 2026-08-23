@@ -1103,6 +1103,9 @@ class CombinedProviderContractTests(unittest.TestCase):
         self.assertIn(
             "ogre-next-combined-namespace-audit.json", windows_diagnostics
         )
+        self.assertIn(
+            "ogre-next-combined-provider-sources.txt", windows_diagnostics
+        )
 
     def test_windows_contract_paths_are_compared_as_resolved_paths(self) -> None:
         for token in (
@@ -1654,6 +1657,20 @@ class CombinedProviderContractTests(unittest.TestCase):
         self.assertIn("RoR-Combined.selected-sources.txt", MAIN_CMAKE)
         self.assertIn("file(SHA256", MAIN_CMAKE)
         self.assertIn("_verify_source_manifest(", VERIFIER)
+        provider_manifest_write = PROVIDER.index(
+            'file(WRITE "${ROR_SOURCE_MANIFEST}"'
+        )
+        provider_manifest_hash = PROVIDER.index(
+            'file(SHA256 "${ROR_SOURCE_MANIFEST}"'
+        )
+        self.assertLess(provider_manifest_write, provider_manifest_hash)
+        selected_manifest_write = MAIN_CMAKE.index(
+            'file(WRITE\n        "${ROR_OGRE_NEXT_COMBINED_EXECUTABLE_SELECTED_SOURCE_MANIFEST}"'
+        )
+        selected_manifest_hash = MAIN_CMAKE.index(
+            'file(SHA256\n        "${ROR_OGRE_NEXT_COMBINED_EXECUTABLE_SELECTED_SOURCE_MANIFEST}"'
+        )
+        self.assertLess(selected_manifest_write, selected_manifest_hash)
 
         specification = importlib.util.spec_from_file_location(
             "combined_binary_verifier", VERIFIER_PATH
