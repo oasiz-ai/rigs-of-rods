@@ -791,6 +791,19 @@ jobs:
           $env:LOCALAPPDATA = $localData
           $stdout = Join-Path $smoke 'renderer-smoke.stdout.log'
           $stderr = Join-Path $smoke 'renderer-smoke.stderr.log'
+          $events = Join-Path $smoke 'renderer-smoke.windows-events.log'
+          $dumps = Join-Path $smoke 'crash-dumps'
+          New-Item -ItemType Directory -Force -Path $dumps | Out-Null
+          $werKey = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\RoR-Combined.exe'
+          try {
+            New-Item -Path $werKey -Force | Out-Null
+            New-ItemProperty -Path $werKey -Name DumpFolder `
+              -PropertyType ExpandString -Value $dumps -Force | Out-Null
+            New-ItemProperty -Path $werKey -Name DumpType `
+              -PropertyType DWord -Value 2 -Force | Out-Null
+          } catch {
+            Write-Warning "Could not enable Windows local dumps: $($_.Exception.Message)"
+          }
           $arguments = @(
             '--native-visual-showcase',
             '-frame-budget', 'measure',
@@ -810,14 +823,40 @@ jobs:
             -RedirectStandardOutput $stdout `
             -RedirectStandardError $stderr `
             -PassThru
+          $smokeStartedAt = Get-Date
           if (-not $process.WaitForExit(120000)) {
             Stop-Process -Id $process.Id -Force
             throw 'Relocated Windows renderer smoke exceeded 120 seconds'
           }
           $process.WaitForExit()
           $status = $process.ExitCode
-          Get-Content -LiteralPath $stdout, $stderr |
-            Set-Content -LiteralPath $log -Encoding utf8NoBOM
+          $combinedLog = [System.Collections.Generic.List[string]]::new()
+          foreach ($path in @($stdout, $stderr)) {
+            if (Test-Path -LiteralPath $path) {
+              foreach ($line in Get-Content -LiteralPath $path) {
+                $combinedLog.Add($line)
+              }
+              Get-Content -LiteralPath $path
+            }
+          }
+          [System.IO.File]::WriteAllLines(
+            $log,
+            $combinedLog,
+            [System.Text.UTF8Encoding]::new($false)
+          )
+          Get-WinEvent -FilterHashtable @{
+            LogName = 'Application'
+            StartTime = $smokeStartedAt.AddSeconds(-5)
+          } -ErrorAction SilentlyContinue |
+            Where-Object {
+              $_.ProviderName -in @('Application Error', 'Windows Error Reporting')
+            } |
+            Select-Object -First 20 TimeCreated, ProviderName, Id, LevelDisplayName, Message |
+            Format-List |
+            Out-File -LiteralPath $events -Encoding utf8
+          if (Test-Path -LiteralPath $events) {
+            Get-Content -LiteralPath $events
+          }
           if ($status -ne 0) {
             throw "Relocated Windows renderer smoke failed with exit code $status"
           }
@@ -935,3 +974,7 @@ jobs:
             ${{ runner.temp }}/ror-combined-build/ogre-next-embedded/*.json
             ${{ runner.temp }}/ror-combined-build/source/main/RoR-Combined.*
             ${{ runner.temp }}/ror-combined-stage/qualification/
+            ${{ runner.temp }}/ror-combined-stage/RoR-Combined.exe
+            ${{ runner.temp }}/ror-combined-stage/*.dll
+            ${{ runner.temp }}/ror-combined-build/bin/RoR-Combined.pdb
+            ${{ runner.temp }}/ror-combined-smoke/
