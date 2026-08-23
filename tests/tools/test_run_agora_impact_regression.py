@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import tempfile
 import unittest
 import zipfile
@@ -65,6 +65,14 @@ def comparison(
 
 
 class AgoraImpactRegressionTests(unittest.TestCase):
+    def test_report_paths_are_platform_independent(self) -> None:
+        root = PureWindowsPath(r"D:\evidence\agora-impact-regression")
+        trace = root / "traces" / "worker-08-run-01.rortrace"
+        self.assertEqual(
+            IMPACT.portable_artifact_path(trace, root),
+            "traces/worker-08-run-01.rortrace",
+        )
+
     def test_derived_fixture_is_exactly_scoped(self) -> None:
         fixture = IMPACT.derive_fixture_payload(minimal_source())
         text = fixture.decode("utf-8")

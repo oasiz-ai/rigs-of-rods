@@ -14,7 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePath
 import platform
 import re
 import shutil
@@ -84,6 +84,11 @@ def canonical_text(payload: bytes, label: str) -> bytes:
         return support.canonical_lf_text(payload, label)
     except support.SoakFailure as error:
         raise ImpactFailure(str(error)) from error
+
+
+def portable_artifact_path(path: PurePath, artifact_dir: PurePath) -> str:
+    """Return one platform-independent path for signed JSON evidence."""
+    return path.relative_to(artifact_dir).as_posix()
 
 
 def derive_fixture_payload(source: bytes) -> bytes:
@@ -461,9 +466,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 cross_worker_trace_comparisons.append(
                     {
-                        "left_trace": str(baseline_trace.relative_to(artifact_dir)),
+                        "left_trace": portable_artifact_path(
+                            baseline_trace,
+                            artifact_dir,
+                        ),
                         "left_workers": baseline_workers,
-                        "right_trace": str(trace_path.relative_to(artifact_dir)),
+                        "right_trace": portable_artifact_path(
+                            trace_path,
+                            artifact_dir,
+                        ),
                         "right_workers": workers,
                         "status": comparison["status"],
                         "steps_compared": comparison["steps_compared"],
@@ -476,7 +487,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 {
                     "run": run_index,
                     "telemetry": telemetry,
-                    "trace": str(trace_path.relative_to(artifact_dir)),
+                    "trace": portable_artifact_path(trace_path, artifact_dir),
                     "trace_sha256": trace_sha,
                     "workers": workers,
                 }
