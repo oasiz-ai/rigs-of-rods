@@ -17,6 +17,7 @@ on:
       - tools/stage_ogre_next_combined_resources.py
       - tools/verify_ogre_next_combined_binary_closure.py
       - tools/verify_ogre_next_combined_elf_closure.py
+      - tools/verify_ogre_next_combined_pe_closure.py
       - tests/tools/test_ogre_next_combined_provider_contract.py
       - tests/tools/test_ogre_next_embedded_namespace_contract.py
       - tests/tools/test_renderer_combined_game_wiring_contract.py
@@ -35,6 +36,7 @@ on:
       - tools/stage_ogre_next_combined_resources.py
       - tools/verify_ogre_next_combined_binary_closure.py
       - tools/verify_ogre_next_combined_elf_closure.py
+      - tools/verify_ogre_next_combined_pe_closure.py
       - tests/tools/test_ogre_next_combined_provider_contract.py
       - tests/tools/test_ogre_next_embedded_namespace_contract.py
       - tests/tools/test_renderer_combined_game_wiring_contract.py

@@ -36,6 +36,7 @@ on:
       - tools/stage_ogre_next_combined_resources.py
       - tools/verify_ogre_next_combined_binary_closure.py
       - tools/verify_ogre_next_combined_elf_closure.py
+      - tools/verify_ogre_next_combined_pe_closure.py
       - cmake/RendererLauncherPackageConfig.cmake
       - doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md
       - doc/nextgen/OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_RECEIPT.md
@@ -205,6 +206,7 @@ on:
       - tools/stage_ogre_next_combined_resources.py
       - tools/verify_ogre_next_combined_binary_closure.py
       - tools/verify_ogre_next_combined_elf_closure.py
+      - tools/verify_ogre_next_combined_pe_closure.py
       - cmake/RendererLauncherPackageConfig.cmake
       - doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md
       - doc/nextgen/OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_RECEIPT.md

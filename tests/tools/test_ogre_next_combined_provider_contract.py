@@ -39,6 +39,8 @@ VERIFIER_PATH = ROOT / "tools/verify_ogre_next_combined_binary_closure.py"
 VERIFIER = VERIFIER_PATH.read_text(encoding="utf-8")
 ELF_VERIFIER_PATH = ROOT / "tools/verify_ogre_next_combined_elf_closure.py"
 ELF_VERIFIER = ELF_VERIFIER_PATH.read_text(encoding="utf-8")
+PE_VERIFIER_PATH = ROOT / "tools/verify_ogre_next_combined_pe_closure.py"
+PE_VERIFIER = PE_VERIFIER_PATH.read_text(encoding="utf-8")
 NAMESPACE_AUDIT = (
     ROOT / "tools/ogre_next_probe/audit_embedded_namespace.py"
 ).read_text(encoding="utf-8")
@@ -503,6 +505,129 @@ class CombinedProviderContractTests(unittest.TestCase):
         self.assertIn(
             "- tools/verify_ogre_next_combined_elf_closure.py", WORKFLOW
         )
+
+    def test_windows_binary_proof_uses_dumpbin_and_a_structural_pe_map(self) -> None:
+        for token in (
+            "elseif (WIN32)",
+            "verify_ogre_next_combined_pe_closure.py",
+            '--dumpbin "${ROR_OGRE_NEXT_DYNAMIC_AUDIT_TOOL}"',
+            'find_program(ROR_OGRE_NEXT_DYNAMIC_AUDIT_TOOL NAMES dumpbin REQUIRED)',
+            '"/MAP:${CMAKE_CURRENT_BINARY_DIR}/RoR-Combined.link-map.txt"',
+            "--required-ogre14-library",
+            "--sdl-provider-library",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, MAIN_CMAKE)
+        for token in (
+            'SCHEMA = "ror.ogre_next_combined_pe_closure.v1"',
+            'PLATFORM_POLICY = "windows-x64-d3d11"',
+            "REQUIRED_PE_SYMBOL_TOKENS",
+            "FORBIDDEN_PE_OBJECT_TOKENS",
+            "_public_symbol_rows",
+            "_dependent_names",
+            "_exported_sdl_names",
+            '"qualification_eligible": source_checkout[',
+            '"bridge_or_transport_symbols_present": False',
+            '"root_sdl_symbols_present": False',
+            '"ogre14_host_imports_present": True',
+            '"dual_owner_linked": True',
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, PE_VERIFIER)
+        self.assertIn(
+            '"tools/verify_ogre_next_combined_pe_closure.py"', PROVIDER
+        )
+        self.assertIn(
+            "- tools/verify_ogre_next_combined_pe_closure.py", WORKFLOW
+        )
+
+    def test_windows_pe_parsers_fail_closed_on_dependency_and_map_drift(self) -> None:
+        specification = importlib.util.spec_from_file_location(
+            "combined_pe_verifier_parsers", PE_VERIFIER_PATH
+        )
+        self.assertIsNotNone(specification)
+        self.assertIsNotNone(specification.loader)
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+
+        dependents = module._dependent_names(
+            "Image has the following dependencies:\n"
+            "    OgreMain.dll\n"
+            "    OgreBites.dll\n"
+            "    KERNEL32.dll\n"
+        )
+        self.assertEqual(
+            dependents, ["OgreMain.dll", "OgreBites.dll", "KERNEL32.dll"]
+        )
+        with self.assertRaisesRegex(ValueError, "duplicate DLL"):
+            module._dependent_names("  OgreMain.dll\n  ogremain.DLL\n")
+        exports = module._exported_sdl_names(
+            "ordinal hint RVA      name\n"
+            "      1    0 00011000 SDL_Init\n"
+            "      2    1 00011020 _SDL_PollEvent\n"
+            "      3    2 00011040 SDL_CreateWindow = SDL_CreateWindow\n"
+        )
+        self.assertEqual(
+            exports, {"SDL_Init", "SDL_PollEvent", "SDL_CreateWindow"}
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            build = Path(temporary) / "build"
+            binary = build / "bin/RoR-Combined.exe"
+            archive_a = build / "lib/ror-presenter.lib"
+            archive_b = build / "lib/OgreNextMain.lib"
+            archive_a.parent.mkdir(parents=True)
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"pe")
+            archive_a.write_bytes(b"a")
+            archive_b.write_bytes(b"b")
+
+            required = list(module.REQUIRED_PE_SYMBOL_TOKENS)
+            rows = [
+                " RoR-Combined",
+                " Preferred load address is 0000000140000000",
+                " Address         Publics by Value              Rva+Base       Lib:Object",
+            ]
+            for index, token in enumerate(required):
+                owner = (
+                    "ror-presenter.lib:presenter.obj"
+                    if index == 0
+                    else "OgreNextMain.lib:ogrenext.obj"
+                )
+                rows.append(
+                    f" 0001:{index + 1:08X} ?{token}@@YAXXZ "
+                    f"000000014000{index + 1:04X} f {owner}"
+                )
+            rows.extend(
+                [
+                    " 0001:00000100 ?DecodeOwner@@YAXXZ 0000000140000100 f source/main/Ogre14SourceTextureDecoder.cpp.obj",
+                    " 0001:00000110 ?Host@rapidjson@@YAXXZ 0000000140000110 f OgreNextMain.lib:rapidjson.obj",
+                    " 0001:00000120 ?Next@RoROgreNextRapidJson@@YAXXZ 0000000140000120 f OgreNextMain.lib:nextjson.obj",
+                    " entry point at        0001:00000000",
+                ]
+            )
+            report = module._link_map_evidence(
+                "\n".join(rows) + "\n",
+                binary,
+                [archive_a, archive_b],
+            )
+            self.assertFalse(
+                report["root_sdl_static_archive_members_extracted"]
+            )
+            self.assertEqual(
+                report["required_archive_member_counts"][str(archive_a)], 1
+            )
+
+            hostile = rows[:-1] + [
+                " 0001:00000130 ?SDL_Init@@YAHXZ 0000000140000130 f SDL2-static.lib:SDL.obj",
+                rows[-1],
+            ]
+            with self.assertRaisesRegex(ValueError, "SDL2-static"):
+                module._link_map_evidence(
+                    "\n".join(hostile) + "\n",
+                    binary,
+                    [archive_a, archive_b],
+                )
 
     def test_linux_install_and_launcher_select_the_combined_executable(self) -> None:
         for token in (
@@ -1447,6 +1572,7 @@ class CombinedProviderContractTests(unittest.TestCase):
             "tools/stage_ogre_next_combined_resources.py",
             "tools/verify_ogre_next_combined_binary_closure.py",
             "tools/verify_ogre_next_combined_elf_closure.py",
+            "tools/verify_ogre_next_combined_pe_closure.py",
         ):
             self.assertEqual(WORKFLOW.count(f"- {trigger}"), 2)
 

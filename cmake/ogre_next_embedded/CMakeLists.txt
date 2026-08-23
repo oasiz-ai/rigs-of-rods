@@ -532,6 +532,7 @@ list(APPEND _ror_provider_manifest_files
     "tools/linux/RunRoR-combined"
     "tools/verify_ogre_next_combined_binary_closure.py"
     "tools/verify_ogre_next_combined_elf_closure.py"
+    "tools/verify_ogre_next_combined_pe_closure.py"
     "tools/ogre_next_probe/audit_embedded_namespace.py"
     "tools/ogre_next_probe/CMakeLists.txt"
     "source/main/system/RendererGameInputTarget.cpp"

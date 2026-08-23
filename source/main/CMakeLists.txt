@@ -1211,36 +1211,63 @@ if (ROR_OGRE14)
         SDL2::SDL2)
 endif ()
 if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
-    if (NOT CMAKE_NM OR NOT IS_ABSOLUTE "${CMAKE_NM}")
-        message(FATAL_ERROR
-            "RoR-Combined binary closure verification requires an absolute nm tool")
-    endif ()
-    file(REAL_PATH "${CMAKE_NM}" _ror_combined_nm_tool)
-    if (NOT IS_ABSOLUTE "${_ror_combined_nm_tool}"
-            OR IS_SYMLINK "${_ror_combined_nm_tool}"
-            OR NOT EXISTS "${_ror_combined_nm_tool}"
-            OR IS_DIRECTORY "${_ror_combined_nm_tool}")
-        message(FATAL_ERROR
-            "RoR-Combined could not resolve nm to a direct regular executable")
-    endif ()
     if (APPLE)
+        if (NOT CMAKE_NM OR NOT IS_ABSOLUTE "${CMAKE_NM}")
+            message(FATAL_ERROR
+                "RoR-Combined binary closure verification requires an absolute nm tool")
+        endif ()
+        file(REAL_PATH "${CMAKE_NM}" _ror_combined_nm_tool)
+        if (NOT IS_ABSOLUTE "${_ror_combined_nm_tool}"
+                OR IS_SYMLINK "${_ror_combined_nm_tool}"
+                OR NOT EXISTS "${_ror_combined_nm_tool}"
+                OR IS_DIRECTORY "${_ror_combined_nm_tool}")
+            message(FATAL_ERROR
+                "RoR-Combined could not resolve nm to a direct regular executable")
+        endif ()
         find_program(ROR_OGRE_NEXT_DYNAMIC_AUDIT_TOOL NAMES otool REQUIRED)
         set(_ror_combined_closure_verifier
             "${CMAKE_SOURCE_DIR}/tools/verify_ogre_next_combined_binary_closure.py")
+        set(_ror_combined_symbol_tool_arguments
+            --nm "${_ror_combined_nm_tool}")
         set(_ror_combined_legacy_library_option
             --required-ogre14-dylib)
         set(_ror_combined_sdl_provider_option --sdl-provider-dylib)
         set(_ror_combined_link_map_option
             "LINKER:-map,${CMAKE_CURRENT_BINARY_DIR}/RoR-Combined.link-map.txt")
     elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        if (NOT CMAKE_NM OR NOT IS_ABSOLUTE "${CMAKE_NM}")
+            message(FATAL_ERROR
+                "RoR-Combined binary closure verification requires an absolute nm tool")
+        endif ()
+        file(REAL_PATH "${CMAKE_NM}" _ror_combined_nm_tool)
+        if (NOT IS_ABSOLUTE "${_ror_combined_nm_tool}"
+                OR IS_SYMLINK "${_ror_combined_nm_tool}"
+                OR NOT EXISTS "${_ror_combined_nm_tool}"
+                OR IS_DIRECTORY "${_ror_combined_nm_tool}")
+            message(FATAL_ERROR
+                "RoR-Combined could not resolve nm to a direct regular executable")
+        endif ()
         find_program(ROR_OGRE_NEXT_DYNAMIC_AUDIT_TOOL NAMES readelf REQUIRED)
         set(_ror_combined_closure_verifier
             "${CMAKE_SOURCE_DIR}/tools/verify_ogre_next_combined_elf_closure.py")
+        set(_ror_combined_symbol_tool_arguments
+            --nm "${_ror_combined_nm_tool}")
         set(_ror_combined_legacy_library_option
             --required-ogre14-library)
         set(_ror_combined_sdl_provider_option --sdl-provider-library)
         set(_ror_combined_link_map_option
             "LINKER:-Map,${CMAKE_CURRENT_BINARY_DIR}/RoR-Combined.link-map.txt")
+    elseif (WIN32)
+        find_program(ROR_OGRE_NEXT_DYNAMIC_AUDIT_TOOL NAMES dumpbin REQUIRED)
+        set(_ror_combined_closure_verifier
+            "${CMAKE_SOURCE_DIR}/tools/verify_ogre_next_combined_pe_closure.py")
+        set(_ror_combined_symbol_tool_arguments
+            --dumpbin "${ROR_OGRE_NEXT_DYNAMIC_AUDIT_TOOL}")
+        set(_ror_combined_legacy_library_option
+            --required-ogre14-library)
+        set(_ror_combined_sdl_provider_option --sdl-provider-library)
+        set(_ror_combined_link_map_option
+            "/MAP:${CMAKE_CURRENT_BINARY_DIR}/RoR-Combined.link-map.txt")
     else ()
         message(FATAL_ERROR
             "RoR-Combined has no reviewed final binary-closure verifier for this platform")
@@ -1264,6 +1291,8 @@ if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
     elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         set(_ror_combined_dynamic_tool_arguments
             --readelf "${_ror_combined_dynamic_audit_tool}")
+    else ()
+        set(_ror_combined_dynamic_tool_arguments "")
     endif ()
     find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
     set(_ror_combined_link_map
@@ -1297,7 +1326,7 @@ if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
         COMMAND
             "${Python3_EXECUTABLE}"
             "${_ror_combined_closure_verifier}"
-            --nm "${_ror_combined_nm_tool}"
+            ${_ror_combined_symbol_tool_arguments}
             ${_ror_combined_dynamic_tool_arguments}
             --binary "$<TARGET_FILE:${BINNAME}>"
             --build-root "${CMAKE_BINARY_DIR}"
