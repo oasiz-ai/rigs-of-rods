@@ -14,6 +14,8 @@ on:
       - source/main/**
       - tools/linux/RunRoR-combined
       - tools/ogre_next_probe/**
+      - tools/run_agora_impact_regression.py
+      - tools/run_calibrated_beam_soak.py
       - tools/run_playable_performance_scene.py
       - tools/stage_ogre_next_combined_resources.py
       - tools/verify_ogre_next_combined_binary_closure.py
@@ -21,6 +23,8 @@ on:
       - tools/verify_ogre_next_combined_pe_closure.py
       - tests/tools/test_ogre_next_combined_provider_contract.py
       - tests/tools/test_ogre_next_embedded_namespace_contract.py
+      - tests/tools/test_run_agora_impact_regression.py
+      - tests/tools/test_run_calibrated_beam_soak.py
       - tests/tools/test_run_playable_performance_scene.py
       - tests/tools/test_renderer_combined_game_wiring_contract.py
   pull_request:
@@ -35,6 +39,8 @@ on:
       - source/main/**
       - tools/linux/RunRoR-combined
       - tools/ogre_next_probe/**
+      - tools/run_agora_impact_regression.py
+      - tools/run_calibrated_beam_soak.py
       - tools/run_playable_performance_scene.py
       - tools/stage_ogre_next_combined_resources.py
       - tools/verify_ogre_next_combined_binary_closure.py
@@ -42,6 +48,8 @@ on:
       - tools/verify_ogre_next_combined_pe_closure.py
       - tests/tools/test_ogre_next_combined_provider_contract.py
       - tests/tools/test_ogre_next_embedded_namespace_contract.py
+      - tests/tools/test_run_agora_impact_regression.py
+      - tests/tools/test_run_calibrated_beam_soak.py
       - tests/tools/test_run_playable_performance_scene.py
       - tests/tools/test_renderer_combined_game_wiring_contract.py
   workflow_dispatch:
