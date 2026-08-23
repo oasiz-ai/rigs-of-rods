@@ -27,7 +27,6 @@
 #include <cstring>
 #include <limits>
 
-using namespace Ogre;
 using namespace RoR;
 
 namespace {
@@ -157,33 +156,19 @@ bool PointColDetector::replace_actor_source_snapshot(
     return true;
 }
 
-void PointColDetector::query(const Vector3 &vec1, const Vector3 &vec2, const Vector3 &vec3, float enlargeBB)
+void PointColDetector::query(
+    const std::array<float, 3>& vec1,
+    const std::array<float, 3>& vec2,
+    const std::array<float, 3>& vec3,
+    float enlargeBB)
 {
-    m_bbmin = vec1;
-
-    m_bbmin.x = std::min(vec2.x, m_bbmin.x);
-    m_bbmin.x = std::min(vec3.x, m_bbmin.x);
-
-    m_bbmin.y = std::min(vec2.y, m_bbmin.y);
-    m_bbmin.y = std::min(vec3.y, m_bbmin.y);
-
-    m_bbmin.z = std::min(vec2.z, m_bbmin.z);
-    m_bbmin.z = std::min(vec3.z, m_bbmin.z);
-
-    m_bbmin -= enlargeBB;
-
-    m_bbmax = vec1;
-
-    m_bbmax.x = std::max(m_bbmax.x, vec2.x);
-    m_bbmax.x = std::max(m_bbmax.x, vec3.x);
-
-    m_bbmax.y = std::max(m_bbmax.y, vec2.y);
-    m_bbmax.y = std::max(m_bbmax.y, vec3.y);
-
-    m_bbmax.z = std::max(m_bbmax.z, vec2.z);
-    m_bbmax.z = std::max(m_bbmax.z, vec3.z);
-
-    m_bbmax += enlargeBB;
+    for (std::size_t axis = 0; axis < 3U; ++axis)
+    {
+        m_bbmin[axis] = std::min(vec1[axis], std::min(vec2[axis], vec3[axis])) -
+            enlargeBB;
+        m_bbmax[axis] = std::max(vec1[axis], std::max(vec2[axis], vec3[axis])) +
+            enlargeBB;
+    }
 
     hit_list.clear();
     if (m_object_list_size <= 0 || m_kdtree.empty())
@@ -214,9 +199,9 @@ void PointColDetector::queryrec(int kdindex, int axis)
         if (m_kdtree[kdindex].refid != REFELEMID_INVALID)
         {
             const std::array<float, 3> point = m_ref_list[m_kdtree[kdindex].refid].point;
-            if (point[0] >= m_bbmin.x && point[0] <= m_bbmax.x &&
-                point[1] >= m_bbmin.y && point[1] <= m_bbmax.y &&
-                point[2] >= m_bbmin.z && point[2] <= m_bbmax.z)
+            if (point[0] >= m_bbmin[0] && point[0] <= m_bbmax[0] &&
+                point[1] >= m_bbmin[1] && point[1] <= m_bbmax[1] &&
+                point[2] >= m_bbmin[2] && point[2] <= m_bbmax[2])
             {
                 hit_list.push_back(m_ref_list[m_kdtree[kdindex].refid].pidrefid);
             }

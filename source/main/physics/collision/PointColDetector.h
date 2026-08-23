@@ -19,14 +19,31 @@
 
 #pragma once
 
-#include "ForwardDeclarations.h"
+#if defined(ROR_POINT_COL_DETECTOR_STANDALONE)
+#    include <cstdint>
+#    include <limits>
 
-#include <OgreVector.h>
+namespace RoR {
+typedef int ActorInstanceID_t;
+static const ActorInstanceID_t ACTORINSTANCEID_INVALID = 0;
+typedef int PointidID_t;
+static const PointidID_t POINTIDID_INVALID = -1;
+typedef int RefelemID_t;
+static const RefelemID_t REFELEMID_INVALID = -1;
+typedef std::uint16_t NodeNum_t;
+static const NodeNum_t NODENUM_INVALID =
+    std::numeric_limits<NodeNum_t>::max();
+} // namespace RoR
+#else
+#    include "ForwardDeclarations.h"
+#endif
 
 #include <array>
 #include <vector>
 
 namespace RoR {
+
+class Actor;
 
 /// @addtogroup Physics
 /// @{
@@ -64,7 +81,27 @@ public:
 
     void UpdateIntraPoint(bool contactables = false);
     void UpdateInterPoint(bool ignorestate = false);
-    void query(const Ogre::Vector3& vec1, const Ogre::Vector3& vec2, const Ogre::Vector3& vec3, const float enlargeBB);
+    void query(
+        const std::array<float, 3>& vec1,
+        const std::array<float, 3>& vec2,
+        const std::array<float, 3>& vec3,
+        float enlargeBB);
+    template <typename Vector3Like>
+    void query(
+        const Vector3Like& vec1,
+        const Vector3Like& vec2,
+        const Vector3Like& vec3,
+        float enlargeBB)
+    {
+        query(
+            {{static_cast<float>(vec1.x), static_cast<float>(vec1.y),
+              static_cast<float>(vec1.z)}},
+            {{static_cast<float>(vec2.x), static_cast<float>(vec2.y),
+              static_cast<float>(vec2.z)}},
+            {{static_cast<float>(vec3.x), static_cast<float>(vec3.y),
+              static_cast<float>(vec3.z)}},
+            enlargeBB);
+    }
 
     /// Replaces the cached production broad-phase source transactionally.
     /// Empty fixtures model a legitimate no-source frame. Invalid actor/node
@@ -81,7 +118,6 @@ private:
     {
         PointidID_t pidrefid = POINTIDID_INVALID;
         std::array<float, 3> point; // cached node AbsPosition
-        void setPoint(const Ogre::Vector3 pos) { point[0] = pos.x; point[1] = pos.y; point[2] = pos.z; }
     };
 
     struct kdnode_t
@@ -108,8 +144,8 @@ private:
     std::vector<refelem_t> m_ref_list;
     
     std::vector<kdnode_t>  m_kdtree;
-    Ogre::Vector3          m_bbmin = Ogre::Vector3::ZERO;
-    Ogre::Vector3          m_bbmax = Ogre::Vector3::ZERO;
+    std::array<float, 3>   m_bbmin = {{0.f, 0.f, 0.f}};
+    std::array<float, 3>   m_bbmax = {{0.f, 0.f, 0.f}};
     int                    m_object_list_size = 0;
 
     void queryrec(int kdindex, int axis);

@@ -2,8 +2,6 @@
 
 #include "DeterministicContactOrder.h"
 
-#include <OgreVector.h>
-
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -96,10 +94,9 @@ void CheckQuery(
     const std::array<float, 3>& raw_max,
     float enlargement)
 {
-    const Ogre::Vector3 minimum(raw_min[0], raw_min[1], raw_min[2]);
-    const Ogre::Vector3 maximum(raw_max[0], raw_max[1], raw_max[2]);
-    const Ogre::Vector3 third(raw_min[0], raw_max[1], raw_min[2]);
-    detector.query(minimum, maximum, third, enlargement);
+    const std::array<float, 3> third =
+        {{raw_min[0], raw_max[1], raw_min[2]}};
+    detector.query(raw_min, raw_max, third, enlargement);
 
     std::array<float, 3> expanded_min = raw_min;
     std::array<float, 3> expanded_max = raw_max;

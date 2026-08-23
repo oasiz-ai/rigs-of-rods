@@ -2239,21 +2239,10 @@ target_include_directories(
         "${ROR_REPOSITORY_ROOT}/source/main/utils"
         "${ROR_REPOSITORY_ROOT}/source/main/utils/memory"
 )
-target_include_directories(
+target_compile_definitions(
     ror_point_col_detector_production_oracle_tests
-    SYSTEM PRIVATE ${OGRE_INCLUDE_DIRS}
+    PRIVATE ROR_POINT_COL_DETECTOR_STANDALONE
 )
-if (TARGET OgreMain)
-    target_link_libraries(
-        ror_point_col_detector_production_oracle_tests
-        PRIVATE OgreMain Angelscript::angelscript
-    )
-else ()
-    target_link_libraries(
-        ror_point_col_detector_production_oracle_tests
-        PRIVATE ${OGRE_LIBRARIES} Angelscript::angelscript
-    )
-endif ()
 add_executable(
     ror_deterministic_state_digest_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/DeterministicStateDigestTests.cpp"
@@ -2668,22 +2657,28 @@ add_executable(
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamWheel2Approximation.cpp"
 )
 
-add_executable(
-    ror_jbeam_vehicle_importer_tests
-    "${CMAKE_CURRENT_LIST_DIR}/resources/JBeamVehicleImporterTests.cpp"
-    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/BeamNGPackageManifest.cpp"
-    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/BeamNGZipArchiveIndex.cpp"
-    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamAdvancedStructureIR.cpp"
-    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamExpressionEvaluator.cpp"
-    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPartResolver.cpp"
-    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPressureWheelIR.cpp"
-    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamStructuralIR.cpp"
-    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamSyntax.cpp"
-    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamToRigDef.cpp"
-    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamVehicleImporter.cpp"
-    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamWheel2Approximation.cpp"
-    "${ROR_REPOSITORY_ROOT}/source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp"
-)
+if (NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    # The authenticated product importer intentionally consumes the game's
+    # RigDef document ABI. Keep it in native game builds, where the pinned
+    # OGRE/fmt/zlib graph exists, instead of leaking those renderer/resource
+    # dependencies into the standalone dependency-free physics workflow.
+    add_executable(
+        ror_jbeam_vehicle_importer_tests
+        "${CMAKE_CURRENT_LIST_DIR}/resources/JBeamVehicleImporterTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/BeamNGPackageManifest.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/BeamNGZipArchiveIndex.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamAdvancedStructureIR.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamExpressionEvaluator.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPartResolver.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPressureWheelIR.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamStructuralIR.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamSyntax.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamToRigDef.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamVehicleImporter.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamWheel2Approximation.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp"
+    )
+endif ()
 
 target_include_directories(
     ror_beamng_package_manifest_tests
@@ -2800,46 +2795,47 @@ target_include_directories(
         "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
 )
 
-target_include_directories(
-    ror_jbeam_vehicle_importer_tests
-    PRIVATE
-        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
-        "${ROR_REPOSITORY_ROOT}/source/main/resources/terrn2_fileformat"
-)
-target_include_directories(
-    ror_jbeam_vehicle_importer_tests
-    SYSTEM PRIVATE
-        "${ROR_REPOSITORY_ROOT}/source/main"
-        "${ROR_REPOSITORY_ROOT}/source/main/system"
-        "${ROR_REPOSITORY_ROOT}/source/main/utils"
-        "${ROR_REPOSITORY_ROOT}/source/main/utils/memory"
-        "${ROR_REPOSITORY_ROOT}/source/main/resources/rig_def_fileformat"
-        ${OGRE_INCLUDE_DIRS}
-)
-
-if (TARGET OgreMain)
+if (TARGET ror_jbeam_vehicle_importer_tests)
+    target_include_directories(
+        ror_jbeam_vehicle_importer_tests
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
+            "${ROR_REPOSITORY_ROOT}/source/main/resources/terrn2_fileformat"
+    )
+    target_include_directories(
+        ror_jbeam_vehicle_importer_tests
+        SYSTEM PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main"
+            "${ROR_REPOSITORY_ROOT}/source/main/system"
+            "${ROR_REPOSITORY_ROOT}/source/main/utils"
+            "${ROR_REPOSITORY_ROOT}/source/main/utils/memory"
+            "${ROR_REPOSITORY_ROOT}/source/main/resources/rig_def_fileformat"
+            ${OGRE_INCLUDE_DIRS}
+    )
+    if (TARGET OgreMain)
+        target_link_libraries(
+            ror_jbeam_vehicle_importer_tests
+            PRIVATE OgreMain
+        )
+    else ()
+        target_link_libraries(
+            ror_jbeam_vehicle_importer_tests
+            PRIVATE ${OGRE_LIBRARIES}
+        )
+    endif ()
     target_link_libraries(
         ror_jbeam_vehicle_importer_tests
-        PRIVATE OgreMain
+        PRIVATE
+            fmt::fmt
+            OpenSSL::Crypto
+            ZLIB::ZLIB
     )
-else ()
-    target_link_libraries(
-        ror_jbeam_vehicle_importer_tests
-        PRIVATE ${OGRE_LIBRARIES}
-    )
-endif ()
-target_link_libraries(
-    ror_jbeam_vehicle_importer_tests
-    PRIVATE
-        fmt::fmt
-        OpenSSL::Crypto
-        ZLIB::ZLIB
-)
-if (TARGET Angelscript::angelscript)
-    target_link_libraries(
-        ror_jbeam_vehicle_importer_tests
-        PRIVATE Angelscript::angelscript
-    )
+    if (TARGET Angelscript::angelscript)
+        target_link_libraries(
+            ror_jbeam_vehicle_importer_tests
+            PRIVATE Angelscript::angelscript
+        )
+    endif ()
 endif ()
 
 target_include_directories(
@@ -3130,8 +3126,12 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_jbeam_structural_ir_tests
     ror_jbeam_syntax_tests
     ror_jbeam_to_rigdef_tests
-    ror_jbeam_vehicle_importer_tests
 )
+
+if (TARGET ror_jbeam_vehicle_importer_tests)
+    list(APPEND ROR_PHYSICS_TEST_TARGETS
+        ror_jbeam_vehicle_importer_tests)
+endif ()
 
 if (TARGET ror_terrain_bundle_config_syntax_tests)
     list(APPEND ROR_PHYSICS_TEST_TARGETS
@@ -3206,23 +3206,9 @@ if (TARGET ror_terrain_bundle_config_syntax_tests)
     )
 endif ()
 
-if (TARGET ror_point_col_detector_production_oracle_tests)
-    # This production-oracle target includes OGRE 14's public vector headers,
-    # which require C++14 relaxed constexpr constructors even though the pure
-    # collision kernels remain compatible with the C++11 test baseline.
-    set_target_properties(
-        ror_point_col_detector_production_oracle_tests
-        PROPERTIES
-        CXX_STANDARD 14
-        CXX_STANDARD_REQUIRED YES
-        CXX_EXTENSIONS NO
-    )
-endif ()
-
 set_target_properties(
     ror_beamng_material_inventory_tests
     ror_jbeam_to_rigdef_tests
-    ror_jbeam_vehicle_importer_tests
     ror_application_fatal_shutdown_contract_tests
     ror_renderer_bridge_process_fake_game
     ror_renderer_bridge_process_fake_presentation
@@ -3234,6 +3220,15 @@ set_target_properties(
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS NO
 )
+if (TARGET ror_jbeam_vehicle_importer_tests)
+    set_target_properties(
+        ror_jbeam_vehicle_importer_tests
+        PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED YES
+        CXX_EXTENSIONS NO
+    )
+endif ()
 
 add_test(
     NAME render_display_metrics
@@ -4148,10 +4143,12 @@ add_test(
     COMMAND ror_jbeam_to_rigdef_tests
 )
 
-add_test(
-    NAME jbeam_vehicle_importer
-    COMMAND ror_jbeam_vehicle_importer_tests
-)
+if (TARGET ror_jbeam_vehicle_importer_tests)
+    add_test(
+        NAME jbeam_vehicle_importer
+        COMMAND ror_jbeam_vehicle_importer_tests
+    )
+endif ()
 
 if (APPLE)
     add_test(
