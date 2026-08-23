@@ -1366,6 +1366,55 @@ void DestroyUnregisterAndUnloadOrdinaryPack(
             "ordinary pack teardown leaked its exact ArchiveManager entry");
 }
 
+void DestroyUnregisterAndUnloadOrdinaryPacks(
+    RoR::ContentManager& content,
+    const Ogre::String& group,
+    const std::vector<std::filesystem::path>& archive_paths,
+    std::size_t archive_count_before)
+{
+    Require(!archive_paths.empty(),
+            "ordinary multi-pack teardown received no archive paths");
+    std::vector<Ogre::Archive*> admitted_archives;
+    admitted_archives.reserve(archive_paths.size());
+    for (const std::filesystem::path& archive_path : archive_paths)
+    {
+        Ogre::Archive* const archive =
+            FindNativeArchive(archive_path.string());
+        Require(archive != nullptr && archive->getType() == "Zip",
+                "ordinary multi-pack teardown lost an exact live ZIP archive");
+        admitted_archives.push_back(archive);
+    }
+
+    DestroyAndUnregister(content, group);
+    Ogre::ResourceGroupManager& groups =
+        Ogre::ResourceGroupManager::getSingleton();
+    for (std::size_t i = 0U; i < archive_paths.size(); ++i)
+    {
+        Ogre::Archive* const retained_archive =
+            FindNativeArchive(archive_paths[i].string());
+        Require(retained_archive == admitted_archives[i],
+                "ordinary multi-pack destruction changed archive identity");
+        for (const Ogre::String& live_group : groups.getResourceGroups())
+        {
+            if (!groups.resourceGroupExists(live_group))
+            {
+                continue;
+            }
+            for (const auto& location :
+                 groups.getResourceLocationList(live_group))
+            {
+                Require(location.archive != retained_archive,
+                        "ordinary multi-pack archive remained referenced by a live group");
+            }
+        }
+        Ogre::ArchiveManager::getSingleton().unload(retained_archive);
+        Require(FindNativeArchive(archive_paths[i].string()) == nullptr,
+                "ordinary multi-pack archive survived explicit unload");
+    }
+    Require(CountNativeArchives() == archive_count_before,
+            "ordinary multi-pack teardown leaked ArchiveManager entries");
+}
+
 void RemoveResourcePackRoot(const std::filesystem::path& root)
 {
     std::error_code error;
@@ -1814,19 +1863,54 @@ void TestBuiltInSmokeSelectedSourceWithoutReadback(
     const std::string smoke = MakeOrdinaryDds(96U, 112U, 128U, 72U);
     const std::filesystem::path root =
         MakeResourcePackRoot("builtin-smoke");
-    const std::filesystem::path archive = WriteResourcePackZip(
-        root, pack_name, {{"smoke.dds", smoke}});
+    const std::filesystem::path particle_archive = WriteResourcePackZip(
+        root, pack_name,
+        {{"particles.material", "// particle scripts own tracks/SmokeMat"}});
+    const std::filesystem::path texture_archive = WriteResourcePackZip(
+        root, "textures", {{"smoke.dds", smoke}});
     ScopedResourceDirectory resources(root);
     const RoR::ContentManager::ResourcePack pack(
         pack_name.c_str(), group.c_str());
     Ogre::ResourceGroupManager& groups =
         Ogre::ResourceGroupManager::getSingleton();
     const std::size_t archives_before = CountNativeArchives();
+    const ResourcePackAuthorityState authority_before =
+        RoR::ContentManagerNativeIntegrationTestAccess::
+            CaptureResourcePackAuthorityState(content, group);
+    RoR::ContentManagerNativeIntegrationTestAccess::
+        ForceNextResourcePackRegistrationFailure(content);
+    bool registration_rejected = false;
+    try
+    {
+        content.AddResourcePack(pack);
+    }
+    catch (...)
+    {
+        registration_rejected = true;
+    }
+    const ResourcePackAuthorityState authority_after_rejection =
+        RoR::ContentManagerNativeIntegrationTestAccess::
+            CaptureResourcePackAuthorityState(content, group);
+    Require(registration_rejected &&
+                !groups.resourceGroupExists(group) &&
+                SameResourcePackAuthorityState(
+                    authority_before, authority_after_rejection) &&
+                CountNativeArchives() == archives_before,
+            "failed particles dependency admission left a group, archive, or source-authority mutation");
+
     content.AddResourcePack(pack);
+    const ResourcePackAuthorityState pack_state =
+        RoR::ContentManagerNativeIntegrationTestAccess::
+            CaptureResourcePackAuthorityState(content, group);
     Require(groups.resourceGroupExists(group) &&
                 groups.isResourceGroupInitialised(group) &&
-                groups.resourceLocationExists(archive.string(), group),
-            "built-in particles pack did not publish its exact live ZIP location");
+                groups.resourceLocationExists(
+                    particle_archive.string(), group) &&
+                groups.resourceLocationExists(
+                    texture_archive.string(), group) &&
+                pack_state.has_package_group &&
+                pack_state.package_archive_count == 2U,
+            "built-in particles pack did not publish its script and texture archives as one exact source scope");
 
     Ogre::TexturePtr texture = texture_manager.create("smoke.dds", group);
     Require(texture != nullptr && !texture->isLoaded(),
@@ -1854,7 +1938,7 @@ void TestBuiltInSmokeSelectedSourceWithoutReadback(
                 selected_metadata->source.exact_resource_name == "smoke.dds" &&
                 selected_metadata->source.exact_member_name == "smoke.dds" &&
                 selected_metadata->source.selected_archive_name ==
-                    archive.string() &&
+                    texture_archive.string() &&
                 selected_metadata->source.selected_archive_type == "Zip" &&
                 native_texture->observed_bytes() == smoke &&
                 SelectedTextureReceiptBytes(selected_resolution) == smoke &&
@@ -1915,8 +1999,8 @@ void TestBuiltInSmokeSelectedSourceWithoutReadback(
     source.Reset();
 
     material.setNull();
-    DestroyUnregisterAndUnloadOrdinaryPack(
-        content, group, archive, archives_before);
+    DestroyUnregisterAndUnloadOrdinaryPacks(
+        content, group, {particle_archive, texture_archive}, archives_before);
     Require(!content.RevalidateSelectedTextureSource(
                 *texture, selected_resolution),
             "destroyed built-in pack retained live selected-source authority");

@@ -4768,6 +4768,43 @@ void ContentManager::AddResourcePack(ResourcePack const& resource_pack, std::str
         }
     }
 
+    // Built-in material scripts are intentionally packaged separately from
+    // their texture bytes. materials.zip owns ror.material while textures.zip
+    // owns dashboard.dds, seat.dds, the wheel textures, and the other ordinary
+    // sources it names; particles.zip similarly names smoke.dds. OGRE's global
+    // group fallback can find those bytes without adding the archive to the
+    // material's group, but the exact selected-source listener must refuse
+    // that ambiguity. Mount and register the shared texture pack in each
+    // built-in script-owning group before scripting starts. This is one
+    // package relationship, not a list of special-cased material names.
+    const bool add_builtin_texture_dependency =
+        use_default_group && resource_pack.name != nullptr &&
+        (std::string(resource_pack.name) == ResourcePack::MATERIALS.name ||
+         std::string(resource_pack.name) == ResourcePack::PARTICLES.name);
+    std::string builtin_texture_dependency_location;
+    Ogre::String builtin_texture_dependency_type;
+    if (add_builtin_texture_dependency)
+    {
+        const std::string dependency_dir = PathCombine(
+            App::sys_resources_dir->getStr(), ResourcePack::TEXTURES.name);
+        const std::string dependency_zip = dependency_dir + ".zip";
+        if (FileExists(dependency_zip))
+        {
+            builtin_texture_dependency_location = dependency_zip;
+            builtin_texture_dependency_type = "Zip";
+        }
+        else if (FolderExists(dependency_dir))
+        {
+            builtin_texture_dependency_location = dependency_dir;
+            builtin_texture_dependency_type = "FileSystem";
+        }
+        else
+        {
+            throw std::runtime_error(
+                "Built-in material scripts require the textures resource pack");
+        }
+    }
+
     Ogre::ArchiveManager& archive_manager =
         Ogre::ArchiveManager::getSingleton();
     const auto find_selected_archive = [&]() -> Ogre::Archive*
@@ -4798,6 +4835,39 @@ void ContentManager::AddResourcePack(ResourcePack const& resource_pack, std::str
     };
     Ogre::Archive* const selected_archive_was_live =
         find_selected_archive();
+    const auto find_builtin_texture_dependency_archive =
+        [&]() -> Ogre::Archive*
+    {
+        if (!add_builtin_texture_dependency)
+        {
+            return nullptr;
+        }
+        Ogre::Archive* selected = nullptr;
+        Ogre::ArchiveManager::ArchiveMapIterator archives =
+            archive_manager.getArchiveIterator();
+        while (archives.hasMoreElements())
+        {
+            const Ogre::String archive_name = archives.peekNextKey();
+            Ogre::Archive* archive = archives.getNext();
+            if (archive_name != builtin_texture_dependency_location)
+            {
+                continue;
+            }
+            if (selected != nullptr || archive == nullptr ||
+                archive->getName() != builtin_texture_dependency_location ||
+                archive->getType() != builtin_texture_dependency_type)
+            {
+                OGRE_EXCEPT(
+                    Ogre::Exception::ERR_INVALID_STATE,
+                    "Built-in texture dependency identity is already live with a different archive type or pointer",
+                    "ContentManager::AddResourcePack");
+            }
+            selected = archive;
+        }
+        return selected;
+    };
+    Ogre::Archive* const builtin_texture_dependency_archive_was_live =
+        find_builtin_texture_dependency_archive();
     std::size_t selected_source_location_count_before = 0U;
     if (resource_group_was_present)
     {
@@ -4871,6 +4941,51 @@ void ContentManager::AddResourcePack(ResourcePack const& resource_pack, std::str
             std::terminate();
         }
     };
+    const auto rollback_new_builtin_texture_dependency_archive =
+        [&]() noexcept
+    {
+        if (!add_builtin_texture_dependency ||
+            builtin_texture_dependency_archive_was_live != nullptr)
+        {
+            return;
+        }
+        try
+        {
+            Ogre::Archive* const dependency_archive =
+                find_builtin_texture_dependency_archive();
+            if (dependency_archive == nullptr)
+            {
+                return;
+            }
+            const Ogre::StringVector groups = rgm.getResourceGroups();
+            for (const Ogre::String& group : groups)
+            {
+                if (!rgm.resourceGroupExists(group))
+                {
+                    continue;
+                }
+                const Ogre::ResourceGroupManager::LocationList& locations =
+                    rgm.getResourceLocationList(group);
+                for (const Ogre::ResourceGroupManager::ResourceLocation&
+                         location : locations)
+                {
+                    if (location.archive == dependency_archive)
+                    {
+                        std::terminate();
+                    }
+                }
+            }
+            archive_manager.unload(dependency_archive);
+            if (find_builtin_texture_dependency_archive() != nullptr)
+            {
+                std::terminate();
+            }
+        }
+        catch (...)
+        {
+            std::terminate();
+        }
+    };
     try
     {
         // Reusing an exact live location must be idempotent. OGRE appends a
@@ -4920,6 +5035,72 @@ void ContentManager::AddResourcePack(ResourcePack const& resource_pack, std::str
                 "ContentManager::AddResourcePack");
         }
 
+        if (add_builtin_texture_dependency)
+        {
+            std::size_t dependency_location_count = 0U;
+            const Ogre::ResourceGroupManager::LocationList& locations =
+                rgm.getResourceLocationList(rg_name);
+            for (const Ogre::ResourceGroupManager::ResourceLocation& location :
+                 locations)
+            {
+                if (location.archive != nullptr &&
+                    location.archive->getName() ==
+                        builtin_texture_dependency_location)
+                {
+                    if (location.archive->getType() !=
+                        builtin_texture_dependency_type)
+                    {
+                        OGRE_EXCEPT(
+                            Ogre::Exception::ERR_INVALID_STATE,
+                            "Built-in texture dependency changed archive type",
+                            "ContentManager::AddResourcePack");
+                    }
+                    ++dependency_location_count;
+                }
+            }
+            if (dependency_location_count == 0U)
+            {
+                rgm.addResourceLocation(
+                    builtin_texture_dependency_location,
+                    builtin_texture_dependency_type, rg_name);
+            }
+
+            dependency_location_count = 0U;
+            Ogre::Archive* dependency_archive = nullptr;
+            const Ogre::ResourceGroupManager::LocationList&
+                dependency_locations = rgm.getResourceLocationList(rg_name);
+            for (const Ogre::ResourceGroupManager::ResourceLocation& location :
+                 dependency_locations)
+            {
+                if (location.archive == nullptr ||
+                    location.archive->getName() !=
+                        builtin_texture_dependency_location)
+                {
+                    continue;
+                }
+                if (location.archive->getType() !=
+                        builtin_texture_dependency_type ||
+                    (dependency_archive != nullptr &&
+                     dependency_archive != location.archive))
+                {
+                    OGRE_EXCEPT(
+                        Ogre::Exception::ERR_INVALID_STATE,
+                        "Built-in texture dependency is not one exact archive",
+                        "ContentManager::AddResourcePack");
+                }
+                dependency_archive = location.archive;
+                ++dependency_location_count;
+            }
+            if (dependency_archive == nullptr ||
+                dependency_location_count != 1U)
+            {
+                OGRE_EXCEPT(
+                    Ogre::Exception::ERR_INVALID_STATE,
+                    "Built-in texture dependency cardinality changed during admission",
+                    "ContentManager::AddResourcePack");
+            }
+        }
+
 #if OGRE_VERSION_MAJOR >= 14
 #if defined(ROR_OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_NATIVE_TESTING)
         if (m_force_next_resource_pack_registration_failure_for_testing)
@@ -4938,6 +5119,11 @@ void ContentManager::AddResourcePack(ResourcePack const& resource_pack, std::str
         this->RegisterPackageResourceLocation(
             rg_name, selected_source_location);
         package_location_registered = true;
+        if (add_builtin_texture_dependency)
+        {
+            this->RegisterPackageResourceLocation(
+                rg_name, builtin_texture_dependency_location);
+        }
 #endif
 
         if (use_default_group) // Only init the default RG
@@ -5000,6 +5186,7 @@ void ContentManager::AddResourcePack(ResourcePack const& resource_pack, std::str
                 }
             }
 #endif
+            rollback_new_builtin_texture_dependency_archive();
             rollback_new_selected_archive();
         }
         else
@@ -6762,7 +6949,7 @@ Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream(
             !authenticated_bindings_absent ||
             !m_authenticated_texture_receipts.initialized() ||
             !m_selected_texture_sources.initialized() ||
-            !resource->isLoading() || resource->isLoaded())
+            resource->isLoaded())
         {
             return Ogre::DataStreamPtr();
         }
@@ -7120,7 +7307,11 @@ Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream(
             exact_member != file_info_path + file_info_basename ||
             (exact_member != name &&
              !member_resolved_by_reviewed_selection) ||
-            !resource->isLoading() || resource->isLoaded() ||
+            // OGRE 14 invokes resourceStreamOpening() while the Resource is
+            // still unloaded; resourceStreamOpened() is the later seam that
+            // must observe the exact owner in LOADSTATE_LOADING before this
+            // staged source receipt can be committed.
+            resource->isLoaded() ||
             resource->getStateCount() !=
                 static_cast<std::size_t>(state_count_before_load) ||
             resource->getHandle() !=
@@ -7961,7 +8152,13 @@ void ContentManager::resourceStreamOpened(const Ogre::String& name, const Ogre::
                         static_cast<std::size_t>(
                             metadata->source.
                                 resource_state_count_before_load) &&
-                    resource->isLoading() && !resource->isLoaded() &&
+                    // The pinned pre-open and stream-opened callbacks both run
+                    // inside ResourceGroupManager::openResource(), before
+                    // Resource::load() publishes LOADSTATE_LOADING. Retain only
+                    // an unloaded exact owner here; loaded resolution later
+                    // requires state_count_before_load + 1, proving the one
+                    // successful native load that consumed these bytes.
+                    !resource->isLoaded() &&
                     by_handle && by_name && by_handle.get() == resource &&
                     by_name.get() == resource;
 
@@ -7981,8 +8178,6 @@ void ContentManager::resourceStreamOpened(const Ogre::String& name, const Ogre::
                         committed_selected_source = true;
                     }
                 }
-                this->EraseSelectedTextureSourceStageLocked(resource);
-
                 if (!committed_selected_source)
                 {
                     // Name the exact clause that refused, once per texture.
@@ -8023,8 +8218,10 @@ void ContentManager::resourceStreamOpened(const Ogre::String& name, const Ogre::
                     // Texture has not yet completed its load. Drop the
                     // pre-publication candidate and allow ordinary OGRE
                     // loading to continue without a selected-source receipt.
+                    this->EraseSelectedTextureSourceStageLocked(resource);
                     return;
                 }
+                this->EraseSelectedTextureSourceStageLocked(resource);
             }
             else
             {

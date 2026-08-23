@@ -10,6 +10,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 HEADER = ROOT / "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h"
 SOURCE = ROOT / "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
+SELECTED_SOURCE = ROOT / "source/main/gfx/ogre14/Ogre14SelectedTextureSource.cpp"
 CONTENT_HEADER = ROOT / "source/main/resources/ContentManager.h"
 CONTENT_SOURCE = ROOT / "source/main/resources/ContentManager.cpp"
 CACHE_SOURCE = ROOT / "source/main/resources/CacheSystem.cpp"
@@ -94,6 +95,7 @@ class Ogre14AuthenticatedTextureReceiptContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.header = HEADER.read_text(encoding="utf-8")
         cls.source = SOURCE.read_text(encoding="utf-8")
+        cls.selected_source = SELECTED_SOURCE.read_text(encoding="utf-8")
         cls.content_header = CONTENT_HEADER.read_text(encoding="utf-8")
         cls.content_source = CONTENT_SOURCE.read_text(encoding="utf-8")
         cls.cache_source = CACHE_SOURCE.read_text(encoding="utf-8")
@@ -228,6 +230,20 @@ class Ogre14AuthenticatedTextureReceiptContractTests(unittest.TestCase):
             1,
         )[1].split("bool ContentManager::resourceStreamOpeningEnabled", 1)[0]
         self.assertNotIn("exact_file_info == nullptr", stream_open)
+        # Pinned OGRE 14 invokes both source-stream seams while the resource is
+        # still unloaded. Publication binds that unloaded owner; the loaded
+        # resolution is the later gate that requires exactly one state advance.
+        self.assertNotIn("!resource->isLoading()", stream_open)
+        stream_opened = self.content_source.split(
+            "void ContentManager::resourceStreamOpened", 1
+        )[1]
+        self.assertNotIn("resource->isLoading() &&", stream_opened)
+        self.assertIn("!resource->isLoaded() &&", stream_opened)
+        self.assertIn(
+            "loaded_resource_state_count !=\n"
+            "          metadata->source.resource_state_count_before_load + 1U",
+            self.selected_source,
+        )
         for token in (
             "const Ogre::FileInfo* effective_file_info = exact_file_info;",
             "if (effective_file_info == nullptr)",
