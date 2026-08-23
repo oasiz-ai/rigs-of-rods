@@ -17,14 +17,18 @@ warning.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import platform
 import re
+import shutil
 import subprocess
 import sys
+import time
 from typing import Mapping, Sequence
 
 
@@ -262,10 +266,21 @@ OGRE_NEXT_PRESENTATION_OWNER_RECEIPT = (
     "[RoR|RendererCombined|Startup] presentation_owner=ogre-next "
     "visible_window=true legacy_visible_fallback=false"
 )
+OGRE_NEXT_PRESENTATION_BACKEND_PATTERN = re.compile(
+    re.escape(OGRE_NEXT_PRESENTATION_OWNER_RECEIPT)
+    + r" backend=(?P<backend>ogre-next-(?:metal|vulkan|d3d11))"
+)
 OGRE14_HIDDEN_RESOURCE_HOST_RECEIPT = (
     "[RoR|RendererCombined|Startup] resource_host=ogre14 "
     "visible_window=false protected=true"
 )
+ACTOR_CONTROL_PATTERN = re.compile(
+    r"\[RoR\|RendererCombined\|ActorControl\](?P<body>[^\r\n]+)"
+)
+ACTOR_CONTROL_FIELD_PATTERN = re.compile(
+    r"(?P<name>[a-z][a-z0-9_]*)=(?P<value>\S+)"
+)
+ACTOR_CONTROL_SPAWN_MARKER = "== Spawning vehicle:"
 
 
 def effective_graphics_settings(text: str) -> dict[str, str]:
@@ -424,7 +439,6 @@ def verify_combined_native_distance_lod(text: str) -> dict[str, object]:
         raise PerformanceSceneFailure(
             "the native lighting/LOD receipt contains a non-integer counter"
         ) from error
-
     if numbers["schema_version"] < 6:
         raise PerformanceSceneFailure(
             "the native lighting receipt predates exact distance-LOD audit v6"
@@ -533,7 +547,9 @@ def read_scene_source_timing(text: str) -> dict[str, object]:
     return {"captures": captures, "mean_ns": fields}
 
 
-def verify_combined_presentation_ownership(text: str) -> dict[str, object]:
+def verify_combined_presentation_ownership(
+    text: str, target_platform: str
+) -> dict[str, object]:
     """Prove Ogre-Next, not the hidden resource host, owns presentation."""
 
     visible_receipts = text.count(OGRE_NEXT_PRESENTATION_OWNER_RECEIPT)
@@ -548,13 +564,145 @@ def verify_combined_presentation_ownership(text: str) -> dict[str, object]:
             "the combined runtime did not emit exactly one protected hidden "
             f"resource-host receipt: observed={hidden_receipts}"
         )
+    backend_receipts = OGRE_NEXT_PRESENTATION_BACKEND_PATTERN.findall(text)
+    expected_backends = {
+        "darwin": "ogre-next-metal",
+        "linux": "ogre-next-vulkan",
+        "win32": "ogre-next-d3d11",
+    }
+    expected_backend = expected_backends.get(target_platform)
+    if backend_receipts != [expected_backend]:
+        raise PerformanceSceneFailure(
+            "the visible Ogre-Next backend receipt does not match the host: "
+            f"observed={backend_receipts!r}, expected={expected_backend!r}"
+        )
     return {
         "presentation_owner": "ogre-next",
+        "visible_render_system": expected_backend,
         "visible_window": True,
         "legacy_visible_fallback": False,
         "resource_host": "ogre14",
         "resource_host_visible": False,
         "resource_host_protected": True,
+    }
+
+
+def verify_combined_actor_control(text: str) -> dict[str, object]:
+    """Validate one native-window -> actor -> Ogre-Next frame receipt."""
+
+    receipts = list(ACTOR_CONTROL_PATTERN.finditer(text))
+    if len(receipts) != 1:
+        raise PerformanceSceneFailure(
+            "the combined runtime did not emit exactly one actor-control "
+            f"receipt: observed={len(receipts)}"
+        )
+    fields: dict[str, str] = {}
+    for match in ACTOR_CONTROL_FIELD_PATTERN.finditer(
+        receipts[0].group("body")
+    ):
+        name = match.group("name")
+        if name in fields:
+            raise PerformanceSceneFailure(
+                f"the actor-control receipt repeats field {name}"
+            )
+        fields[name] = match.group("value")
+
+    exact = {
+        "schema": "ror.ogre_next_actor_control_receipt.v1",
+        "qualified": "true",
+        "input_source": "visible_window_sdl",
+        "presenter": "ogre-next",
+        "legacy_visible_fallback": "false",
+        "control": "truck_accelerate",
+    }
+    wrong = {
+        name: (fields.get(name), expected)
+        for name, expected in exact.items()
+        if fields.get(name) != expected
+    }
+    if wrong:
+        raise PerformanceSceneFailure(
+            "the actor-control receipt identity changed: "
+            + ", ".join(
+                f"{name}={actual!r}, expected {expected!r}"
+                for name, (actual, expected) in sorted(wrong.items())
+            )
+        )
+
+    integer_names = (
+        "actor_instance_id",
+        "key",
+        "press_transition",
+        "press_event_id",
+        "press_frame_id",
+        "press_dynamic_updates",
+        "press_scene_draws",
+        "release_transition",
+        "release_event_id",
+        "release_frame_id",
+        "release_dynamic_updates",
+        "release_scene_draws",
+    )
+    float_names = (
+        "press_issued",
+        "press_resolved",
+        "release_issued",
+        "release_resolved",
+    )
+    missing = sorted(
+        (set(integer_names) | set(float_names)) - fields.keys()
+    )
+    if missing:
+        raise PerformanceSceneFailure(
+            "the actor-control receipt is missing: " + ", ".join(missing)
+        )
+    try:
+        integers = {name: int(fields[name]) for name in integer_names}
+        floats = {name: float(fields[name]) for name in float_names}
+    except ValueError as error:
+        raise PerformanceSceneFailure(
+            "the actor-control receipt contains a malformed number"
+        ) from error
+    if any(not math.isfinite(value) for value in floats.values()):
+        raise PerformanceSceneFailure(
+            "the actor-control receipt contains a non-finite value"
+        )
+
+    positive = tuple(name for name in integer_names if name != "actor_instance_id")
+    if integers["actor_instance_id"] < 0 or any(
+        integers[name] <= 0 for name in positive
+    ):
+        raise PerformanceSceneFailure(
+            "the actor-control receipt contains a non-positive identity or "
+            "native-scene counter"
+        )
+    if not (
+        integers["release_transition"] > integers["press_transition"]
+        and integers["release_event_id"] >= integers["press_event_id"]
+        and integers["release_frame_id"] > integers["press_frame_id"]
+    ):
+        raise PerformanceSceneFailure(
+            "the actor-control press/release/native-frame order is invalid"
+        )
+    if not (
+        floats["press_issued"] >= 0.5
+        and floats["press_resolved"] >= 0.25
+        and abs(floats["release_issued"]) <= 0.001
+        and abs(floats["release_resolved"]) <= 0.05
+    ):
+        raise PerformanceSceneFailure(
+            "the actor-control issued/resolved values do not prove press and "
+            "release"
+        )
+    return {
+        "schema": exact["schema"],
+        "qualified": True,
+        "input_source": exact["input_source"],
+        "presenter": exact["presenter"],
+        "legacy_visible_fallback": False,
+        "control": exact["control"],
+        **integers,
+        **floats,
     }
 
 
@@ -1204,6 +1352,227 @@ def build_environment(
     return environment
 
 
+def wait_for_runtime_marker(
+    log_path: Path,
+    marker: str,
+    process: subprocess.Popen[bytes],
+    timeout_seconds: float,
+) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        returncode = process.poll()
+        if returncode is not None:
+            raise PerformanceSceneFailure(
+                f"the runtime exited with code {returncode} before {marker!r}"
+            )
+        try:
+            if marker in log_path.read_text(
+                encoding="utf-8", errors="replace"
+            ):
+                return
+        except FileNotFoundError:
+            pass
+        time.sleep(0.1)
+    raise PerformanceSceneFailure(
+        f"the runtime did not emit {marker!r} within {timeout_seconds:.0f}s"
+    )
+
+
+def drive_linux_up_key(process_id: int, hold_seconds: float) -> str:
+    xdotool = shutil.which("xdotool")
+    if xdotool is None:
+        raise PerformanceSceneFailure(
+            "--qualify-actor-control requires xdotool on Linux"
+        )
+    deadline = time.monotonic() + 30.0
+    window = ""
+    while time.monotonic() < deadline:
+        found = subprocess.run(
+            [xdotool, "search", "--onlyvisible", "--pid", str(process_id)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=5,
+        )
+        candidates = found.stdout.decode("ascii", errors="ignore").split()
+        if found.returncode == 0 and candidates:
+            window = candidates[-1]
+            break
+        time.sleep(0.1)
+    if not window:
+        raise PerformanceSceneFailure(
+            "xdotool found no visible runtime window owned by the child PID"
+        )
+    subprocess.run(
+        [xdotool, "windowfocus", "--sync", window],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        timeout=10,
+    )
+    subprocess.run(
+        [xdotool, "keydown", "Up"],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        timeout=10,
+    )
+    time.sleep(hold_seconds)
+    subprocess.run(
+        [xdotool, "keyup", "Up"],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        timeout=10,
+    )
+    return "x11-xtest-xdotool"
+
+
+def find_windows_process_window(process_id: int) -> int:
+    user32 = ctypes.windll.user32
+    windows: list[int] = []
+    callback_type = ctypes.WINFUNCTYPE(
+        ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p
+    )
+
+    @callback_type
+    def visit(window: int, _: int) -> bool:
+        owner = ctypes.c_ulong()
+        user32.GetWindowThreadProcessId(window, ctypes.byref(owner))
+        if owner.value == process_id and user32.IsWindowVisible(window):
+            windows.append(int(window))
+        return True
+
+    user32.EnumWindows(visit, 0)
+    return windows[-1] if windows else 0
+
+
+def drive_windows_up_key(process_id: int, hold_seconds: float) -> str:
+    user32 = ctypes.windll.user32
+    user32.ShowWindow.argtypes = (ctypes.c_void_p, ctypes.c_int)
+    user32.PostMessageW.argtypes = (
+        ctypes.c_void_p,
+        ctypes.c_uint,
+        ctypes.c_size_t,
+        ctypes.c_ssize_t,
+    )
+    user32.PostMessageW.restype = ctypes.c_bool
+    deadline = time.monotonic() + 30.0
+    window = 0
+    while time.monotonic() < deadline:
+        window = find_windows_process_window(process_id)
+        if window:
+            break
+        time.sleep(0.1)
+    if not window:
+        raise PerformanceSceneFailure(
+            "User32 found no visible runtime window owned by the child PID"
+        )
+    user32.ShowWindow(window, 5)
+    # Send the transition to the exact child-owned HWND. SDL's Win32 event
+    # pump converts these OS messages before the game target sees them; the
+    # process under test still contains no synthetic input hook.
+    if not user32.PostMessageW(window, 0x0100, 0x26, 0x01480001):
+        raise PerformanceSceneFailure(
+            "User32 could not post Up Arrow down to the runtime window"
+        )
+    time.sleep(hold_seconds)
+    if not user32.PostMessageW(window, 0x0101, 0x26, 0xC1480001):
+        raise PerformanceSceneFailure(
+            "User32 could not post Up Arrow release to the runtime window"
+        )
+    return "win32-user32-window-message"
+
+
+def drive_macos_up_key(process_id: int, hold_seconds: float) -> str:
+    osascript = shutil.which("osascript")
+    if osascript is None:
+        raise PerformanceSceneFailure(
+            "--qualify-actor-control requires osascript on macOS"
+        )
+    focus = subprocess.run(
+        [
+            osascript,
+            "-e",
+            "tell application \"System Events\" to set frontmost of "
+            f"first application process whose unix id is {process_id} "
+            "to true",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=10,
+    )
+    if focus.returncode != 0:
+        raise PerformanceSceneFailure(
+            "System Events could not focus the runtime window: "
+            + focus.stderr.decode("utf-8", errors="replace").strip()
+        )
+    application_services = ctypes.CDLL(
+        "/System/Library/Frameworks/ApplicationServices.framework/"
+        "ApplicationServices"
+    )
+    core_foundation = ctypes.CDLL(
+        "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
+    )
+    application_services.CGEventCreateKeyboardEvent.restype = ctypes.c_void_p
+    application_services.CGEventCreateKeyboardEvent.argtypes = (
+        ctypes.c_void_p,
+        ctypes.c_ushort,
+        ctypes.c_bool,
+    )
+    application_services.CGEventPost.argtypes = (
+        ctypes.c_uint32, ctypes.c_void_p
+    )
+    core_foundation.CFRelease.argtypes = (ctypes.c_void_p,)
+
+    def post(pressed: bool) -> None:
+        # 0x7e is the hardware-independent macOS virtual key for Up Arrow.
+        event = application_services.CGEventCreateKeyboardEvent(
+            None, 0x7E, pressed
+        )
+        if not event:
+            raise PerformanceSceneFailure(
+                "CoreGraphics could not create the Up Arrow event"
+            )
+        try:
+            # kCGHIDEventTap routes through the same focused system event
+            # path as physical keyboard input. The runner has already made
+            # the exact child process frontmost, so no in-process test hook is
+            # involved.
+            application_services.CGEventPost(0, event)
+        finally:
+            core_foundation.CFRelease(event)
+
+    post(True)
+    time.sleep(hold_seconds)
+    post(False)
+    return "macos-coregraphics-hid-event"
+
+
+def drive_external_actor_control(
+    target_platform: str,
+    process_id: int,
+    hold_seconds: float = 3.0,
+) -> dict[str, object]:
+    if target_platform == "linux":
+        backend = drive_linux_up_key(process_id, hold_seconds)
+    elif target_platform == "win32":
+        backend = drive_windows_up_key(process_id, hold_seconds)
+    elif target_platform == "darwin":
+        backend = drive_macos_up_key(process_id, hold_seconds)
+    else:
+        raise PerformanceSceneFailure(
+            f"actor-control qualification is unsupported on {target_platform}"
+        )
+    return {
+        "process_external": True,
+        "backend": backend,
+        "key": "up",
+        "hold_seconds": hold_seconds,
+    }
+
+
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--executable", required=True, type=Path)
@@ -1240,6 +1609,23 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         "--measure-only",
         action="store_true",
         help="record the distribution without enforcing the budget",
+    )
+    parser.add_argument(
+        "--qualify-actor-control",
+        action="store_true",
+        help=(
+            "drive Up Arrow through the host OS and require a visible-window "
+            "SDL -> authoritative truck -> completed Ogre-Next frame receipt"
+        ),
+    )
+    parser.add_argument(
+        "--actor-control-hold-seconds",
+        type=float,
+        default=3.0,
+        help=(
+            "seconds to hold Up Arrow during actor-control qualification; "
+            "the default spans the slow software-rendered CI cadence"
+        ),
     )
     parser.add_argument("--timeout", type=int, default=1800)
     parser.add_argument("--repository", type=Path, default=Path.cwd())
@@ -1283,16 +1669,47 @@ def main(argv: Sequence[str] | None = None) -> int:
             artifact_dir, request, args.mod_archive, executable)
         command = build_command(
             executable, request, args.launcher_argument)
-        completed = subprocess.run(
-            list(command),
-            env=build_environment(isolated_home, request),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            timeout=args.timeout,
-            check=False,
-        )
-        console = completed.stdout.decode("utf-8", errors="replace")
-        (artifact_dir / "console.txt").write_text(console, encoding="utf-8")
+        if args.qualify_actor_control and not request.actor:
+            raise PerformanceSceneFailure(
+                "--qualify-actor-control requires an explicit actor"
+            )
+        if not (0.05 <= args.actor_control_hold_seconds <= 30.0):
+            raise PerformanceSceneFailure(
+                "--actor-control-hold-seconds must be between 0.05 and 30"
+            )
+        driver: dict[str, object] | None = None
+        console_path = artifact_dir / "console.txt"
+        with console_path.open("wb") as console_stream:
+            process = subprocess.Popen(
+                list(command),
+                env=build_environment(isolated_home, request),
+                stdout=console_stream,
+                stderr=subprocess.STDOUT,
+            )
+            started = time.monotonic()
+            try:
+                if args.qualify_actor_control:
+                    wait_for_runtime_marker(
+                        layout["logs"] / "RoR.log",
+                        ACTOR_CONTROL_SPAWN_MARKER,
+                        process,
+                        min(120.0, float(args.timeout)),
+                    )
+                    driver = drive_external_actor_control(
+                        request.target_platform,
+                        process.pid,
+                        args.actor_control_hold_seconds,
+                    )
+                remaining = max(
+                    0.1, float(args.timeout) - (time.monotonic() - started)
+                )
+                returncode = process.wait(timeout=remaining)
+            except BaseException:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait()
+                raise
+        console = console_path.read_text(encoding="utf-8", errors="replace")
 
         log_text = read_runtime_log(layout["logs"] / "RoR.log")
         (artifact_dir / "RoR.log").write_text(log_text, encoding="utf-8")
@@ -1303,7 +1720,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # and a crashed run must not be reported as a mere missing file.
         if not request.receipt_path.is_file():
             raise PerformanceSceneFailure(
-                f"the runtime exited with code {completed.returncode} without "
+                f"the runtime exited with code {returncode} without "
                 f"retaining a receipt at {request.receipt_path}; the run did "
                 "not reach the end of its render loop"
             )
@@ -1318,22 +1735,36 @@ def main(argv: Sequence[str] | None = None) -> int:
             combined_runtime=combined_runtime,
         )
         if combined_runtime:
-            identity["presentation_ownership"] = (
-                verify_combined_presentation_ownership(log_text)
+            ownership = verify_combined_presentation_ownership(
+                log_text, request.target_platform
             )
+            identity["resource_host_render_system"] = identity.pop(
+                "render_system"
+            )
+            identity["render_system"] = ownership["visible_render_system"]
+            identity["presentation_ownership"] = ownership
             identity["native_distance_lod"] = (
                 verify_combined_native_distance_lod(log_text)
             )
             identity["scene_source_timing"] = read_scene_source_timing(
                 log_text
             )
-
-        if completed.returncode != 0:
+            if args.qualify_actor_control:
+                identity["actor_control"] = verify_combined_actor_control(
+                    log_text
+                )
+                identity["actor_control_driver"] = driver
+        elif args.qualify_actor_control:
             raise PerformanceSceneFailure(
-                f"the runtime exited with code {completed.returncode}"
+                "actor-control qualification requires RoR-Combined"
+            )
+
+        if returncode != 0:
+            raise PerformanceSceneFailure(
+                f"the runtime exited with code {returncode}"
                 + (
                     " (frame-time budget failure)"
-                    if completed.returncode == BUDGET_FAILURE_EXIT_CODE
+                    if returncode == BUDGET_FAILURE_EXIT_CODE
                     else ""
                 )
             )
@@ -1376,6 +1807,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     except subprocess.TimeoutExpired:
         print(
             f"FAIL the runtime exceeded {args.timeout} seconds",
+            file=sys.stderr,
+        )
+        return 1
+    except subprocess.CalledProcessError as exc:
+        print(
+            "FAIL the external actor-control driver failed: "
+            f"command={exc.cmd!r} returncode={exc.returncode}",
             file=sys.stderr,
         )
         return 1

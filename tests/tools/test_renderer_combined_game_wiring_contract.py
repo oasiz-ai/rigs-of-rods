@@ -28,6 +28,12 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         cls.input_engine = (
             ROOT / "source/main/utils/InputEngine.cpp"
         ).read_text(encoding="utf-8")
+        cls.input_target_h = (
+            ROOT / "source/main/system/RendererGameInputEngineTarget.h"
+        ).read_text(encoding="utf-8")
+        cls.input_target = (
+            ROOT / "source/main/system/RendererGameInputEngineTarget.cpp"
+        ).read_text(encoding="utf-8")
         cls.loading = (
             ROOT / "source/main/gui/panels/GUI_LoadingWindow.cpp"
         ).read_text(encoding="utf-8")
@@ -245,7 +251,7 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             self.main[prepare:legacy_setup],
         )
         self.assertIn(
-            '"visible_window=true legacy_visible_fallback=false"',
+            '"visible_window=true legacy_visible_fallback=false backend={}"',
             self.main[prepare:legacy_setup],
         )
 
@@ -770,7 +776,7 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
 
         metric_injection = self.context[
             self.context.index("InjectRendererInputDisplayMetrics(") :
-            self.context.index("void AppContext::InjectRendererInputKey")
+            self.context.index("bool AppContext::InjectRendererInputKey")
         ]
         self.assertIn("ResolveRenderDisplayMetrics(", metric_injection)
         self.assertIn("m_display_metrics = next", metric_injection)
@@ -821,6 +827,42 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         shutdown_guard = "bool                 m_window_shutdown_requested = false;"
         self.assertEqual(self.context_h.count(shutdown_guard), 1)
         self.assertGreater(self.context_h.index(shutdown_guard), apple_members_end)
+
+    def test_actor_control_receipt_is_bound_to_real_input_and_native_frames(
+        self,
+    ) -> None:
+        for token in (
+            "RendererGameInputEngineAudit",
+            "key_transitions",
+            "reconciled_event_id",
+            "reconciled_key_transitions",
+            "reconciled_pressed_transition",
+            "reconciled_released_transition",
+            "reconciled_pressed_delivered",
+            "reconciled_released_delivered",
+            "last_reconcile_succeeded",
+        ):
+            self.assertIn(token, self.input_target_h)
+        self.assertIn("++audit_.key_transitions;", self.input_target)
+        self.assertIn("audit_.reconciled_event_id = state.through_event_id;", self.input_target)
+        self.assertIn("input->ApplyRendererInput(state)", self.input_target)
+
+        receipt = self.main[
+            self.main.index("class RendererCombinedActorControlQualification") :
+            self.main.index("#endif", self.main.index("class RendererCombinedActorControlQualification"))
+        ]
+        for token in (
+            "EV_TRUCK_ACCELERATE",
+            "actor->ar_engine->getAcc()",
+            "last_native_renderer_frame_id != frame_id",
+            "scene.last_dynamic_updates == 0U",
+            "schema=ror.ogre_next_actor_control_receipt.v1",
+            "input_source=visible_window_sdl",
+            "presenter=ogre-next",
+            "legacy_visible_fallback=false",
+        ):
+            self.assertIn(token, receipt)
+        self.assertNotIn("SDL_PushEvent", receipt)
 
 
 if __name__ == "__main__":

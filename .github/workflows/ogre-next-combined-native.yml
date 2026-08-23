@@ -107,7 +107,8 @@ jobs:
             mesa-utils \
             vulkan-tools \
             xauth \
-            xvfb
+            xvfb \
+            xdotool
           lvp_icd="$(find /usr/share/vulkan/icd.d -name 'lvp*json' -print -quit)"
           test -n "$lvp_icd"
           echo "VK_ICD_FILENAMES=$lvp_icd" >> "$GITHUB_ENV"
@@ -465,11 +466,12 @@ jobs:
             --width 1280 \
             --height 720 \
             --warmup-frames 2 \
-            --minimum-frames 12 \
-            --frames 12 \
+            --minimum-frames 24 \
+            --frames 24 \
             --sustained-ms 1000 \
             --percentile 99 \
             --percentile-ms 1000 \
+            --qualify-actor-control \
             --measure-only \
             --timeout 180
           python - "$scene/performance-run.json" <<'PY'
@@ -486,9 +488,9 @@ jobs:
               "renderer": "ogre-next-combined",
               "presents_frames": True,
               "requires_native_scene_draw_metrics": True,
-              "accepted_frames": 12,
+              "accepted_frames": 24,
               "rejected_frames": 0,
-              "native_scene_draw_exact_samples": 12,
+              "native_scene_draw_exact_samples": 24,
               "native_scene_draw_rejected_samples": 0,
           }
           for field, value in expected.items():
@@ -498,9 +500,14 @@ jobs:
                   )
           if renderer.get("startup_capture_rejections") != 0:
               raise SystemExit("packaged scene rejected an Ogre-Next capture")
+          if renderer.get("render_system") != "ogre-next-vulkan":
+              raise SystemExit("packaged scene did not identify visible Ogre-Next Vulkan")
+          if renderer.get("resource_host_render_system") != "OpenGL 3+ Rendering Subsystem":
+              raise SystemExit("packaged scene did not isolate the hidden OGRE14 resource host")
           ownership = renderer.get("presentation_ownership", {})
           if ownership != {
               "presentation_owner": "ogre-next",
+              "visible_render_system": "ogre-next-vulkan",
               "visible_window": True,
               "legacy_visible_fallback": False,
               "resource_host": "ogre14",
@@ -511,6 +518,12 @@ jobs:
           native = renderer.get("native_distance_lod", {})
           if native.get("available") is not True or native.get("pbs", 0) <= 0:
               raise SystemExit("packaged scene produced no native PBS/LOD frame")
+          control = renderer.get("actor_control", {})
+          if control.get("qualified") is not True or control.get("control") != "truck_accelerate":
+              raise SystemExit("packaged scene produced no qualified actor-control receipt")
+          driver = renderer.get("actor_control_driver", {})
+          if driver.get("process_external") is not True or driver.get("backend") != "x11-xtest-xdotool":
+              raise SystemExit("packaged scene did not use the external X11 input driver")
           PY
           grep -Fq '===== LOADING TERRAIN simple2_a.terrn2' "$scene/RoR.log"
           grep -Fq '== Spawning vehicle: Daf Semi truck' "$scene/RoR.log"
@@ -594,7 +607,7 @@ jobs:
                   "terrain": "simple2_a.terrn2",
                   "actor": "b6b0UID-semi.truck",
               },
-              "actor_control_qualified": False,
+              "actor_control_qualified": True,
               "playability_qualified": False,
               "artifact_transport": "github-actions-upload-artifact-v7",
               "transport_dereferences_file_symlinks": True,
@@ -1022,11 +1035,12 @@ jobs:
             --width 1280 `
             --height 720 `
             --warmup-frames 2 `
-            --minimum-frames 12 `
-            --frames 12 `
+            --minimum-frames 24 `
+            --frames 24 `
             --sustained-ms 1000 `
             --percentile 99 `
             --percentile-ms 1000 `
+            --qualify-actor-control `
             --measure-only `
             --timeout 180
           if ($LASTEXITCODE -ne 0) {
@@ -1048,9 +1062,9 @@ jobs:
               "renderer": "ogre-next-combined",
               "presents_frames": True,
               "requires_native_scene_draw_metrics": True,
-              "accepted_frames": 12,
+              "accepted_frames": 24,
               "rejected_frames": 0,
-              "native_scene_draw_exact_samples": 12,
+              "native_scene_draw_exact_samples": 24,
               "native_scene_draw_rejected_samples": 0,
           }
           for field, value in expected.items():
@@ -1060,9 +1074,14 @@ jobs:
                   )
           if renderer.get("startup_capture_rejections") != 0:
               raise SystemExit("packaged Windows scene rejected an Ogre-Next capture")
+          if renderer.get("render_system") != "ogre-next-d3d11":
+              raise SystemExit("packaged Windows scene did not identify visible Ogre-Next D3D11")
+          if renderer.get("resource_host_render_system") != "Direct3D11 Rendering Subsystem":
+              raise SystemExit("packaged Windows scene did not isolate the hidden OGRE14 resource host")
           ownership = renderer.get("presentation_ownership", {})
           if ownership != {
               "presentation_owner": "ogre-next",
+              "visible_render_system": "ogre-next-d3d11",
               "visible_window": True,
               "legacy_visible_fallback": False,
               "resource_host": "ogre14",
@@ -1073,6 +1092,12 @@ jobs:
           native = renderer.get("native_distance_lod", {})
           if native.get("available") is not True or native.get("pbs", 0) <= 0:
               raise SystemExit("packaged Windows scene produced no native PBS/LOD frame")
+          control = renderer.get("actor_control", {})
+          if control.get("qualified") is not True or control.get("control") != "truck_accelerate":
+              raise SystemExit("packaged Windows scene produced no qualified actor-control receipt")
+          driver = renderer.get("actor_control_driver", {})
+          if driver.get("process_external") is not True or driver.get("backend") != "win32-user32-window-message":
+              raise SystemExit("packaged Windows scene did not use the external User32 input driver")
           if "--native-visual-showcase" in document.get("command", []):
               raise SystemExit("packaged Windows scene selected renderer-only showcase")
           '@ | python -
@@ -1133,7 +1158,7 @@ jobs:
                   "terrain": "simple2_a.terrn2",
                   "actor": "b6b0UID-semi.truck",
               },
-              "actor_control_qualified": False,
+              "actor_control_qualified": True,
               "playability_qualified": False,
               "artifact_transport": "github-actions-upload-artifact-v7",
               "all_transport_files_inventoried": True,

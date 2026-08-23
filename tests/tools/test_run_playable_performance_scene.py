@@ -579,23 +579,69 @@ class ConfigurationTests(unittest.TestCase):
     def test_combined_presentation_ownership_rejects_legacy_visibility(self) -> None:
         receipts = (
             runner.OGRE_NEXT_PRESENTATION_OWNER_RECEIPT
+            + " backend=ogre-next-metal"
             + "\n"
             + runner.OGRE14_HIDDEN_RESOURCE_HOST_RECEIPT
             + "\n"
         )
-        ownership = runner.verify_combined_presentation_ownership(receipts)
+        ownership = runner.verify_combined_presentation_ownership(
+            receipts, "darwin"
+        )
         self.assertEqual(ownership["presentation_owner"], "ogre-next")
+        self.assertEqual(
+            ownership["visible_render_system"], "ogre-next-metal"
+        )
         self.assertFalse(ownership["legacy_visible_fallback"])
         self.assertFalse(ownership["resource_host_visible"])
 
         with self.assertRaises(runner.PerformanceSceneFailure):
             runner.verify_combined_presentation_ownership(
-                receipts.replace("visible_window=false", "visible_window=true")
+                receipts.replace("visible_window=false", "visible_window=true"),
+                "darwin",
             )
         with self.assertRaises(runner.PerformanceSceneFailure):
             runner.verify_combined_presentation_ownership(
-                receipts + runner.OGRE_NEXT_PRESENTATION_OWNER_RECEIPT
+                receipts + runner.OGRE_NEXT_PRESENTATION_OWNER_RECEIPT,
+                "darwin",
             )
+        with self.assertRaises(runner.PerformanceSceneFailure):
+            runner.verify_combined_presentation_ownership(
+                receipts, "linux"
+            )
+
+    def test_actor_control_receipt_binds_press_release_and_native_frames(
+        self,
+    ) -> None:
+        statement = (
+            "[RoR|RendererCombined|ActorControl] "
+            "schema=ror.ogre_next_actor_control_receipt.v1 "
+            "qualified=true input_source=visible_window_sdl "
+            "presenter=ogre-next legacy_visible_fallback=false "
+            "control=truck_accelerate actor_instance_id=0 key=200 "
+            "press_transition=1 press_event_id=8 press_issued=1 "
+            "press_resolved=1 press_frame_id=21 press_dynamic_updates=7 "
+            "press_scene_draws=30 release_transition=2 "
+            "release_event_id=8 release_issued=0 release_resolved=0 "
+            "release_frame_id=25 release_dynamic_updates=7 "
+            "release_scene_draws=30\n"
+        )
+        receipt = runner.verify_combined_actor_control(statement)
+        self.assertTrue(receipt["qualified"])
+        self.assertFalse(receipt["legacy_visible_fallback"])
+        self.assertEqual(receipt["actor_instance_id"], 0)
+        self.assertEqual(receipt["key"], 200)
+        self.assertLess(receipt["press_frame_id"], receipt["release_frame_id"])
+
+        for malformed in (
+            statement.replace("release_frame_id=25", "release_frame_id=21"),
+            statement.replace("release_event_id=8", "release_event_id=7"),
+            statement.replace("press_resolved=1", "press_resolved=0"),
+            statement.replace("legacy_visible_fallback=false", "legacy_visible_fallback=true"),
+            statement + statement,
+        ):
+            with self.subTest(malformed=malformed):
+                with self.assertRaises(runner.PerformanceSceneFailure):
+                    runner.verify_combined_actor_control(malformed)
 
     def test_a_missing_or_repeated_statement_is_refused(self) -> None:
         preset = runner.GRAPHICS_PRESETS["high"]

@@ -96,7 +96,7 @@ public:
     // reuse the same GUI/camera callbacks as local OIS/SDL events; InputEngine
     // held state is reconciled atomically after each renderer poll.
     bool                 InjectRendererInputDisplayMetrics(const RendererGameDisplayMetrics& metrics) noexcept;
-    void                 InjectRendererInputKey(OIS::KeyCode key, bool down) noexcept;
+    bool                 InjectRendererInputKey(OIS::KeyCode key, bool down) noexcept;
     bool                 InjectRendererInputMouseMotion(int x, int y, int dx, int dy) noexcept;
     bool                 InjectRendererInputMouseButton(OIS::MouseButtonID button, bool down) noexcept;
     bool                 InjectRendererInputMouseWheel(float x, float y) noexcept;

@@ -242,19 +242,21 @@ bool AppContext::InjectRendererInputDisplayMetrics(
     }
 }
 
-void AppContext::InjectRendererInputKey(OIS::KeyCode key, bool down) noexcept
+bool AppContext::InjectRendererInputKey(OIS::KeyCode key, bool down) noexcept
 {
     try
     {
+        if (App::GetInputEngine() == nullptr)
+            return false;
         const OIS::KeyEvent event(App::GetInputEngine()->GetOisKeyboard(),
                                   key, 0U);
         if (down)
-            (void)this->keyPressed(event);
-        else
-            (void)this->keyReleased(event);
+            return this->keyPressed(event);
+        return this->keyReleased(event);
     }
     catch (...)
     {
+        return false;
     }
 }
 

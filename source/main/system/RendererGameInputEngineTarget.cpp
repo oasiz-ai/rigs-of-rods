@@ -25,8 +25,17 @@ static_assert(static_cast<std::uint8_t>(
 bool RendererGameInputEngineTarget::ActivateInput() noexcept {
   direct_display_metrics_active_ = false;
   direct_transition_failed_ = false;
+  audit_ = RendererGameInputEngineAudit{};
+  last_pressed_transition_ = 0U;
+  last_released_transition_ = 0U;
+  last_pressed_key_ = RendererGameKey::UNASSIGNED;
+  last_released_key_ = RendererGameKey::UNASSIGNED;
+  last_pressed_delivered_ = false;
+  last_released_delivered_ = false;
   InputEngine *const input = App::GetInputEngine();
-  return input != nullptr && input->EnableRendererInput();
+  const bool activated = input != nullptr && input->EnableRendererInput();
+  audit_.available = activated;
+  return activated;
 }
 
 bool RendererGameInputEngineTarget::DisplayMetricsChanged(
@@ -39,8 +48,21 @@ bool RendererGameInputEngineTarget::DisplayMetricsChanged(
 
 void RendererGameInputEngineTarget::KeyChanged(RendererGameKey key,
                                                  bool pressed) noexcept {
-  App::GetAppContext()->InjectRendererInputKey(
+  ++audit_.key_transitions;
+  const bool delivered = App::GetAppContext()->InjectRendererInputKey(
       static_cast<OIS::KeyCode>(key), pressed);
+  InputEngine *const input = App::GetInputEngine();
+  const bool accepted =
+      delivered && input != nullptr && input->IsRendererInputActive();
+  if (pressed) {
+    last_pressed_transition_ = audit_.key_transitions;
+    last_pressed_key_ = key;
+    last_pressed_delivered_ = accepted;
+  } else {
+    last_released_transition_ = audit_.key_transitions;
+    last_released_key_ = key;
+    last_released_delivered_ = accepted;
+  }
 }
 
 void RendererGameInputEngineTarget::MouseMoved(
@@ -87,10 +109,23 @@ void RendererGameInputEngineTarget::WindowCloseRequested() noexcept {
 bool RendererGameInputEngineTarget::Reconcile(
     const RendererGameInputState &state) noexcept {
   InputEngine *const input = App::GetInputEngine();
-  return !direct_transition_failed_ && input != nullptr &&
-         (input->IsRendererInputActive() ||
-          input->EnableRendererInput()) &&
-         input->ApplyRendererInput(state);
+  const bool reconciled =
+      !direct_transition_failed_ && input != nullptr &&
+      (input->IsRendererInputActive() || input->EnableRendererInput()) &&
+      input->ApplyRendererInput(state);
+  ++audit_.reconciliations;
+  audit_.last_reconcile_succeeded = reconciled;
+  if (reconciled) {
+    audit_.reconciled_event_id = state.through_event_id;
+    audit_.reconciled_key_transitions = audit_.key_transitions;
+    audit_.reconciled_pressed_transition = last_pressed_transition_;
+    audit_.reconciled_released_transition = last_released_transition_;
+    audit_.reconciled_pressed_key = last_pressed_key_;
+    audit_.reconciled_released_key = last_released_key_;
+    audit_.reconciled_pressed_delivered = last_pressed_delivered_;
+    audit_.reconciled_released_delivered = last_released_delivered_;
+  }
+  return reconciled;
 }
 
 } // namespace RoR

@@ -30,6 +30,7 @@
 #include "Console.h"
 #include "ContentManager.h"
 #include "DiscordRpc.h"
+#include "Engine.h"
 #include "ErrorUtils.h"
 #include "FrameTimeBudget.h"
 #include "GameContext.h"
@@ -822,6 +823,158 @@ bool FinalizeFrameTimeBudgetSession(
     return report.mode != FrameTimeBudgetMode::GATE || report.passed();
 }
 
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+/// Binds one real visible-window key press and release to the authoritative
+/// truck input state and to two later completed Ogre-Next scene frames.  This
+/// is deliberately passive: normal launches never synthesize input, and no
+/// test hook can mint the receipt from inside the game process.
+class RendererCombinedActorControlQualification final
+{
+public:
+    void ObserveResolvedInput(
+        const RoR::RendererGameInputEngineAudit& input,
+        const RoR::ActorPtr& actor) noexcept
+    {
+        using namespace RoR;
+        if (qualified_ || actor == nullptr || actor->ar_driveable != TRUCK ||
+            actor->ar_engine == nullptr || !input.available ||
+            input.version < 2U || !input.last_reconcile_succeeded)
+        {
+            return;
+        }
+
+        const float issued = actor->getEventValue(EV_TRUCK_ACCELERATE);
+        const float resolved = actor->ar_engine->getAcc();
+        if (!press_resolved_ &&
+            input.reconciled_pressed_transition > press_transition_ &&
+            input.reconciled_pressed_delivered && issued >= 0.5F &&
+            resolved >= 0.25F)
+        {
+            actor_instance_id_ = actor->getInstanceId();
+            key_ = input.reconciled_pressed_key;
+            press_transition_ = input.reconciled_pressed_transition;
+            press_event_id_ = input.reconciled_event_id;
+            press_issued_ = issued;
+            press_resolved_value_ = resolved;
+            press_resolved_ = true;
+        }
+        if (press_resolved_ && !release_seen_ &&
+            input.reconciled_released_transition > press_transition_ &&
+            input.reconciled_released_key == key_ &&
+            input.reconciled_released_delivered)
+        {
+            release_transition_ = input.reconciled_released_transition;
+            release_event_id_ = input.reconciled_event_id;
+            release_seen_ = true;
+        }
+
+        if (release_seen_ && !release_resolved_ &&
+            actor->getInstanceId() == actor_instance_id_ &&
+            issued <= 0.001F && resolved <= 0.05F)
+        {
+            release_issued_ = issued;
+            release_resolved_value_ = resolved;
+            release_resolved_ = true;
+        }
+    }
+
+    void ObserveSceneSubmission(std::uint64_t frame_id) noexcept
+    {
+        if (qualified_ || frame_id == 0U)
+        {
+            return;
+        }
+        if (press_resolved_ && press_submitted_frame_ == 0U)
+        {
+            press_submitted_frame_ = frame_id;
+        }
+        else if (press_presented_ && release_resolved_ &&
+                 release_submitted_frame_ == 0U &&
+                 frame_id > press_presented_frame_)
+        {
+            release_submitted_frame_ = frame_id;
+        }
+    }
+
+    void ObserveCompletedFrame(
+        std::uint64_t frame_id,
+        const RoR::RendererRetainedSceneAudit& scene) noexcept
+    {
+        if (qualified_ || frame_id == 0U || !scene.available ||
+            scene.version < 6U ||
+            scene.last_native_renderer_frame_id != frame_id ||
+            !scene.last_native_pass_metrics_exact ||
+            scene.last_native_scene_draws == 0U ||
+            scene.retained_instances == 0U ||
+            scene.last_dynamic_updates == 0U)
+        {
+            return;
+        }
+        if (!press_presented_ && frame_id == press_submitted_frame_)
+        {
+            press_presented_ = true;
+            press_presented_frame_ = frame_id;
+            press_dynamic_updates_ = scene.last_dynamic_updates;
+            press_scene_draws_ = scene.last_native_scene_draws;
+            return;
+        }
+        if (press_presented_ && release_resolved_ &&
+            frame_id == release_submitted_frame_ &&
+            frame_id > press_presented_frame_)
+        {
+            release_presented_frame_ = frame_id;
+            release_dynamic_updates_ = scene.last_dynamic_updates;
+            release_scene_draws_ = scene.last_native_scene_draws;
+            qualified_ = true;
+            LOG(fmt::format(
+                "[RoR|RendererCombined|ActorControl] "
+                "schema=ror.ogre_next_actor_control_receipt.v1 "
+                "qualified=true input_source=visible_window_sdl "
+                "presenter=ogre-next legacy_visible_fallback=false "
+                "control=truck_accelerate actor_instance_id={} key={} "
+                "press_transition={} press_event_id={} press_issued={} "
+                "press_resolved={} press_frame_id={} "
+                "press_dynamic_updates={} press_scene_draws={} "
+                "release_transition={} release_event_id={} "
+                "release_issued={} release_resolved={} release_frame_id={} "
+                "release_dynamic_updates={} release_scene_draws={}",
+                actor_instance_id_, static_cast<unsigned int>(key_),
+                press_transition_, press_event_id_, press_issued_,
+                press_resolved_value_, press_presented_frame_,
+                press_dynamic_updates_, press_scene_draws_,
+                release_transition_, release_event_id_, release_issued_,
+                release_resolved_value_, release_presented_frame_,
+                release_dynamic_updates_, release_scene_draws_));
+        }
+    }
+
+private:
+    std::uint64_t press_transition_ = 0U;
+    std::uint64_t release_transition_ = 0U;
+    std::uint64_t press_event_id_ = 0U;
+    std::uint64_t release_event_id_ = 0U;
+    std::uint64_t press_submitted_frame_ = 0U;
+    std::uint64_t press_presented_frame_ = 0U;
+    std::uint64_t release_submitted_frame_ = 0U;
+    std::uint64_t release_presented_frame_ = 0U;
+    std::uint64_t press_dynamic_updates_ = 0U;
+    std::uint64_t release_dynamic_updates_ = 0U;
+    std::uint64_t press_scene_draws_ = 0U;
+    std::uint64_t release_scene_draws_ = 0U;
+    int actor_instance_id_ = -1;
+    RoR::RendererGameKey key_ = RoR::RendererGameKey::UNASSIGNED;
+    float press_issued_ = 0.0F;
+    float press_resolved_value_ = 0.0F;
+    float release_issued_ = 0.0F;
+    float release_resolved_value_ = 0.0F;
+    bool press_resolved_ = false;
+    bool press_presented_ = false;
+    bool release_seen_ = false;
+    bool release_resolved_ = false;
+    bool qualified_ = false;
+};
+#endif
+
 } // namespace
 
 #ifdef __cplusplus
@@ -979,6 +1132,8 @@ int main(int argc, char *argv[])
     Detail::OgreNextDemoInProcessFramePolicy renderer_combined_frame_policy;
     std::unique_ptr<RendererGameInputEngineTarget>
         renderer_combined_input_target;
+    RendererCombinedActorControlQualification
+        renderer_combined_actor_control_qualification;
     std::unique_ptr<Render::IJoinedGraphicsSceneSource>
         renderer_combined_scene_source;
     std::unique_ptr<Ogre14GuiOverlayCapture>
@@ -1186,8 +1341,17 @@ int main(int argc, char *argv[])
                 ToString(presenter_prepared)));
             return 70;
         }
-        LOG("[RoR|RendererCombined|Startup] presentation_owner=ogre-next "
-            "visible_window=true legacy_visible_fallback=false");
+#if defined(__APPLE__)
+        constexpr const char* combined_visible_backend = "ogre-next-metal";
+#elif defined(_WIN32)
+        constexpr const char* combined_visible_backend = "ogre-next-d3d11";
+#else
+        constexpr const char* combined_visible_backend = "ogre-next-vulkan";
+#endif
+        LOG(fmt::format(
+            "[RoR|RendererCombined|Startup] presentation_owner=ogre-next "
+            "visible_window=true legacy_visible_fallback=false backend={}",
+            combined_visible_backend));
 #endif
 
         // Make sure config directory exists - to save 'ogre.cfg'
@@ -3989,6 +4153,15 @@ int main(int argc, char *argv[])
                 combined_frame_now - start_time).count();
             start_time = combined_frame_now;
             record_frame_budget(dt);
+            if (renderer_combined_events_available &&
+                renderer_combined_events.status ==
+                    RendererInProcessSessionStatus::FRAME_COMPLETED)
+            {
+                renderer_combined_actor_control_qualification.
+                    ObserveCompletedFrame(
+                        renderer_combined_events.frontend_frame_id,
+                        renderer_combined_presenter.RetainedSceneAudit());
+            }
             if (frame_budget_session != nullptr &&
                 renderer_combined_events_available &&
                 renderer_combined_events.status ==
@@ -4122,6 +4295,17 @@ int main(int argc, char *argv[])
                     } // app state SIMULATION
                 } // interactive key binding mode
             } // dt != 0
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+            if (renderer_combined_input_target != nullptr &&
+                App::app_state->getEnum<AppState>() == AppState::SIMULATION &&
+                App::sim_state->getEnum<SimState>() == SimState::RUNNING)
+            {
+                renderer_combined_actor_control_qualification.
+                    ObserveResolvedInput(
+                        renderer_combined_input_target->Audit(),
+                        App::GetGameContext()->GetPlayerActor());
+            }
+#endif
             OgreProfileEnd("Input processing");
 
             if (world_model_capture_frame)
@@ -4324,6 +4508,23 @@ int main(int argc, char *argv[])
                     const RendererInProcessSessionResult scene_result =
                         renderer_combined_session->PostUpdatedScene(
                             *renderer_combined_scene_source);
+                    if (scene_result.scene_snapshot_id > 0U &&
+                        scene_result.frontend_frame_id > 0U &&
+                        !scene_result.terminal)
+                    {
+                        renderer_combined_actor_control_qualification.
+                            ObserveSceneSubmission(
+                                scene_result.frontend_frame_id);
+                    }
+                    if (scene_result.status ==
+                        RendererInProcessSessionStatus::FRAME_COMPLETED)
+                    {
+                        renderer_combined_actor_control_qualification.
+                            ObserveCompletedFrame(
+                                scene_result.frontend_frame_id,
+                                renderer_combined_presenter.
+                                    RetainedSceneAudit());
+                    }
                     if (frame_budget_session != nullptr)
                     {
                         // The session reports its own split between CPU scene
