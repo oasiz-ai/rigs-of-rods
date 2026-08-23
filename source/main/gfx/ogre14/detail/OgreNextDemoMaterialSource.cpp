@@ -42,6 +42,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 
 static_assert(
@@ -5478,8 +5479,27 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
     }
     OgreNextDemoMaterialApplyTiming candidate_timing;
     const auto input_index_started = std::chrono::steady_clock::now();
-    std::vector<Render::GraphicsSceneAssetInput> candidate = assets;
-    std::map<std::uint64_t, std::size_t> asset_indices;
+    const std::size_t retained_owner_asset_hint =
+        pending_->cache->retained_owner_assets_valid
+            ? pending_->cache->retained_owner_asset_count
+            : 0U;
+    if (retained_owner_asset_hint >
+        assets.max_size() - assets.size()) {
+      return Failure(Render::ValidationCode::EMPTY_PAYLOAD,
+                     "ogre_next_demo.material.assets",
+                     "retained owner count exceeds the asset inventory limit");
+    }
+    const std::size_t candidate_capacity =
+        assets.size() + retained_owner_asset_hint;
+    std::vector<Render::GraphicsSceneAssetInput> candidate;
+    candidate.reserve(candidate_capacity);
+    candidate.assign(assets.begin(), assets.end());
+    // This index has no ordering semantics: published assets are sorted by
+    // source_asset_id below. Reserve the stable retained-owner upper bound so
+    // the hot cache-hit path performs constant-time lookups without growing
+    // either the hash table or candidate vector while owners are appended.
+    std::unordered_map<std::uint64_t, std::size_t> asset_indices;
+    asset_indices.reserve(candidate_capacity);
     for (std::size_t index = 0U; index < candidate.size(); ++index) {
       const Render::GraphicsSceneAssetInput &asset = candidate[index];
       if (asset.source_asset_id == 0U ||
