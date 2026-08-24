@@ -24,6 +24,7 @@ SOUND_MANAGER_HEADER_PATH = (
 SOUND_MANAGER_SOURCE_PATH = (
     REPOSITORY_ROOT / "source/main/audio/SoundScriptManager.cpp"
 )
+MAIN_SOURCE_PATH = REPOSITORY_ROOT / "source/main/main.cpp"
 
 import sys
 
@@ -62,6 +63,22 @@ def valid_engine_log(archive_sha256: str) -> str:
 
 
 class JBeamMultiActorTSanSoakTests(unittest.TestCase):
+    def test_presentation_gate_tracks_the_current_authenticated_ready_marker(
+        self,
+    ) -> None:
+        marker = (
+            "[RoR|RendererCombined|Startup] Transport-free OgreNext "
+            "session ready after authenticated bootstrap presentation"
+        )
+        self.assertIn(marker, GATE.PRESENTATION_MARKERS)
+        main_source = MAIN_SOURCE_PATH.read_text(encoding="utf-8")
+        for fragment in (
+            '"[RoR|RendererCombined|Startup] Transport-free OgreNext "',
+            '"session ready after authenticated bootstrap presentation "',
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, main_source)
+
     def test_profile_binds_exact_continuous_product_soak(self) -> None:
         profile, profile_bytes, jbeam, script = GATE.read_profile(
             REPOSITORY_ROOT

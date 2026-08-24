@@ -74,7 +74,7 @@ PRESENTATION_MARKERS = (
     "[RoR|RendererCombined|Startup] resource_host=ogre14 "
     "visible_window=false protected=true",
     "[RoR|RendererCombined|Startup] Transport-free OgreNext "
-    "in-process session is ready",
+    "session ready after authenticated bootstrap presentation",
 )
 FATAL_MARKERS = (
     "[RoR|D0|TSanSoak] FAIL",
