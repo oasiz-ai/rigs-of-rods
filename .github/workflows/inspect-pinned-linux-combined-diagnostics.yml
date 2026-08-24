@@ -35,6 +35,7 @@ jobs:
           import os
           from pathlib import Path
           import stat
+          import struct
           import subprocess
 
           root = Path(os.environ["DIAGNOSTICS_ROOT"]).resolve(strict=True)
@@ -151,6 +152,45 @@ jobs:
                   "comparison": run_trace(
                       [str(record_traces[0]), str(resume_traces[0])]
                   ),
+              }
+
+              def parse_steps(path: Path) -> dict[int, dict[str, object]]:
+                  payload = path.read_bytes()
+                  records = payload[80:-56]
+                  if len(records) % 96 != 0:
+                      raise RuntimeError("validated trace record span is not fixed-width")
+                  parsed = {}
+                  for offset in range(0, len(records), 96):
+                      frame = records[offset : offset + 96]
+                      step, actor_count, contact_count = struct.unpack_from(
+                          "<QII", frame, 8
+                      )
+                      parsed[step] = {
+                          "actor_count": actor_count,
+                          "contact_count": contact_count,
+                          "state_digest": frame[24:56].hex(),
+                          "input_flags": struct.unpack_from("<I", frame, 56)[0],
+                          "input_digest": frame[60:92].hex(),
+                      }
+                  return parsed
+
+              record_steps = parse_steps(record_traces[0])
+              resume_steps = parse_steps(resume_traces[0])
+              overlapping_steps = sorted(set(record_steps) & set(resume_steps))
+              first_divergence = None
+              for step in overlapping_steps:
+                  if record_steps[step] != resume_steps[step]:
+                      first_divergence = {
+                          "physics_step": step,
+                          "record": record_steps[step],
+                          "resume": resume_steps[step],
+                      }
+                      break
+              trace_analysis["overlap_comparison"] = {
+                  "overlap_first_step": overlapping_steps[0] if overlapping_steps else None,
+                  "overlap_last_step": overlapping_steps[-1] if overlapping_steps else None,
+                  "overlap_step_count": len(overlapping_steps),
+                  "first_divergence": first_divergence,
               }
 
           summary = {
