@@ -381,7 +381,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     verify_terrain(runtime_content)
 
     isolated_home = artifact_dir / "work" / "p1-agora-impact-home"
-    layout = support.runtime_layout(isolated_home, sys.platform)
+    layout = support.runtime_layout(isolated_home, sys.platform, executable)
     for key in ("config", "logs", "mods"):
         layout[key].mkdir(parents=True, exist_ok=True)
     fixture_archive = layout["mods"] / "P1CalibratedAgoraImpact.zip"

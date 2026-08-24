@@ -10,6 +10,7 @@ on:
       - cmake/OgreNextEmbeddedRuntime.cmake
       - cmake/conan/**
       - cmake/linux/**
+      - cmake/macos/**
       - cmake/ogre_next_embedded/**
       - source/main/**
       - tools/linux/RunRoR-combined
@@ -35,6 +36,7 @@ on:
       - cmake/OgreNextEmbeddedRuntime.cmake
       - cmake/conan/**
       - cmake/linux/**
+      - cmake/macos/**
       - cmake/ogre_next_embedded/**
       - source/main/**
       - tools/linux/RunRoR-combined
@@ -734,6 +736,498 @@ jobs:
             ${{ runner.temp }}/ror-combined-build/ogre-next-embedded/*.json
             ${{ runner.temp }}/ror-combined-build/source/main/RoR-Combined.*
             ${{ runner.temp }}/ror-combined-stage/qualification/
+            ${{ runner.temp }}/ror-combined-packaged-scene/
+
+  macos-arm64-metal:
+    name: macOS arm64 Metal RoR-Combined
+    runs-on: macos-15
+    timeout-minutes: 180
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: "3"
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+      PYTHONDONTWRITEBYTECODE: "1"
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Isolate all generated macOS state from the source checkout
+        shell: bash
+        run: |
+          {
+            echo "CONAN_HOME=$RUNNER_TEMP/ror-combined-conan-home"
+            echo "ROR_COMBINED_ARTIFACTS_DIR=$RUNNER_TEMP/ror-combined-artifacts"
+            echo "ROR_COMBINED_BUILD_DIR=$RUNNER_TEMP/ror-combined-build"
+            echo "ROR_COMBINED_PACKAGE_DIR=$RUNNER_TEMP/ror-combined-macos-package"
+          } >> "$GITHUB_ENV"
+
+      - name: Install pinned Conan and Ninja clients
+        shell: bash
+        run: >-
+          python -m pip install
+          --disable-pip-version-check
+          conan==2.31.1
+          ninja==1.13.0
+
+      - name: Restore isolated Conan packages
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/ror-combined-conan-home
+          key: ogre-next-combined-macos-arm64-release-conan-2.31.1-${{ hashFiles('conanfile.py', 'cmake/conan/locks/*.lock', 'cmake/conan/profiles/*', 'cmake/conan/recipes/**', 'cmake/conan/export_pinned_dependency_recipes.py') }}
+
+      - name: Configure isolated Conan client
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          home = Path(os.environ["CONAN_HOME"])
+          home.mkdir(parents=True, exist_ok=True)
+          (home / "global.conf").write_text(
+              'core.sources:download_urls=["origin", "https://c3i.jfrog.io/artifactory/conan-center-backup-sources/"]\n',
+              encoding="utf-8",
+          )
+          PY
+          conan remote add conancenter https://center2.conan.io --force
+          conan --version
+          ninja --version
+
+      - name: Export pinned public RoR dependency recipes
+        shell: bash
+        run: |
+          cmake -E make_directory "$ROR_COMBINED_ARTIFACTS_DIR"
+          python cmake/conan/export_pinned_dependency_recipes.py \
+            --archive "$RUNNER_TEMP/ror-conan-recipes-d3568327.tar.gz" \
+            --extract-root "$RUNNER_TEMP/ror-conan-recipes-export" \
+            | tee "$ROR_COMBINED_ARTIFACTS_DIR/pinned-conan-recipes.json"
+
+      - name: Verify native runner, compiler, and pinned content
+        shell: bash
+        run: |
+          test "$(uname -m)" = "arm64"
+          test "$(git -C content rev-parse HEAD)" = \
+            "34fefdd126784bf87b068fc283f812525d159dd7"
+          xcodebuild -version
+          clang++ --version
+          otool --version
+          command -v codesign
+
+      - name: Run combined-runtime fail-closed contracts
+        shell: bash
+        run: |
+          python tests/tools/test_ogre_next_combined_provider_contract.py
+          python tests/tools/test_ogre_next_embedded_namespace_contract.py
+          python tests/tools/test_run_playable_performance_scene.py
+          python tests/tools/test_run_agora_impact_regression.py
+          python tests/tools/test_renderer_combined_game_wiring_contract.py
+          python -O tests/tools/test_ogre_next_combined_provider_contract.py
+          python -O tests/tools/test_ogre_next_embedded_namespace_contract.py
+          python -O tests/tools/test_run_playable_performance_scene.py
+          python -O tests/tools/test_run_agora_impact_regression.py
+          python -O tests/tools/test_renderer_combined_game_wiring_contract.py
+
+      - name: Verify the locked native Conan graph
+        shell: bash
+        run: |
+          python tests/tools/assert_ogre14_app_graph.py \
+            --platform macos-arm64 \
+            | tee "$ROR_COMBINED_ARTIFACTS_DIR/macos-arm64-conan-graph.json"
+
+      - name: Configure clean macOS RoR-Combined Release
+        shell: bash
+        run: |
+          test -z "$(git status --porcelain --untracked-files=no)"
+          cmake \
+            -S . \
+            -B "$ROR_COMBINED_BUILD_DIR" \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake \
+            -DCONAN_HOST_PROFILE="$GITHUB_WORKSPACE/cmake/conan/profiles/macos-arm64-release" \
+            -DCONAN_BUILD_PROFILE="$GITHUB_WORKSPACE/cmake/conan/profiles/macos-arm64-release" \
+            -DROR_BUILD_TESTS=OFF \
+            -DROR_BUILD_QUALIFICATION_TOOLS=ON \
+            -DROR_CREATE_CONTENT_FOLDER=ON \
+            -DROR_OGRE_NEXT_COMBINED_RUNTIME=ON \
+            -DROR_RENDERER_PUBLIC_LAUNCHER=OFF \
+            -DROR_OGRE_NEXT_PRODUCTION_PACKAGE=OFF \
+            -DROR_OGRE_NEXT_DEMO_ADMISSION=OFF
+
+      - name: Build and prove the final combined Mach-O closure
+        shell: bash
+        run: >-
+          cmake
+          --build "$ROR_COMBINED_BUILD_DIR"
+          --target ror_ogre_next_combined_verified
+          --config Release
+
+      - name: Require a qualification-eligible combined Mach-O receipt
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          build = Path(os.environ["ROR_COMBINED_BUILD_DIR"])
+          required = (
+              build / "bin/RoR-Combined",
+              build / "source/main/RoR-Combined.binary-closure.json",
+              build / "ogre-next-embedded/ogre-next-combined-namespace-audit.json",
+              build / "bin/resources/ogrenext/.complete.json",
+          )
+          for path in required:
+              if not path.is_file() or path.is_symlink():
+                  raise SystemExit(
+                      f"required combined build output is unavailable: {path}"
+                  )
+          document = json.loads(required[1].read_text(encoding="utf-8"))
+          expected = {
+              "schema": "ror.ogre_next_combined_binary_closure.v1",
+              "qualification_eligible": True,
+              "bridge_or_transport_symbols_present": False,
+              "bridge_or_transport_objects_present": False,
+              "root_sdl_symbols_present": False,
+              "ogre14_host_load_commands_present": True,
+          }
+          for field, value in expected.items():
+              if document.get(field) != value:
+                  raise SystemExit(
+                      f"combined Mach-O closure changed: {field}={document.get(field)!r}"
+                  )
+          PY
+
+      - name: Stage the one-process Ogre-Next application bundle
+        shell: bash
+        run: >-
+          cmake
+          --build "$ROR_COMBINED_BUILD_DIR"
+          --target ror_macos_combined_bundle
+          --config Release
+
+      - name: Audit the relocated Ogre-Next application bundle
+        shell: bash
+        run: |
+          build="$ROR_COMBINED_BUILD_DIR"
+          package="$ROR_COMBINED_PACKAGE_DIR"
+          app="$build/bin/RoR-Combined.app"
+          executable="$app/Contents/MacOS/RoR-Combined"
+          qualification="$package/qualification"
+          test -d "$app"
+          test -x "$executable"
+          test ! -e "$app/Contents/MacOS/RoR"
+          test ! -e "$app/Contents/MacOS/RoR-Ogre14"
+          test "$({
+            find "$app/Contents/MacOS" \
+              -maxdepth 1 -type f -perm -111 -print
+          } | wc -l | tr -d ' ')" = "1"
+          test -d "$app/Contents/Resources/resources/ogrenext/ShaderMedia"
+          test -d "$app/Contents/Resources/resources/ogrenext/Presentation"
+          test -f "$app/Contents/Resources/resources/ogrenext/.complete.json"
+          test -f "$app/Contents/Resources/content/simple2-terrain.zip"
+          test -f "$app/Contents/Resources/content/dafsemi.zip"
+          test -f "$app/Contents/Resources/content/agora.zip"
+          test "$(lipo -archs "$executable")" = "arm64"
+          test "$(
+            otool -l "$executable" |
+              awk '
+                /LC_BUILD_VERSION/ { in_build_version = 1; next }
+                in_build_version && $1 == "minos" { print $2; exit }
+              '
+          )" = "11.0"
+          test "$(
+            /usr/libexec/PlistBuddy \
+              -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist"
+          )" = "RoR-Combined"
+          test "$(
+            /usr/libexec/PlistBuddy \
+              -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist"
+          )" = "org.rigsofrods.RoR.OgreNextCombined"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          cmake -E make_directory "$qualification"
+          otool -L "$executable" \
+            | tee "$qualification/RoR-Combined.otool-L.txt"
+          otool -l "$executable" \
+            | tee "$qualification/RoR-Combined.otool-l.txt"
+          if grep -Fq "$build" \
+              "$qualification/RoR-Combined.otool-L.txt" \
+              "$qualification/RoR-Combined.otool-l.txt"; then
+            echo 'relocated RoR-Combined retains its build root' >&2
+            exit 1
+          fi
+          if grep -Fq "$CONAN_HOME" \
+              "$qualification/RoR-Combined.otool-L.txt" \
+              "$qualification/RoR-Combined.otool-l.txt"; then
+            echo 'relocated RoR-Combined retains its Conan root' >&2
+            exit 1
+          fi
+          cmake -E copy \
+            "$build/source/main/RoR-Combined.binary-closure.json" \
+            "$qualification/RoR-Combined.binary-closure.json"
+          cmake -E copy \
+            "$build/ogre-next-embedded/ogre-next-combined-namespace-audit.json" \
+            "$qualification/ogre-next-combined-namespace-audit.json"
+          cmake -E copy \
+            "$build/ogre-next-embedded/ogre-next-combined-provider-contract.json" \
+            "$qualification/ogre-next-combined-provider-contract.json"
+          cmake -E copy \
+            "$build/ogre-next-embedded/ogre14-runtime-manifest.txt" \
+            "$qualification/ogre14-runtime-manifest.txt"
+          cmake -E copy \
+            "$build/bin/resources/ogrenext/.complete.json" \
+            "$qualification/ogre-next-combined-resources.complete.json"
+
+      - name: Render packaged Simple2 and semi through Ogre-Next Metal
+        shell: bash
+        run: |
+          app="$ROR_COMBINED_BUILD_DIR/bin/RoR-Combined.app"
+          executable="$app/Contents/MacOS/RoR-Combined"
+          scene="$RUNNER_TEMP/ror-combined-packaged-scene"
+          test ! -e "$scene"
+          python tools/run_playable_performance_scene.py \
+            --executable "$executable" \
+            --artifact-dir "$scene" \
+            --scenario-id ci.ogre-next-combined.macos-packaged-simple2-semi \
+            --terrain simple2_a.terrn2 \
+            --actor b6b0UID-semi.truck \
+            --graphics-preset high \
+            --width 1280 \
+            --height 720 \
+            --warmup-frames 2 \
+            --minimum-frames 24 \
+            --frames 24 \
+            --sustained-ms 1000 \
+            --percentile 99 \
+            --percentile-ms 1000 \
+            --measure-only \
+            --timeout 180
+          python - "$scene/performance-run.json" <<'PY'
+          import json
+          import sys
+
+          document = json.load(open(sys.argv[1], encoding="utf-8"))
+          receipt = document.get("receipt", {})
+          renderer = document.get("renderer", {})
+          expected = {
+              "scenario_id": "ci.ogre-next-combined.macos-packaged-simple2-semi",
+              "terrain": "simple2_a.terrn2",
+              "actor": "b6b0UID-semi.truck",
+              "renderer": "ogre-next-combined",
+              "presents_frames": True,
+              "requires_native_scene_draw_metrics": True,
+              "accepted_frames": 24,
+              "rejected_frames": 0,
+              "native_scene_draw_exact_samples": 24,
+              "native_scene_draw_rejected_samples": 0,
+          }
+          for field, value in expected.items():
+              if receipt.get(field) != value:
+                  raise SystemExit(
+                      f"packaged macOS scene receipt changed: {field}={receipt.get(field)!r}"
+                  )
+          if renderer.get("startup_capture_rejections") != 0:
+              raise SystemExit("packaged macOS scene rejected an Ogre-Next capture")
+          if renderer.get("render_system") != "ogre-next-metal":
+              raise SystemExit(
+                  "packaged macOS scene did not identify visible Ogre-Next Metal"
+              )
+          if renderer.get("resource_host_render_system") != (
+              "OpenGL 3+ Rendering Subsystem"
+          ):
+              raise SystemExit(
+                  "packaged macOS scene did not isolate the hidden OGRE14 host"
+              )
+          ownership = renderer.get("presentation_ownership", {})
+          if ownership != {
+              "presentation_owner": "ogre-next",
+              "visible_render_system": "ogre-next-metal",
+              "visible_window": True,
+              "legacy_visible_fallback": False,
+              "resource_host": "ogre14",
+              "resource_host_visible": False,
+              "resource_host_protected": True,
+          }:
+              raise SystemExit("packaged macOS scene presentation ownership changed")
+          native = renderer.get("native_distance_lod", {})
+          if native.get("available") is not True or native.get("pbs", 0) <= 0:
+              raise SystemExit("packaged macOS scene produced no native PBS/LOD frame")
+          if "--native-visual-showcase" in document.get("command", []):
+              raise SystemExit("packaged macOS scene selected renderer-only showcase")
+          PY
+          grep -Fq '===== LOADING TERRAIN simple2_a.terrn2' "$scene/RoR.log"
+          grep -Fq '== Spawning vehicle: Daf Semi truck' "$scene/RoR.log"
+          if grep -Fq "$ROR_COMBINED_BUILD_DIR/bin/resources/ogrenext" \
+              "$scene/RoR.log" "$scene/console.txt" \
+              || grep -Fq "$CONAN_HOME" \
+              "$scene/RoR.log" "$scene/console.txt" \
+              || grep -Fq "$GITHUB_WORKSPACE" \
+              "$scene/RoR.log" "$scene/console.txt"; then
+            echo 'packaged macOS scene accessed an unbundled runtime path' >&2
+            exit 1
+          fi
+          destination="$ROR_COMBINED_PACKAGE_DIR/qualification/packaged-scene-smoke"
+          cmake -E make_directory "$destination"
+          cmake -E copy "$scene/performance-run.json" "$destination/performance-run.json"
+          cmake -E copy "$scene/frame-time-receipt.json" "$destination/frame-time-receipt.json"
+          cmake -E copy "$scene/RoR.log" "$destination/RoR.log"
+          cmake -E copy "$scene/console.txt" "$destination/console.txt"
+
+      - name: Prove authenticated deterministic Agora impact through packaged RoR-Combined
+        shell: bash
+        run: |
+          app="$ROR_COMBINED_BUILD_DIR/bin/RoR-Combined.app"
+          evidence="$ROR_COMBINED_PACKAGE_DIR/qualification/agora-impact-regression"
+          executable="$app/Contents/MacOS/RoR-Combined"
+          trace_tool="$ROR_COMBINED_BUILD_DIR/qualification-tools/ror_state_trace"
+          runtime_content="$app/Contents/Resources/content"
+          test -x "$executable"
+          test -x "$trace_tool"
+          test -f "$runtime_content/agora.zip"
+          test -f "$runtime_content/simple2-terrain.zip"
+          test ! -e "$evidence"
+          python tools/run_agora_impact_regression.py \
+            --executable "$executable" \
+            --trace-tool "$trace_tool" \
+            --runtime-content "$runtime_content" \
+            --artifact-dir "$evidence" \
+            --runs 1 \
+            --workers 1 8 \
+            --timeout 900
+          python - "$evidence/report.json" "$GITHUB_SHA" <<'PY'
+          import json
+          import sys
+
+          report = json.load(open(sys.argv[1], encoding="utf-8"))
+          expected = {
+              "format": "ror-p1-agora-impact-regression-v2",
+              "repository_commit": sys.argv[2],
+              "content_commit": "34fefdd126784bf87b068fc283f812525d159dd7",
+              "source_sha256": "09730ea7988b1f3c19ad88e78e0645d32d2ca84c004357fd2437cd97b124ea38",
+              "fixture_sha256": "f3f2b5672864fbe9fac7da657aad708b708d4511479ce103730a49856ebc41f2",
+              "scenario_id": 2026082001,
+              "steps": 6000,
+              "state_trace_interval_steps": 1,
+              "telemetry_sample_interval_steps": 100,
+              "workers": [1, 8],
+              "runs_per_worker": 1,
+              "material_claim": "numerical-impact-fixture-not-physical-calibration",
+          }
+          for field, value in expected.items():
+              if report.get(field) != value:
+                  raise SystemExit(
+                      f"Agora impact report changed: {field}={report.get(field)!r}"
+                  )
+          if report.get("cross_worker_trace_comparisons") != [{
+              "left_trace": "traces/worker-01-run-01.rortrace",
+              "left_workers": 1,
+              "right_trace": "traces/worker-08-run-01.rortrace",
+              "right_workers": 8,
+              "status": "match",
+              "steps_compared": 6000,
+          }]:
+              raise SystemExit("Agora impact report lacks the exact cross-worker match")
+          PY
+
+      - name: Package the signed application and deterministic inventory
+        shell: bash
+        run: |
+          build="$ROR_COMBINED_BUILD_DIR"
+          package="$ROR_COMBINED_PACKAGE_DIR"
+          app="$build/bin/RoR-Combined.app"
+          archive="$package/RoR-Combined-macOS-arm64.zip"
+          test -d "$app"
+          test ! -e "$archive"
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$archive"
+          shasum -a 256 "$archive" \
+            | tee "$package/RoR-Combined-macOS-arm64.zip.sha256"
+          python - "$package" "$app" "$GITHUB_SHA" <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          import sys
+
+          root = Path(sys.argv[1]).resolve(strict=True)
+          app = Path(sys.argv[2]).resolve(strict=True)
+          source_commit = sys.argv[3]
+          archive = root / "RoR-Combined-macOS-arm64.zip"
+          executable = app / "Contents/MacOS/RoR-Combined"
+          document = {
+              "schema": "ror.ogre_next_combined_macos_package.v1",
+              "source_commit": source_commit,
+              "platform_policy": "macos-arm64-metal",
+              "entrypoint": "RoR-Combined.app",
+              "executable": "RoR-Combined.app/Contents/MacOS/RoR-Combined",
+              "renderer": "ogre-next",
+              "legacy_resource_host": "ogre14-hidden",
+              "legacy_visible_presentation": False,
+              "presentation_failure_policy": "fail-closed",
+              "renderer_smoke_only": False,
+              "packaged_scene_smoke": True,
+              "default_scene": {
+                  "terrain": "simple2_a.terrn2",
+                  "actor": "b6b0UID-semi.truck",
+              },
+              "actor_control_qualified": False,
+              "deterministic_impact_regression": {
+                  "qualified": True,
+                  "report": "qualification/agora-impact-regression/report.json",
+                  "workers": [1, 8],
+                  "steps": 6000,
+                  "exact_state_trace_match": True,
+                  "material_claim": "numerical-impact-fixture-not-physical-calibration",
+              },
+              "runtime_package_qualified": True,
+              "playability_qualified": False,
+              "archive": {
+                  "path": archive.name,
+                  "size": archive.stat().st_size,
+                  "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+              },
+              "runtime_executable_sha256": hashlib.sha256(
+                  executable.read_bytes()
+              ).hexdigest(),
+          }
+          (root / "qualification/package-inventory.json").write_text(
+              json.dumps(document, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload qualified macOS RoR-Combined runtime
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: RoR-Combined-macOS-arm64-Metal-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true
+          compression-level: 0
+          path: ${{ runner.temp }}/ror-combined-macos-package/
+
+      - name: Upload macOS combined-build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: RoR-Combined-macOS-arm64-diagnostics-${{ github.sha }}
+          if-no-files-found: warn
+          retention-days: 14
+          include-hidden-files: true
+          path: |
+            ${{ runner.temp }}/ror-combined-artifacts/
+            ${{ runner.temp }}/ror-combined-build/CMakeCache.txt
+            ${{ runner.temp }}/ror-combined-build/CMakeFiles/CMakeConfigureLog.yaml
+            ${{ runner.temp }}/ror-combined-build/ogre-next-embedded/*.json
+            ${{ runner.temp }}/ror-combined-build/source/main/RoR-Combined.*
+            ${{ runner.temp }}/ror-combined-build/bin/RoR-Combined.app/
+            ${{ runner.temp }}/ror-combined-macos-package/qualification/
             ${{ runner.temp }}/ror-combined-packaged-scene/
 
   windows-x64-d3d11:

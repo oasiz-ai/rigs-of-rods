@@ -201,6 +201,34 @@ class CalibratedBeamSoakTests(unittest.TestCase):
                 SOAK.runtime_layout(root / "darwin", "darwin")["user"],
                 root / "darwin" / "RigsOfRods",
             )
+            app_executable = (
+                root
+                / "RoR-Combined.app"
+                / "Contents"
+                / "MacOS"
+                / "RoR-Combined"
+            )
+            app_layout = SOAK.runtime_layout(
+                root / "macos-app-profile",
+                "darwin",
+                app_executable,
+            )
+            self.assertEqual(
+                app_layout["user"],
+                root
+                / "macos-app-profile"
+                / "Library"
+                / "Application Support"
+                / "Rigs of Rods",
+            )
+            self.assertEqual(
+                app_layout["logs"],
+                root
+                / "macos-app-profile"
+                / "Library"
+                / "Logs"
+                / "Rigs of Rods",
+            )
             with self.assertRaises(SOAK.SoakFailure):
                 SOAK.runtime_layout(root, "unknown")
 

@@ -1734,13 +1734,33 @@ if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
     endif ()
 endif ()
 
-if (APPLE AND ROR_OGRE14 AND NOT ROR_OGRE_NEXT_COMBINED_RUNTIME)
+if (APPLE AND ROR_OGRE14)
     # Build a signed, relocatable application only when explicitly requested.
     # StageMacOSBundle derives the complete dylib closure from the executable
     # and active OGRE plugins; ROR_RUNTIME_DYLIBS remains available for future
     # non-linked runtime libraries.
+    if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
+        # The combined runtime is a distinct one-process product. It keeps
+        # OGRE 14 hidden as its resource host while the embedded Ogre-Next
+        # Metal frontend owns the only visible window. Package it directly;
+        # never route a combined build through the public child launcher or an
+        # OGRE14-visible fallback bundle.
+        set(_ror_macos_bundle_target ror_macos_combined_bundle)
+        set(_ror_macos_bundle_name "RoR-Combined")
+        set(_ror_macos_bundle_display_name
+            "Rigs of Rods Ogre-Next Combined")
+        set(_ror_macos_bundle_identifier
+            "org.rigsofrods.RoR.OgreNextCombined")
+        set(_ror_macos_bundle_executable_name "RoR-Combined")
+    else ()
+        set(_ror_macos_bundle_target ror_macos_bundle)
+        set(_ror_macos_bundle_name "RoR")
+        set(_ror_macos_bundle_display_name "Rigs of Rods")
+        set(_ror_macos_bundle_identifier "org.rigsofrods.RoR")
+        set(_ror_macos_bundle_executable_name "RoR")
+    endif ()
     set(_ror_macos_bundle_path
-        "${RUNTIME_OUTPUT_DIRECTORY}/RoR.app")
+        "${RUNTIME_OUTPUT_DIRECTORY}/${_ror_macos_bundle_name}.app")
     set(_ror_macos_primary_target ${BINNAME})
     set(_ror_macos_sibling_executables "")
     if (ROR_RENDERER_PUBLIC_LAUNCHER)
@@ -1757,6 +1777,14 @@ if (APPLE AND ROR_OGRE14 AND NOT ROR_OGRE_NEXT_COMBINED_RUNTIME)
         fast_copy_Main
         fast_copy_RTShaderLib
         fast_copy_Terrain)
+    if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
+        # version_info deliberately relinks the game on each packaging build,
+        # which invalidates the fail-closed binary-closure receipt. Regenerate
+        # that receipt after the final link and before staging so the packaged
+        # Mach-O and its qualification evidence describe identical bytes.
+        list(APPEND _ror_macos_bundle_dependencies
+            ror_ogre_next_combined_verified)
+    endif ()
     if (ROR_OGRE_NEXT_PRODUCTION_PACKAGE)
         list(APPEND _ror_macos_sibling_executables
             "${ROR_OGRE_NEXT_PRODUCT_CHILD}")
@@ -1773,7 +1801,10 @@ if (APPLE AND ROR_OGRE14 AND NOT ROR_OGRE_NEXT_COMBINED_RUNTIME)
     set(_ror_macos_bundle_arguments
         "-DROR_BUNDLE=${_ror_macos_bundle_path}"
         "-DROR_EXECUTABLE=$<TARGET_FILE:${_ror_macos_primary_target}>"
-        "-DROR_BUNDLE_EXECUTABLE_NAME=RoR"
+        "-DROR_BUNDLE_NAME=${_ror_macos_bundle_name}"
+        "-DROR_BUNDLE_DISPLAY_NAME=${_ror_macos_bundle_display_name}"
+        "-DROR_BUNDLE_IDENTIFIER=${_ror_macos_bundle_identifier}"
+        "-DROR_BUNDLE_EXECUTABLE_NAME=${_ror_macos_bundle_executable_name}"
         "-DROR_SIBLING_EXECUTABLES=${_ror_macos_sibling_executables_argument}"
         "-DROR_RESOURCES=${RUNTIME_OUTPUT_DIRECTORY}/resources"
         "-DROR_LANGUAGES=${RUNTIME_OUTPUT_DIRECTORY}/languages"
@@ -1808,7 +1839,7 @@ if (APPLE AND ROR_OGRE14 AND NOT ROR_OGRE_NEXT_COMBINED_RUNTIME)
         list(APPEND _ror_macos_bundle_dependencies zip_folder_content)
     endif ()
 
-    add_custom_target(ror_macos_bundle
+    add_custom_target(${_ror_macos_bundle_target}
         COMMAND
             "${CMAKE_COMMAND}"
             ${_ror_macos_bundle_arguments}
@@ -1817,10 +1848,17 @@ if (APPLE AND ROR_OGRE14 AND NOT ROR_OGRE_NEXT_COMBINED_RUNTIME)
         USES_TERMINAL
         VERBATIM)
     add_dependencies(
-        ror_macos_bundle
+        ${_ror_macos_bundle_target}
         ${_ror_macos_bundle_dependencies})
-    set_property(TARGET ror_macos_bundle PROPERTY FOLDER "Packaging")
+    set_property(
+        TARGET ${_ror_macos_bundle_target}
+        PROPERTY FOLDER "Packaging")
 
+    unset(_ror_macos_bundle_target)
+    unset(_ror_macos_bundle_name)
+    unset(_ror_macos_bundle_display_name)
+    unset(_ror_macos_bundle_identifier)
+    unset(_ror_macos_bundle_executable_name)
     unset(_ror_macos_bundle_path)
     unset(_ror_macos_primary_target)
     unset(_ror_macos_sibling_executables)

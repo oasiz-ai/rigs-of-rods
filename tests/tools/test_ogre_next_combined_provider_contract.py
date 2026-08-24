@@ -891,6 +891,66 @@ class CombinedProviderContractTests(unittest.TestCase):
             COMBINED_WORKFLOW,
         )
 
+    def test_macos_combined_workflow_packages_the_game_not_the_showcase(
+        self,
+    ) -> None:
+        for token in (
+            "macos-arm64-metal:",
+            "macOS arm64 Metal RoR-Combined",
+            "runs-on: macos-15",
+            'test "$(uname -m)" = "arm64"',
+            "command -v codesign",
+            "macos-arm64-release",
+            "-DROR_OGRE_NEXT_COMBINED_RUNTIME=ON",
+            "-DROR_BUILD_QUALIFICATION_TOOLS=ON",
+            "-DROR_RENDERER_PUBLIC_LAUNCHER=OFF",
+            "-DROR_OGRE_NEXT_PRODUCTION_PACKAGE=OFF",
+            "-DROR_OGRE_NEXT_DEMO_ADMISSION=OFF",
+            "--target ror_ogre_next_combined_verified",
+            "ror.ogre_next_combined_binary_closure.v1",
+            '"qualification_eligible": True',
+            "--target ror_macos_combined_bundle",
+            "RoR-Combined.app/Contents/MacOS/RoR-Combined",
+            'test ! -e "$app/Contents/MacOS/RoR"',
+            'test ! -e "$app/Contents/MacOS/RoR-Ogre14"',
+            "codesign --verify --deep --strict",
+            "Render packaged Simple2 and semi through Ogre-Next Metal",
+            "tools/run_playable_performance_scene.py",
+            "ci.ogre-next-combined.macos-packaged-simple2-semi",
+            "simple2_a.terrn2",
+            "b6b0UID-semi.truck",
+            '"render_system") != "ogre-next-metal"',
+            '"presentation_owner": "ogre-next"',
+            '"legacy_visible_fallback": False',
+            '"resource_host_visible": False',
+            '"native_distance_lod"',
+            '"--native-visual-showcase" in document.get("command", [])',
+            'grep -Fq "$ROR_COMBINED_BUILD_DIR/bin/resources/ogrenext"',
+            'grep -Fq "$CONAN_HOME"',
+            'grep -Fq "$GITHUB_WORKSPACE"',
+            "Prove authenticated deterministic Agora impact through packaged RoR-Combined",
+            "ror-p1-agora-impact-regression-v2",
+            "ror.ogre_next_combined_macos_package.v1",
+            '"runtime_package_qualified": True',
+            '"actor_control_qualified": False',
+            '"playability_qualified": False',
+            "RoR-Combined-macOS-arm64-Metal-${{ github.sha }}",
+            "if: success()",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, COMBINED_WORKFLOW)
+        macos_job = block(
+            COMBINED_WORKFLOW,
+            "  macos-arm64-metal:\n",
+            "  windows-x64-d3d11:\n",
+        )
+        self.assertNotIn("--native-visual-showcase-a0", macos_job)
+        self.assertNotIn("--qualify-actor-control", macos_job)
+        self.assertNotIn(
+            "ROR_OGRE_NEXT_ALLOW_DIRTY_DEVELOPMENT_BUILD",
+            macos_job,
+        )
+
     def test_linux_elf_parsers_fail_closed_on_duplicate_or_missing_evidence(
         self,
     ) -> None:
@@ -942,7 +1002,7 @@ class CombinedProviderContractTests(unittest.TestCase):
         resource_targets = block(
             MAIN_CMAKE,
             "# An explicit RoR-Combined verification build must produce",
-            "if (APPLE AND ROR_OGRE14 AND NOT ROR_OGRE_NEXT_COMBINED_RUNTIME)",
+            "if (APPLE AND ROR_OGRE14)",
         )
         self.assertIn("if (ROR_OGRE_NEXT_COMBINED_RUNTIME)", resource_targets)
         for target in (
@@ -956,6 +1016,36 @@ class CombinedProviderContractTests(unittest.TestCase):
             resource_targets,
             r"if \(ROR_CREATE_CONTENT_FOLDER\)\s*"
             r"add_dependencies\(\$\{BINNAME\} zip_folder_content\)",
+        )
+
+    def test_macos_combined_bundle_has_no_visible_legacy_fallback(self) -> None:
+        bundle = block(
+            MAIN_CMAKE,
+            "if (APPLE AND ROR_OGRE14)\n",
+            "# TODO: Run fixup_bundle instead",
+        )
+        for token in (
+            "if (ROR_OGRE_NEXT_COMBINED_RUNTIME)",
+            "ror_macos_combined_bundle",
+            'set(_ror_macos_bundle_name "RoR-Combined")',
+            'set(_ror_macos_bundle_executable_name "RoR-Combined")',
+            '"org.rigsofrods.RoR.OgreNextCombined"',
+            "${RUNTIME_OUTPUT_DIRECTORY}/${_ror_macos_bundle_name}.app",
+            '"-DROR_BUNDLE_NAME=${_ror_macos_bundle_name}"',
+            '"-DROR_BUNDLE_EXECUTABLE_NAME=${_ror_macos_bundle_executable_name}"',
+            "list(APPEND _ror_macos_bundle_dependencies",
+            "ror_ogre_next_combined_verified",
+            "add_custom_target(${_ror_macos_bundle_target}",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, bundle)
+        self.assertIn(
+            "never route a combined build through the public child launcher",
+            bundle,
+        )
+        self.assertIn(
+            "the packaged\n        # Mach-O and its qualification evidence describe identical bytes",
+            bundle,
         )
 
     def test_binary_proof_rejects_hostile_strict_fp_receipts(self) -> None:

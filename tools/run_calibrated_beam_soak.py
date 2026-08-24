@@ -272,14 +272,30 @@ def write_fixture_archive(path: Path, fixture: bytes) -> str:
     return sha256_file(path)
 
 
-def runtime_layout(root: Path, target_platform: str) -> dict[str, Path]:
+def is_macos_app_bundle_executable(executable: Path | None) -> bool:
+    if executable is None:
+        return False
+    process_dir = executable.parent
+    if process_dir.name != "MacOS" or process_dir.parent.name != "Contents":
+        return False
+    bundle_name = process_dir.parent.parent.name
+    return len(bundle_name) > 4 and bundle_name.endswith(".app")
+
+
+def runtime_layout(
+    root: Path,
+    target_platform: str,
+    executable: Path | None = None,
+) -> dict[str, Path]:
     if target_platform == "darwin":
-        # The soak launches a non-bundle development executable. RoR's
-        # authenticated ROR_D0_SCENE_HOME override therefore retains the
-        # development layout rather than the application-bundle Library
-        # layout.
-        user = root / "RigsOfRods"
-        logs = user / "logs"
+        if is_macos_app_bundle_executable(executable):
+            user = root / "Library" / "Application Support" / "Rigs of Rods"
+            logs = root / "Library" / "Logs" / "Rigs of Rods"
+        else:
+            # A non-bundle development executable retains the portable
+            # development layout under the authenticated isolated home.
+            user = root / "RigsOfRods"
+            logs = user / "logs"
     elif target_platform == "win32":
         user = root / "My Games" / "Rigs of Rods"
         logs = user / "logs"
@@ -526,7 +542,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     verify_runtime_source(runtime_content, source)
 
     isolated_home = artifact_dir / "work" / "p1-soak-home"
-    layout = runtime_layout(isolated_home, sys.platform)
+    layout = runtime_layout(isolated_home, sys.platform, executable)
     for key in ("config", "logs", "mods"):
         layout[key].mkdir(parents=True, exist_ok=True)
     fixture_archive = layout["mods"] / "P1CalibratedDAF.zip"
