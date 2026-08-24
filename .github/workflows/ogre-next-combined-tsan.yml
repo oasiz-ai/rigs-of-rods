@@ -1,6 +1,15 @@
 name: Ogre-Next combined full-runtime TSan
 
 on:
+  push:
+    branches: [nextgen/playable-performance-gate]
+    paths:
+      - .github/workflows/ogre-next-combined-tsan.yml
+      - resources/scripts/example_jbeam_multi_actor_tsan_soak.as
+      - tests/CMakeLists.txt
+      - tests/fixtures/beamng/jbeam_multi_actor_tsan_soak/**
+      - tests/tools/test_run_jbeam_multi_actor_tsan_soak.py
+      - tools/run_jbeam_multi_actor_tsan_soak.py
   workflow_dispatch:
 
 permissions:
