@@ -35,6 +35,9 @@ PROVIDER_CONTRACT = (
 NAMESPACE_AUDIT_BUILD_CONTRACT = (
     ROOT / "cmake/ogre_next_embedded/namespace-audit-build-contract.json.in"
 ).read_text(encoding="utf-8")
+PROBE_BUILD_CONTRACT = (
+    ROOT / "tools/ogre_next_probe/ogre_next_build_contract.json.in"
+).read_text(encoding="utf-8")
 VERIFIER_PATH = ROOT / "tools/verify_ogre_next_combined_binary_closure.py"
 VERIFIER = VERIFIER_PATH.read_text(encoding="utf-8")
 ELF_VERIFIER_PATH = ROOT / "tools/verify_ogre_next_combined_elf_closure.py"
@@ -61,15 +64,36 @@ def block(source: str, start: str, end: str) -> str:
 
 
 class CombinedProviderContractTests(unittest.TestCase):
-    def test_namespace_audit_contract_tracks_the_vulkan_shader_patch(self) -> None:
+    def test_namespace_audit_contract_tracks_the_complete_base_patch_set(self) -> None:
         for token in (
             '"path": "@ROR_OGRE_NEXT_VULKAN_SKY_PATCH_PATH@"',
             '"sha256": "@ROR_OGRE_NEXT_VULKAN_SKY_PATCH_SHA256@"',
             '"source_sha256": "@ROR_OGRE_NEXT_VULKAN_SKY_SOURCE_SHA256@"',
             '"patched_sha256": "@ROR_OGRE_NEXT_VULKAN_SKY_PATCHED_SHA256@"',
+            '"path": "@ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_PATCH_PATH@"',
+            '"sha256": "@ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_PATCH_SHA256@"',
+            '"header_source_sha256": "@ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_HEADER_SOURCE_SHA256@"',
+            '"header_patched_sha256": "@ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_HEADER_PATCHED_SHA256@"',
+            '"implementation_source_sha256": "@ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_IMPLEMENTATION_SOURCE_SHA256@"',
+            '"implementation_patched_sha256": "@ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_IMPLEMENTATION_PATCHED_SHA256@"',
         ):
             with self.subTest(token=token):
                 self.assertIn(token, NAMESPACE_AUDIT_BUILD_CONTRACT)
+
+        patch_path_pattern = re.compile(
+            r'"path": "(@ROR_OGRE_NEXT_(?:[A-Z_]+_)?PATCH_PATH@)"'
+        )
+        namespace_patch_paths = patch_path_pattern.findall(
+            block(
+                NAMESPACE_AUDIT_BUILD_CONTRACT,
+                '"patches": [',
+                '"embedded_namespace":',
+            )
+        )
+        probe_patch_paths = patch_path_pattern.findall(
+            block(PROBE_BUILD_CONTRACT, '"patches": [', '"embedded_namespace":')
+        )
+        self.assertEqual(namespace_patch_paths, probe_patch_paths)
 
     def test_root_option_is_off_and_provider_precedes_game_target(self) -> None:
         self.assertRegex(
