@@ -1,0 +1,131 @@
+name: Inspect pinned Linux combined diagnostics
+
+on:
+  push:
+    branches: [nextgen/playable-performance-gate]
+    paths:
+      - .github/workflows/inspect-pinned-linux-combined-diagnostics.yml
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  inspect:
+    name: Inspect Linux save-resume diagnostics
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download immutable failed-run diagnostics
+        uses: actions/download-artifact@v7
+        with:
+          artifact-ids: "9542869408"
+          github-token: ${{ github.token }}
+          repository: oasiz-ai/rigs-of-rods
+          run-id: "32786978090"
+          path: ${{ runner.temp }}/linux-diagnostics
+
+      - name: Surface allowlisted save-resume evidence
+        shell: bash
+        env:
+          DIAGNOSTICS_ROOT: ${{ runner.temp }}/linux-diagnostics
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["DIAGNOSTICS_ROOT"]).resolve(strict=True)
+          files = sorted(path for path in root.rglob("*") if path.is_file())
+          focused = [
+              path
+              for path in files
+              if "deterministic-savegame-resume" in path.relative_to(root).as_posix()
+          ]
+          allowlisted_markers = (
+              "[RoR|D0|",
+              "[RoR|Determinism]",
+              "[RoR|OgreNext",
+              "reflection work remains pending",
+              "deferred reflection capture",
+              "could not be finished",
+              "Validation Failed: Sampler error:",
+              "GL_INVALID_",
+              "RenderingAPIException",
+              "OGRE EXCEPTION",
+              "Segmentation fault",
+          )
+
+          def sha256_file(path: Path) -> str:
+              digest = hashlib.sha256()
+              with path.open("rb") as stream:
+                  for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          inventory = []
+          for path in focused:
+              inventory.append(
+                  {
+                      "path": path.relative_to(root).as_posix(),
+                      "bytes": path.stat().st_size,
+                      "sha256": sha256_file(path),
+                  }
+              )
+
+          marker_lines = []
+          for path in focused:
+              if path.stat().st_size > 64 * 1024 * 1024:
+                  continue
+              if path.suffix not in {".log", ".stdout", ".txt"}:
+                  continue
+              text = path.read_text(encoding="utf-8", errors="replace")
+              for number, line in enumerate(text.splitlines(), 1):
+                  if any(marker in line for marker in allowlisted_markers):
+                      marker_lines.append(
+                          {
+                              "path": path.relative_to(root).as_posix(),
+                              "line": number,
+                              "text": line[:1000],
+                          }
+                      )
+
+          reports = [
+              path
+              for path in focused
+              if path.name == "report.json"
+          ]
+          report = None
+          if len(reports) == 1:
+              report = json.loads(reports[0].read_text(encoding="utf-8"))
+
+          summary = {
+              "format": "ror-linux-save-resume-diagnostic-summary-v1",
+              "source_run_id": 32786978090,
+              "source_artifact_id": 9542869408,
+              "source_commit": "6d88c0f957e5e394f606e4a6784c490badec2399",
+              "focused_file_count": len(focused),
+              "focused_inventory": inventory,
+              "terminal_report_present": report is not None,
+              "terminal_report": report,
+              "allowlisted_marker_lines": marker_lines[-80:],
+          }
+          rendered = json.dumps(summary, indent=2, sort_keys=True)
+          print(rendered)
+          summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          summary_path.write_text(
+              "## Pinned Linux save-resume diagnostics\n\n"
+              "```json\n" + rendered + "\n```\n",
+              encoding="utf-8",
+          )
+          annotation = json.dumps(
+              {
+                  "focused_file_count": len(focused),
+                  "terminal_report_present": report is not None,
+                  "last_allowlisted_markers": marker_lines[-12:],
+              },
+              sort_keys=True,
+          )
+          annotation = annotation.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print(f"::error title=Linux packaged save-resume diagnostic::{annotation}")
+          PY
