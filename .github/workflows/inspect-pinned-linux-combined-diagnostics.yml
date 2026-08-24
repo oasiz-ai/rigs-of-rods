@@ -42,10 +42,11 @@ jobs:
               for path in files
               if "deterministic-savegame-resume" in path.relative_to(root).as_posix()
           ]
-          allowlisted_markers = (
+          d0_markers = (
               "[RoR|D0|",
               "[RoR|Determinism]",
-              "[RoR|OgreNext",
+          )
+          fatal_markers = (
               "reflection work remains pending",
               "deferred reflection capture",
               "could not be finished",
@@ -73,7 +74,9 @@ jobs:
                   }
               )
 
-          marker_lines = []
+          d0_lines = []
+          fatal_lines = []
+          runtime_tails = []
           for path in focused:
               if path.stat().st_size > 64 * 1024 * 1024:
                   continue
@@ -81,14 +84,30 @@ jobs:
                   continue
               text = path.read_text(encoding="utf-8", errors="replace")
               for number, line in enumerate(text.splitlines(), 1):
-                  if any(marker in line for marker in allowlisted_markers):
-                      marker_lines.append(
+                  if any(marker in line for marker in d0_markers):
+                      d0_lines.append(
                           {
                               "path": path.relative_to(root).as_posix(),
                               "line": number,
-                              "text": line[:1000],
+                              "text": line[:500],
                           }
                       )
+                  if any(marker in line for marker in fatal_markers):
+                      fatal_lines.append(
+                          {
+                              "path": path.relative_to(root).as_posix(),
+                              "line": number,
+                              "text": line[:500],
+                          }
+                      )
+              if path.name in {"RoR.log", "Angelscript.log"} or path.suffix == ".stdout":
+                  tail = [line[:500] for line in text.splitlines() if line.strip()][-20:]
+                  runtime_tails.append(
+                      {
+                          "path": path.relative_to(root).as_posix(),
+                          "tail": tail,
+                      }
+                  )
 
           reports = [
               path
@@ -108,7 +127,9 @@ jobs:
               "focused_inventory": inventory,
               "terminal_report_present": report is not None,
               "terminal_report": report,
-              "allowlisted_marker_lines": marker_lines[-80:],
+              "d0_marker_lines": d0_lines,
+              "fatal_marker_lines": fatal_lines,
+              "runtime_tails": runtime_tails,
           }
           rendered = json.dumps(summary, indent=2, sort_keys=True)
           print(rendered)
@@ -118,14 +139,28 @@ jobs:
               "```json\n" + rendered + "\n```\n",
               encoding="utf-8",
           )
-          annotation = json.dumps(
+          def emit(title: str, payload: object) -> None:
+              annotation = json.dumps(payload, sort_keys=True)
+              annotation = annotation.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              print(f"::error title={title}::{annotation}")
+
+          evidence_paths = [
+              row
+              for row in inventory
+              if Path(row["path"]).name == "report.json"
+              or Path(row["path"]).suffix in {".rortrace", ".rorinput", ".sav", ".stdout"}
+              or Path(row["path"]).name in {"RoR.log", "Angelscript.log"}
+          ]
+          emit(
+              "Linux save-resume artifact shape",
               {
                   "focused_file_count": len(focused),
                   "terminal_report_present": report is not None,
-                  "last_allowlisted_markers": marker_lines[-12:],
+                  "evidence_files": evidence_paths,
               },
-              sort_keys=True,
           )
-          annotation = annotation.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-          print(f"::error title=Linux packaged save-resume diagnostic::{annotation}")
+          emit("Linux save-resume D0 markers", d0_lines[-40:])
+          emit("Linux save-resume fatal markers", fatal_lines[-40:])
+          for runtime_tail in runtime_tails:
+              emit("Linux save-resume runtime tail", runtime_tail)
           PY
