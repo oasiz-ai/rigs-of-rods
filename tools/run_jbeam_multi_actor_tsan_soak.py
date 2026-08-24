@@ -46,6 +46,7 @@ EXPECTED_MINIMUM_SECONDS = 600.0
 EXPECTED_CYCLE_STEPS = 2000
 EXPECTED_MINIMUM_STEPS = 20000
 EXPECTED_MINIMUM_CYCLES = 10
+EXPECTED_LLVMPipe_THREADS = "0"
 
 START_MARKER = (
     "[RoR|D0|TSanSoak] START vehicle=ror_jbeam_spawn_fixture.jbeam "
@@ -243,6 +244,11 @@ def audit_tsan_instrumentation(
 ) -> dict[str, str]:
     if sys.platform != "linux":
         raise TSanSoakFailure("ThreadSanitizer product soak is Linux-only")
+    if environment.get("LP_NUM_THREADS") != EXPECTED_LLVMPipe_THREADS:
+        raise TSanSoakFailure(
+            "the hidden OGRE14 llvmpipe resource host must render "
+            "synchronously with LP_NUM_THREADS=0"
+        )
     raw_options = environment.get("TSAN_OPTIONS", "")
     options = parse_option_map(raw_options)
     for name, expected in REQUIRED_TSAN_OPTIONS.items():
@@ -274,6 +280,20 @@ def audit_tsan_instrumentation(
     }
 
 
+def build_runtime_environment(isolated_home: Path) -> dict[str, str]:
+    environment = os.environ.copy()
+    environment.pop("SNAP_USER_COMMON", None)
+    environment["ROR_D0_SCENE_HOME"] = str(isolated_home)
+    environment["ALSOFT_DRIVERS"] = "null"
+    environment["ALSOFT_LOGLEVEL"] = "0"
+    # Mesa documents zero as fully synchronous llvmpipe rendering. The hidden
+    # OGRE14 resource host does not need a raster worker pool in this physics
+    # and lifetime soak, while the visible Ogre-Next Vulkan renderer remains
+    # the sole presentation owner. This is deliberately not a TSan suppression.
+    environment["LP_NUM_THREADS"] = EXPECTED_LLVMPipe_THREADS
+    return environment
+
+
 def validate_logs(
     returncode: int,
     stdout: str,
@@ -290,6 +310,7 @@ def validate_logs(
         "[RoR|ModCache|JBeam] Mounted exact archive",
         f"archive_sha256={archive_sha256}",
         "roots=1",
+        "GL_RENDERER = llvmpipe",
         *PRESENTATION_MARKERS,
     ):
         if marker not in engine_log:
@@ -390,11 +411,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     diagnostics = artifact_dir / "diagnostics"
     diagnostics.mkdir()
-    environment = os.environ.copy()
-    environment.pop("SNAP_USER_COMMON", None)
-    environment["ROR_D0_SCENE_HOME"] = str(isolated_home)
-    environment["ALSOFT_DRIVERS"] = "null"
-    environment["ALSOFT_LOGLEVEL"] = "0"
+    environment = build_runtime_environment(isolated_home)
     instrumentation: dict[str, str] | None = None
     if args.require_tsan:
         instrumentation = audit_tsan_instrumentation(executable, environment)
@@ -488,6 +505,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             "resource_host_visible": False,
             "visible_render_system": "ogre-next-vulkan",
             "visible_window": True,
+        },
+        "hidden_resource_host_rasterizer": {
+            "driver": "llvmpipe",
+            "lp_num_threads": 0,
+            "mode": "synchronous",
         },
         "repository_commit": support.git_output(repository, ("rev-parse", "HEAD")),
         "sanitizer": {

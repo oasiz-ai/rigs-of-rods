@@ -253,6 +253,14 @@ jobs:
               "visible_window": True,
           }:
               raise SystemExit("TSan receipt did not retain Ogre-Next ownership")
+          if report.get("hidden_resource_host_rasterizer") != {
+              "driver": "llvmpipe",
+              "lp_num_threads": 0,
+              "mode": "synchronous",
+          }:
+              raise SystemExit(
+                  "TSan receipt did not prove synchronous hidden llvmpipe"
+              )
           telemetry = report.get("telemetry", {})
           cycles = telemetry.get("completed_cycles", 0)
           if (

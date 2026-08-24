@@ -46,6 +46,7 @@ def valid_engine_log(archive_sha256: str) -> str:
             "[RoR|ModCache|JBeam] Mounted exact archive",
             f"archive_sha256={archive_sha256}",
             "roots=1",
+            "GL_RENDERER = llvmpipe (LLVM test fixture)",
             *GATE.PRESENTATION_MARKERS,
         )
     )
@@ -135,6 +136,7 @@ class JBeamMultiActorTSanSoakTests(unittest.TestCase):
         self,
     ) -> None:
         environment = {
+            "LP_NUM_THREADS": "0",
             "TSAN_OPTIONS": (
                 "halt_on_error=1:exitcode=66:history_size=7:"
                 "second_deadlock_stack=1:log_path=/tmp/ror-tsan"
@@ -157,6 +159,28 @@ class JBeamMultiActorTSanSoakTests(unittest.TestCase):
         self.assertEqual(audit["log_path"], "/tmp/ror-tsan")
 
         environment["TSAN_OPTIONS"] += ":suppressions=/tmp/hidden"
+        with mock.patch.object(GATE.sys, "platform", "linux"):
+            with self.assertRaises(GATE.TSanSoakFailure):
+                GATE.audit_tsan_instrumentation(
+                    Path("/tmp/RoR-Combined"), environment
+                )
+
+    def test_runtime_environment_forces_synchronous_hidden_llvmpipe(self) -> None:
+        with mock.patch.dict(
+            GATE.os.environ,
+            {"LP_NUM_THREADS": "12", "SNAP_USER_COMMON": "/tmp/snap"},
+            clear=True,
+        ):
+            environment = GATE.build_runtime_environment(Path("/tmp/ror-home"))
+        self.assertEqual(environment["LP_NUM_THREADS"], "0")
+        self.assertEqual(environment["ROR_D0_SCENE_HOME"], "/tmp/ror-home")
+        self.assertNotIn("SNAP_USER_COMMON", environment)
+
+        environment["TSAN_OPTIONS"] = (
+            "halt_on_error=1:exitcode=66:history_size=7:"
+            "second_deadlock_stack=1:log_path=/tmp/ror-tsan"
+        )
+        environment["LP_NUM_THREADS"] = "1"
         with mock.patch.object(GATE.sys, "platform", "linux"):
             with self.assertRaises(GATE.TSanSoakFailure):
                 GATE.audit_tsan_instrumentation(
@@ -208,6 +232,7 @@ class JBeamMultiActorTSanSoakTests(unittest.TestCase):
             "legacy_visible_fallback\": False",
             "sanitizer-evidence-not-qualified-runtime-package",
             "include-hidden-files: true",
+            '"lp_num_threads": 0',
         ):
             self.assertIn(token, workflow)
         self.assertNotIn("--native-visual-showcase", workflow)
