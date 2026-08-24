@@ -1136,6 +1136,7 @@ ValidationResult Ogre14ParticleCaptureSource::FinalizeSceneGeneration(
 
   try {
     Ogre14ParticleCapturedFrame candidate;
+    candidate.finalizes_scene_generation = true;
     candidate.source_sequence = impl_->last_source_sequence_value + 1U;
     candidate.material_catalog_registry_id =
         final_material_catalog.registry_id();

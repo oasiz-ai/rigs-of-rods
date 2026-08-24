@@ -427,7 +427,8 @@ void TestSceneGenerationFinalizationDestroysAndResets() {
   RenderAssetRegistry final_catalog = EmptyFinalCatalog();
   result = source.FinalizeSceneGeneration(
       final_catalog, 2U, 1.0 / 48.0, {1000.0, 20.0, -3000.0}, output);
-  Require(result.ok() && output.source_sequence == 2U &&
+  Require(result.ok() && output.finalizes_scene_generation &&
+              output.source_sequence == 2U &&
               output.material_catalog_sequence == 4U &&
               output.joined_buffer_epoch == 8U &&
               output.commands.size() == 2U &&
@@ -1058,6 +1059,7 @@ bool SameSentinelOutput(const RoR::Render::Ogre14ParticleCapturedFrame &lhs,
                         const RoR::Render::Ogre14ParticleCapturedFrame &rhs) {
   using namespace RoR::Render;
   if (lhs.version != rhs.version ||
+      lhs.finalizes_scene_generation != rhs.finalizes_scene_generation ||
       lhs.source_sequence != rhs.source_sequence ||
       lhs.material_catalog_registry_id != rhs.material_catalog_registry_id ||
       lhs.material_catalog_sequence != rhs.material_catalog_sequence ||

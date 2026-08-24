@@ -1,32 +1,50 @@
 diff --git a/Samples/Media/Compute/Algorithms/IBL/SpecularIblIntegrator_piece_cs.any b/Samples/Media/Compute/Algorithms/IBL/SpecularIblIntegrator_piece_cs.any
-index 78c9d8368..31971ec28 100644
+index 5621ef82d..78c6e9e08 100644
 --- a/Samples/Media/Compute/Algorithms/IBL/SpecularIblIntegrator_piece_cs.any
 +++ b/Samples/Media/Compute/Algorithms/IBL/SpecularIblIntegrator_piece_cs.any
-@@ -219 +219,5 @@
+@@ -213,12 +213,23 @@
+ 		float4 importanceSampled = importanceSample( R PARAMS_ARG );
+ 
+ 		@property( typed_uav_loads )
+-		if( p_convolutionSamplesOffset >= 1 )
++		// The compositor numbers the first accumulation pass as one. There is
++		// no prior UAV value on that pass, so reading it can propagate
++		// uninitialized NaN/Inf even though lerp's weight is exactly one.
++		if( p_convolutionSamplesOffset > 1 )
+ 		{
+ 			@property( uav0_texture_type == TextureTypes_TypeCube )
 -				float4 lastResultVal = OGRE_imageLoad2DArray( lastResult, loadCoords.xyz );
 +				@property( syntax == metal )
 +					float4 lastResultVal = float4( OGRE_imageLoad2DArray( lastResult, loadCoords.xyz ) );
 +				@else
 +					float4 lastResultVal = OGRE_imageLoad2DArray( lastResult, loadCoords.xyz );
 +				@end
-@@ -221 +225,5 @@
+ 			@else
 -				float4 lastResultVal = OGRE_imageLoad2D( lastResult, loadCoords.xy );
 +				@property( syntax == metal )
 +					float4 lastResultVal = float4( OGRE_imageLoad2D( lastResult, loadCoords.xy ) );
 +				@else
 +					float4 lastResultVal = OGRE_imageLoad2D( lastResult, loadCoords.xy );
 +				@end
-@@ -272 +280,5 @@
+ 			@end
+ 			@property( uav0_orig_pf_srgb )
+ 				lastResultVal = fromSRGB( lastResultVal );
+@@ -269,8 +280,16 @@
+ 	@end
+ 
+ 	@property( uav0_texture_type == TextureTypes_TypeCube )
 -		OGRE_imageWrite2DArray4( lastResult, gl_GlobalInvocationID.xyz, outputValue );
 +		@property( syntax == metal )
 +			OGRE_imageWrite2DArray4( lastResult, gl_GlobalInvocationID.xyz, (@insertpiece(uav0_pf_type)4)outputValue );
 +		@else
 +			OGRE_imageWrite2DArray4( lastResult, gl_GlobalInvocationID.xyz, outputValue );
 +		@end
-@@ -274 +286,5 @@
+ 	@else
 -		OGRE_imageWrite2D4( lastResult, gl_GlobalInvocationID.xy, outputValue );
 +		@property( syntax == metal )
 +			OGRE_imageWrite2D4( lastResult, gl_GlobalInvocationID.xy, (@insertpiece(uav0_pf_type)4)outputValue );
 +		@else
 +			OGRE_imageWrite2D4( lastResult, gl_GlobalInvocationID.xy, outputValue );
 +		@end
+ 	@end
+ @end

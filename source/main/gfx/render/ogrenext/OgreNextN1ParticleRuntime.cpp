@@ -250,6 +250,13 @@ ValidationResult OgreNextN1ParticleRuntime::Prepare(
     std::uint64_t candidate_highest_system_id = highest_system_id_;
     OgreNextN1ParticleRuntimeAudit candidate_audit = audit_;
     if (frame != nullptr) {
+      const bool source_sequence_is_contiguous =
+          audit_.committed_source_sequence == 0U ||
+          frame->source_sequence == audit_.committed_source_sequence + 1U;
+      const bool authoritative_generation_close =
+          frame->finalizes_scene_generation && registry.live_count() == 0U &&
+          (audit_.committed_source_sequence == 0U ||
+           frame->source_sequence > audit_.committed_source_sequence);
       if (frame->version != kOgre14ParticleCapturedFrameVersion ||
           frame->source_sequence == 0U ||
           frame->material_catalog_registry_id != registry.registry_id() ||
@@ -261,8 +268,8 @@ ValidationResult OgreNextN1ParticleRuntime::Prepare(
           frame->commands.size() > 65536U ||
           frame->absolute_world_origin_meters !=
               absolute_world_origin_meters ||
-          (audit_.committed_source_sequence != 0U &&
-           frame->source_sequence != audit_.committed_source_sequence + 1U)) {
+          (!source_sequence_is_contiguous &&
+           !authoritative_generation_close)) {
         return Failure(ValidationCode::SEQUENCE_MISMATCH,
                        "continuous_particles.lineage",
                        "particle delta does not continue the exact scene/catalog lineage");
@@ -287,7 +294,9 @@ ValidationResult OgreNextN1ParticleRuntime::Prepare(
         candidate_highest_event_id = command.event_id;
         const auto current = candidate.find(command.system_id);
         if (command.operation == Ogre14ParticleLifecycleOperation::DESTROY) {
-          if (command.system != nullptr || current == candidate.end()) {
+          if (command.system != nullptr ||
+              (current == candidate.end() &&
+               !authoritative_generation_close)) {
             return Failure(ValidationCode::REVISION_MISMATCH,
                            "continuous_particles.commands.destroy",
                            "DESTROY requires one existing system and no payload",
@@ -300,9 +309,18 @@ ValidationResult OgreNextN1ParticleRuntime::Prepare(
                            "particle system tombstone quota was exhausted",
                            index);
           }
-          candidate.erase(current);
+          if (current != candidate.end()) {
+            candidate.erase(current);
+          }
           ++candidate_audit.destroy_commands;
           continue;
+        }
+        if (authoritative_generation_close) {
+          return Failure(
+              ValidationCode::REVISION_MISMATCH,
+              "continuous_particles.commands.generation_close",
+              "a scene-generation close may contain only DESTROY commands",
+              index);
         }
         if (command.system == nullptr ||
             command.system->system_id != command.system_id ||
@@ -374,6 +392,28 @@ ValidationResult OgreNextN1ParticleRuntime::Prepare(
         } else {
           ++candidate_audit.stop_commands;
         }
+      }
+      if (frame->finalizes_scene_generation) {
+        if (!authoritative_generation_close) {
+          return Failure(
+              ValidationCode::SEQUENCE_MISMATCH,
+              "continuous_particles.generation_close",
+              "a scene-generation close requires a newer source sequence and the exact empty material catalog");
+        }
+        // Finalization is a complete empty boundary, not an incremental
+        // particle delta. A recoverably rejected visual frame may have hidden
+        // a CREATE or DESTROY from this runtime, so reconcile both sides: all
+        // locally committed systems retire, while source-only DESTROY IDs are
+        // retained as tombstones for the duration of this final transaction.
+        for (const auto &entry : candidate) {
+          if (candidate_tombstones.size() >= 65536U ||
+              !candidate_tombstones.insert(entry.first).second) {
+            return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                           "continuous_particles.generation_close",
+                           "final particle tombstone quota was exhausted");
+          }
+        }
+        candidate.clear();
       }
     }
 

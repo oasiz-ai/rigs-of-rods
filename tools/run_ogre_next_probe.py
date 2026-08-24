@@ -880,7 +880,7 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
         "84916d0d1abf61a15d19d2c89a7d9b1a445f1a37a5067a9f8b558395fe10ead1"
     )
     expected_ibl_patch_sha256 = (
-        "2a4792a553a3911db197750ae6e4de2155f7b9604e9bc6d730cc19bba0b1075f"
+        "82c91dbfc224579053817f3c88fade248037f7c7ce8e7b80916bf9a62b35384d"
     )
     expected_metal_anisotropy_patch_sha256 = (
         "f7c5356f5f2025bbc7daf5e0788b7820244ed1ad8c3d45dd5ac73f381d800a22"
@@ -1049,8 +1049,9 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
             "path": "patches/0005-metal-typed-ibl-uav-conversions.patch",
             "sha256": expected_ibl_patch_sha256,
             "reason": (
-                "Use explicit Metal typed-UAV vector conversions for half and "
-                "float IBL targets without changing GLSL or HLSL"
+                "Use explicit Metal typed-UAV vector conversions and keep the "
+                "first cross-backend IBL accumulation pass from reading an "
+                "uninitialized output UAV"
             ),
             "source_path": (
                 "Samples/Media/Compute/Algorithms/IBL/"
@@ -1060,7 +1061,7 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
                 "68884256ab318116833bf2efe19518833459cc461fb8dd4f8e2c253f8c352165"
             ),
             "patched_sha256": (
-                "3ebebc1132c720ee8b741226d41e8638f747a0d5700222d7cb4c8f4e0663fa41"
+                "b33067159f8c358919bdb59d361a155333575f69081dcd53cf3da199966f9a6f"
             ),
         },
         {

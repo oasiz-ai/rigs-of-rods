@@ -275,7 +275,9 @@ class OgreNextProbeContractTests(unittest.TestCase):
             data = (PROBE_DIR / patch["path"]).read_bytes()
             self.assertEqual(hashlib.sha256(data).hexdigest(), patch["sha256"])
 
-    def test_metal_ibl_patch_is_exact_and_backend_scoped(self) -> None:
+    def test_ibl_patch_is_exact_and_metal_conversions_are_backend_scoped(
+        self,
+    ) -> None:
         patch = self.lock["patches"][1]
         self.assertEqual(
             patch["path"],
@@ -287,7 +289,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
         )
         self.assertEqual(
             patch["patched_sha256"],
-            "3ebebc1132c720ee8b741226d41e8638f747a0d5700222d7cb4c8f4e0663fa41",
+            "b33067159f8c358919bdb59d361a155333575f69081dcd53cf3da199966f9a6f",
         )
         source = (PROBE_DIR / patch["path"]).read_text(encoding="utf-8")
         self.assertEqual(source.count("@property( syntax == metal )"), 4)
@@ -296,6 +298,8 @@ class OgreNextProbeContractTests(unittest.TestCase):
             2,
         )
         self.assertEqual(source.count("(@insertpiece(uav0_pf_type)4)"), 2)
+        self.assertIn("+\t\tif( p_convolutionSamplesOffset > 1 )", source)
+        self.assertIn("-\t\tif( p_convolutionSamplesOffset >= 1 )", source)
         self.assertIn(
             "OGRE_imageWrite2DArray4( lastResult, "
             "gl_GlobalInvocationID.xyz, outputValue );",
@@ -425,22 +429,43 @@ class OgreNextProbeContractTests(unittest.TestCase):
             f"// deterministic fixture line {index}\n"
             for index in range(1, 301)
         ]
+        lines[212] = "\t\tfloat4 importanceSampled = importanceSample( R PARAMS_ARG );\n"
+        lines[213] = "\n"
+        lines[214] = "\t\t@property( typed_uav_loads )\n"
+        lines[215] = "\t\tif( p_convolutionSamplesOffset >= 1 )\n"
+        lines[216] = "\t\t{\n"
+        lines[217] = (
+            "\t\t\t@property( uav0_texture_type == TextureTypes_TypeCube )\n"
+        )
         lines[218] = (
             "\t\t\t\tfloat4 lastResultVal = OGRE_imageLoad2DArray( "
             "lastResult, loadCoords.xyz );\n"
         )
+        lines[219] = "\t\t\t@else\n"
         lines[220] = (
             "\t\t\t\tfloat4 lastResultVal = OGRE_imageLoad2D( "
             "lastResult, loadCoords.xy );\n"
+        )
+        lines[221] = "\t\t\t@end\n"
+        lines[222] = "\t\t\t@property( uav0_orig_pf_srgb )\n"
+        lines[223] = "\t\t\t\tlastResultVal = fromSRGB( lastResultVal );\n"
+        lines[224] = "\t\t\t@end\n"
+        lines[268] = "\t@end\n"
+        lines[269] = "\n"
+        lines[270] = (
+            "\t@property( uav0_texture_type == TextureTypes_TypeCube )\n"
         )
         lines[271] = (
             "\t\tOGRE_imageWrite2DArray4( lastResult, "
             "gl_GlobalInvocationID.xyz, outputValue );\n"
         )
+        lines[272] = "\t@else\n"
         lines[273] = (
             "\t\tOGRE_imageWrite2D4( lastResult, "
             "gl_GlobalInvocationID.xy, outputValue );\n"
         )
+        lines[274] = "\t@end\n"
+        lines[275] = "@end\n"
 
         with tempfile.TemporaryDirectory(
             prefix="ror-ogre-next-autocrlf-"

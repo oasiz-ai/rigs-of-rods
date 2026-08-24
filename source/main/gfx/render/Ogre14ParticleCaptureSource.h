@@ -337,6 +337,12 @@ struct Ogre14CapturedParticleCommand {
 /// extends that boundary without changing the established v4 wire layout.
 struct Ogre14ParticleCapturedFrame {
   std::uint32_t version = kOgre14ParticleCapturedFrameVersion;
+  /// True only for the complete empty/tombstone publication produced by
+  /// GraphicsSceneSnapshotProducer::FinalizeSceneGeneration(). A frontend may
+  /// use this explicit close boundary to retire particle state even when a
+  /// recoverably rejected visual frame left an uncommitted source-sequence
+  /// gap. Ordinary particle frames must still be contiguous.
+  bool finalizes_scene_generation = false;
   std::uint64_t source_sequence = 0U;
   std::uint64_t material_catalog_registry_id = 0U;
   std::uint64_t material_catalog_sequence = 0U;

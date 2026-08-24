@@ -179,8 +179,10 @@ System(std::uint64_t id, bool emitting = true, float age = 0.25F) {
 std::shared_ptr<const Ogre14ParticleCapturedFrame> Frame(
     std::uint64_t sequence,
     std::vector<Ogre14CapturedParticleCommand> commands,
-    std::uint64_t material_catalog_sequence = 1U) {
+    std::uint64_t material_catalog_sequence = 1U,
+    bool finalizes_scene_generation = false) {
   auto frame = std::make_shared<Ogre14ParticleCapturedFrame>();
+  frame->finalizes_scene_generation = finalizes_scene_generation;
   frame->source_sequence = sequence;
   frame->material_catalog_registry_id = 61U;
   frame->material_catalog_sequence = material_catalog_sequence;
@@ -300,6 +302,63 @@ void TestFinalDestroySurvivesPriorAssetRetirement() {
               runtime.audit().source_backed_textures == 0U &&
               runtime.audit().lifetime_max_source_backed_textures == 1U,
           "final DESTROY required already-retired material assets");
+}
+
+void TestGenerationCloseReconcilesRejectedFrameGap() {
+  const Double3 origin{100.0, 0.0, -50.0};
+  const std::unique_ptr<RenderAssetRegistry> live_catalog = Catalog();
+  OgreNextN1ParticleRuntime runtime;
+  ValidationResult result = runtime.Prepare(
+      1U,
+      Frame(1U, {{1U, 10U, Ogre14ParticleLifecycleOperation::CREATE,
+                  System(10U)}}),
+      *live_catalog, 9U, origin);
+  Require(result.ok() && runtime.Commit(1U),
+          "generation-close recovery seed failed");
+
+  // Source sequences 2-4 represent cleanly rejected visual frames. In that
+  // interval source system 10 disappeared and source system 20 appeared, so
+  // the final producer boundary contains only the source-side tombstone for
+  // 20. The explicit close must still retire runtime-side system 10.
+  const std::unique_ptr<RenderAssetRegistry> final_catalog =
+      EmptyFinalCatalog();
+  result = runtime.Prepare(
+      5U,
+      Frame(5U, {{8U, 20U, Ogre14ParticleLifecycleOperation::DESTROY,
+                  nullptr}},
+            final_catalog->sequence(), true),
+      *final_catalog, 9U, origin);
+  Require(result.ok() && runtime.prepared_systems().empty() &&
+              runtime.Commit(5U) &&
+              runtime.audit().committed_source_sequence == 5U &&
+              runtime.audit().live_systems == 0U &&
+              runtime.audit().live_particles == 0U,
+          "authoritative generation close did not reconcile the skipped source interval");
+
+  OgreNextN1ParticleRuntime ordinary_gap;
+  result = ordinary_gap.Prepare(
+      1U,
+      Frame(1U, {{1U, 10U, Ogre14ParticleLifecycleOperation::CREATE,
+                  System(10U)}}),
+      *live_catalog, 9U, origin);
+  Require(result.ok() && ordinary_gap.Commit(1U),
+          "ordinary-gap hostile seed failed");
+  result = ordinary_gap.Prepare(2U, Frame(3U, {}), *live_catalog, 9U, origin);
+  Require(!result && result.field == "continuous_particles.lineage" &&
+              ordinary_gap.audit().committed_source_sequence == 1U,
+          "ordinary particle delta bypassed contiguous lineage");
+
+  result = ordinary_gap.Prepare(
+      3U,
+      Frame(3U, {{2U, 10U, Ogre14ParticleLifecycleOperation::UPDATE,
+                  System(10U, true, 0.5F)}},
+            final_catalog->sequence(), true),
+      *final_catalog, 9U, origin);
+  Require(!result &&
+              result.field ==
+                  "continuous_particles.commands.generation_close" &&
+              ordinary_gap.audit().committed_source_sequence == 1U,
+          "generation close admitted a non-DESTROY command");
 }
 
 void TestRetainedClosureRevalidatesEveryCurrentCatalog() {
@@ -506,6 +565,7 @@ int main() {
   TestPinnedTextureCoordinateRotation();
   TestLifecycleDistinctTextureAndRollback();
   TestFinalDestroySurvivesPriorAssetRetirement();
+  TestGenerationCloseReconcilesRejectedFrameGap();
   TestRetainedClosureRevalidatesEveryCurrentCatalog();
   TestFailClosedSourceAlphaAndStopSemantics();
   TestPermanentSystemTombstonesAndTransitionKinds();
