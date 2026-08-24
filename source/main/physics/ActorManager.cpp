@@ -1505,6 +1505,7 @@ bool ActorManager::TryActivateDeterministicActorInputSavegame()
         m_deterministic_actor_input = std::move(runtime);
         m_completed_physics_steps = payload.completed_physics_steps;
         m_simulation_paused = !payload.resume_after_load;
+
         m_deterministic_actor_input_pending_savegame.reset();
         RoR::LogFormat(
             "[RoR|Determinism] Restored %s input continuation at fixed "
@@ -3532,6 +3533,12 @@ void ActorManager::UpdateActors(ActorPtr player_actor)
         this->SyncWithSimThread();
         if (!this->TryActivateDeterministicActorInputSavegame())
             return;
+
+        // Activation publishes the authenticated continuation and restores
+        // the exact completed-step cursor. Keep this main-loop turn as a
+        // zero-step handoff so scripts and receipt collectors can observe and
+        // arm against that cursor before any resumed physics is scheduled.
+        return;
     }
 
     // An exact-step capture runtime is the sole scheduler while it owns this

@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -403,6 +404,143 @@ def validate_checkpoint(path: Path) -> dict[str, object]:
         raise ResumeFailure("checkpoint actor is not the exact player")
     if actor.get("physics_step") != SAVE_STEP:
         raise ResumeFailure("checkpoint player step differs")
+    origin = actor.get("physics_origin")
+    if (
+        not isinstance(origin, list)
+        or len(origin) != 3
+        or any(
+            isinstance(component, bool)
+            or not isinstance(component, (int, float))
+            or not math.isfinite(component)
+            for component in origin
+        )
+    ):
+        raise ResumeFailure("checkpoint physics origin is invalid")
+    runtime_flags = actor.get("deterministic_runtime_flags_v1")
+    if (
+        not isinstance(runtime_flags, dict)
+        or set(runtime_flags) != {
+            "update_physics",
+            "collision_relevant",
+            "ongoing_reset",
+        }
+        or any(not isinstance(value, bool) for value in runtime_flags.values())
+    ):
+        raise ResumeFailure("checkpoint deterministic runtime flags are invalid")
+    solver = actor.get("deterministic_solver_state_v1")
+    if not isinstance(solver, dict) or set(solver) != {
+        "wheels",
+        "wheel_differentials",
+        "axle_differentials",
+        "intra_collision_cadence",
+        "inter_collision_cadence",
+        "actor",
+    }:
+        raise ResumeFailure("checkpoint deterministic solver state is invalid")
+
+    def finite_number(value: object) -> bool:
+        return (
+            not isinstance(value, bool)
+            and isinstance(value, (int, float))
+            and math.isfinite(value)
+        )
+
+    wheels = solver.get("wheels")
+    if (
+        not isinstance(wheels, list)
+        or not wheels
+        or any(
+            not isinstance(row, list)
+            or len(row) != 8
+            or any(not finite_number(value) for value in row)
+            for row in wheels
+        )
+    ):
+        raise ResumeFailure("checkpoint deterministic wheel state is invalid")
+    for field in ("wheel_differentials", "axle_differentials"):
+        values = solver.get(field)
+        if not isinstance(values, list) or any(
+            not finite_number(value) for value in values
+        ):
+            raise ResumeFailure("checkpoint differential state is invalid")
+    for field in ("intra_collision_cadence", "inter_collision_cadence"):
+        values = solver.get(field)
+        if not isinstance(values, list) or any(
+            not isinstance(row, list)
+            or len(row) != 2
+            or any(isinstance(value, bool) or not isinstance(value, int) for value in row)
+            for row in values
+        ):
+            raise ResumeFailure("checkpoint collision cadence is invalid")
+    solver_actor = solver.get("actor")
+    if not isinstance(solver_actor, dict) or set(solver_actor) != {
+        "fusedrag",
+        "sleep_counter",
+        "stabilizer_shock_sleep",
+        "stabilizer_shock_ratio",
+        "stabilizer_shock_request",
+        "tc_timer",
+        "tc_pulse_state",
+        "alb_timer",
+        "alb_pulse_state",
+        "anim_previous_crank",
+    }:
+        raise ResumeFailure("checkpoint deterministic actor solver state is invalid")
+    fusedrag = solver_actor.get("fusedrag")
+    if (
+        not isinstance(fusedrag, list)
+        or len(fusedrag) != 3
+        or any(not finite_number(value) for value in fusedrag)
+        or any(
+            not finite_number(solver_actor.get(field))
+            for field in (
+                "sleep_counter",
+                "stabilizer_shock_sleep",
+                "stabilizer_shock_ratio",
+                "tc_timer",
+                "alb_timer",
+                "anim_previous_crank",
+            )
+        )
+        or isinstance(solver_actor.get("stabilizer_shock_request"), bool)
+        or not isinstance(solver_actor.get("stabilizer_shock_request"), int)
+        or not isinstance(solver_actor.get("tc_pulse_state"), bool)
+        or not isinstance(solver_actor.get("alb_pulse_state"), bool)
+    ):
+        raise ResumeFailure("checkpoint deterministic actor solver values are invalid")
+    nodes = actor.get("nodes")
+    if (
+        not isinstance(nodes, list)
+        or not nodes
+        or any(
+            not isinstance(node, list)
+            or len(node) < 29
+            or any(
+                isinstance(component, bool)
+                or not isinstance(component, (int, float))
+                or not math.isfinite(component)
+                for component in node[9:15] + node[17:29]
+            )
+            or not isinstance(node[15], bool)
+            or not isinstance(node[16], bool)
+            for node in nodes
+        )
+    ):
+        raise ResumeFailure("checkpoint node-local state is invalid")
+    beams = actor.get("beams")
+    if (
+        not isinstance(beams, list)
+        or not beams
+        or any(
+            not isinstance(beam, list)
+            or len(beam) < 10
+            or isinstance(beam[9], bool)
+            or not isinstance(beam[9], (int, float))
+            or not math.isfinite(beam[9])
+            for beam in beams
+        )
+    ):
+        raise ResumeFailure("checkpoint beam stress state is invalid")
     filename = actor.get("filename")
     if not isinstance(filename, str) or not filename.endswith(":" + VEHICLE):
         raise ResumeFailure("checkpoint player content identity differs")

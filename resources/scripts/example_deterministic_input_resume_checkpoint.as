@@ -12,6 +12,7 @@ const uint64 SCENARIO_ID = 2026082001;
 const uint64 TARGET_ID = 2026082001001;
 const uint64 SAVE_STEP = 120;
 const uint64 FINAL_STEP = 240;
+const uint64 MAX_RESTORE_WAIT_FRAMES = 600;
 const string CHECKPOINT = "d0_input_checkpoint.sav";
 
 enum ScenarioState
@@ -22,6 +23,7 @@ enum ScenarioState
 }
 
 ScenarioState gState = WAITING_FOR_RESTORE;
+uint64 gRestoreWaitFrames = 0;
 CVarClass@ gAppState;
 CVarClass@ gInputMode;
 CVarClass@ gInputScenario;
@@ -104,12 +106,24 @@ void frameStep(float dt)
             FailScenario("restore-published-at-step-" + completed);
             return;
         }
-        if (gInputMode.getStr() != "record" ||
+        const string mode = gInputMode.getStr();
+        if (mode == "off")
+        {
+            ++gRestoreWaitFrames;
+            if (gRestoreWaitFrames > MAX_RESTORE_WAIT_FRAMES)
+                FailScenario("restored-input-activation-timeout");
+            return;
+        }
+        if (mode != "record" ||
             gInputScenario.getStr() != "" + SCENARIO_ID ||
             gInputTarget.getStr() != "" + TARGET_ID ||
             gInputLimit.getStr() != "" + FINAL_STEP)
         {
-            FailScenario("restored-input-identity-mismatch");
+            FailScenario(
+                "restored-input-identity-mismatch mode=" + mode +
+                " scenario=" + gInputScenario.getStr() +
+                " target=" + gInputTarget.getStr() +
+                " limit=" + gInputLimit.getStr());
             return;
         }
 

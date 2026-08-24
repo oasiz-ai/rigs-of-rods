@@ -49,7 +49,9 @@
 #include "Utils.h"
 
 #include <rapidjson/rapidjson.h>
+#include <cmath>
 #include <fstream>
+#include <initializer_list>
 #include <limits>
 #include <new>
 #include <set>
@@ -71,6 +73,99 @@ static const char* const DETERMINISTIC_INPUT_CONTINUATION_MEMBER =
     "deterministic_input_continuation_v1";
 static const char* const DETERMINISTIC_SCENARIO_IDENTITY_MEMBER =
     "deterministic_scenario_identity_v1";
+static const char* const DETERMINISTIC_SOLVER_STATE_MEMBER =
+    "deterministic_solver_state_v1";
+
+bool IsFiniteJsonNumber(const rapidjson::Value& value)
+{
+    return value.IsNumber() && std::isfinite(value.GetDouble());
+}
+
+bool IsFiniteNumberRow(
+    const rapidjson::Value& value,
+    rapidjson::SizeType expected_size)
+{
+    if (!value.IsArray() || value.Size() != expected_size)
+        return false;
+    for (const rapidjson::Value& item : value.GetArray())
+    {
+        if (!IsFiniteJsonNumber(item))
+            return false;
+    }
+    return true;
+}
+
+bool ValidateDeterministicRuntimeFlags(const rapidjson::Value& flags)
+{
+    return flags.IsObject() && flags.MemberCount() == 3U &&
+        flags.HasMember("update_physics") &&
+            flags["update_physics"].IsBool() &&
+        flags.HasMember("collision_relevant") &&
+            flags["collision_relevant"].IsBool() &&
+        flags.HasMember("ongoing_reset") &&
+            flags["ongoing_reset"].IsBool();
+}
+
+bool ValidateDeterministicSolverState(const rapidjson::Value& state)
+{
+    if (!state.IsObject() || state.MemberCount() != 6U ||
+        !state.HasMember("wheels") || !state["wheels"].IsArray() ||
+        !state.HasMember("wheel_differentials") ||
+            !state["wheel_differentials"].IsArray() ||
+        !state.HasMember("axle_differentials") ||
+            !state["axle_differentials"].IsArray() ||
+        !state.HasMember("intra_collision_cadence") ||
+            !state["intra_collision_cadence"].IsArray() ||
+        !state.HasMember("inter_collision_cadence") ||
+            !state["inter_collision_cadence"].IsArray() ||
+        !state.HasMember("actor") || !state["actor"].IsObject())
+    {
+        return false;
+    }
+    for (const rapidjson::Value& wheel : state["wheels"].GetArray())
+    {
+        if (!IsFiniteNumberRow(wheel, 8U))
+            return false;
+    }
+    for (const char* member : {"wheel_differentials", "axle_differentials"})
+    {
+        for (const rapidjson::Value& delta : state[member].GetArray())
+        {
+            if (!IsFiniteJsonNumber(delta))
+                return false;
+        }
+    }
+    for (const char* member : {"intra_collision_cadence", "inter_collision_cadence"})
+    {
+        for (const rapidjson::Value& cadence : state[member].GetArray())
+        {
+            if (!cadence.IsArray() || cadence.Size() != 2U ||
+                !cadence[0U].IsInt() || !cadence[1U].IsInt())
+            {
+                return false;
+            }
+        }
+    }
+
+    const rapidjson::Value& actor = state["actor"];
+    return actor.MemberCount() == 10U &&
+        actor.HasMember("fusedrag") &&
+            IsFiniteNumberRow(actor["fusedrag"], 3U) &&
+        actor.HasMember("sleep_counter") &&
+            IsFiniteJsonNumber(actor["sleep_counter"]) &&
+        actor.HasMember("stabilizer_shock_sleep") &&
+            IsFiniteJsonNumber(actor["stabilizer_shock_sleep"]) &&
+        actor.HasMember("stabilizer_shock_ratio") &&
+            IsFiniteJsonNumber(actor["stabilizer_shock_ratio"]) &&
+        actor.HasMember("stabilizer_shock_request") &&
+            actor["stabilizer_shock_request"].IsInt() &&
+        actor.HasMember("tc_timer") && IsFiniteJsonNumber(actor["tc_timer"]) &&
+        actor.HasMember("tc_pulse_state") && actor["tc_pulse_state"].IsBool() &&
+        actor.HasMember("alb_timer") && IsFiniteJsonNumber(actor["alb_timer"]) &&
+        actor.HasMember("alb_pulse_state") && actor["alb_pulse_state"].IsBool() &&
+        actor.HasMember("anim_previous_crank") &&
+            IsFiniteJsonNumber(actor["anim_previous_crank"]);
+}
 
 struct SavedDeterministicScenarioIdentity
 {
@@ -925,13 +1020,86 @@ bool ActorManager::LoadScene(Ogre::String save_filename)
         {
             if (!actor_entry.IsObject() ||
                 !actor_entry.HasMember("player_actor") ||
-                !actor_entry["player_actor"].IsBool())
+                !actor_entry["player_actor"].IsBool() ||
+                !actor_entry.HasMember("physics_origin") ||
+                !IsFiniteNumberRow(actor_entry["physics_origin"], 3U) ||
+                !actor_entry.HasMember("deterministic_runtime_flags_v1") ||
+                !ValidateDeterministicRuntimeFlags(
+                    actor_entry["deterministic_runtime_flags_v1"]) ||
+                !actor_entry.HasMember(DETERMINISTIC_SOLVER_STATE_MEMBER) ||
+                !ValidateDeterministicSolverState(
+                    actor_entry[DETERMINISTIC_SOLVER_STATE_MEMBER]))
             {
                 App::GetConsole()->putMessage(
                     Console::CONSOLE_MSGTYPE_INFO,
                     Console::CONSOLE_SYSTEM_ERROR,
-                    _L("Error while loading scene: Invalid deterministic input owner"));
+                    _L("Error while loading scene: Invalid deterministic input owner state"));
                 return false;
+            }
+            if (!actor_entry.HasMember("nodes") ||
+                !actor_entry["nodes"].IsArray())
+            {
+                App::GetConsole()->putMessage(
+                    Console::CONSOLE_MSGTYPE_INFO,
+                    Console::CONSOLE_SYSTEM_ERROR,
+                    _L("Error while loading scene: Deterministic node state is missing"));
+                return false;
+            }
+            for (const rapidjson::Value& node_state:
+                actor_entry["nodes"].GetArray())
+            {
+                if (!node_state.IsArray() ||
+                    node_state.Size() < 29U ||
+                    !IsFiniteJsonNumber(node_state[9U]) ||
+                    !IsFiniteJsonNumber(node_state[10U]) ||
+                    !IsFiniteJsonNumber(node_state[11U]) ||
+                    !IsFiniteJsonNumber(node_state[12U]) ||
+                    !IsFiniteJsonNumber(node_state[13U]) ||
+                    !IsFiniteJsonNumber(node_state[14U]) ||
+                    !node_state[15U].IsBool() ||
+                    !node_state[16U].IsBool() ||
+                    !IsFiniteJsonNumber(node_state[17U]) ||
+                    !IsFiniteJsonNumber(node_state[18U]) ||
+                    !IsFiniteJsonNumber(node_state[19U]) ||
+                    !IsFiniteJsonNumber(node_state[20U]) ||
+                    !IsFiniteJsonNumber(node_state[21U]) ||
+                    !IsFiniteJsonNumber(node_state[22U]) ||
+                    !IsFiniteJsonNumber(node_state[23U]) ||
+                    !IsFiniteJsonNumber(node_state[24U]) ||
+                    !IsFiniteJsonNumber(node_state[25U]) ||
+                    !IsFiniteJsonNumber(node_state[26U]) ||
+                    !IsFiniteJsonNumber(node_state[27U]) ||
+                    !IsFiniteJsonNumber(node_state[28U]))
+                {
+                    App::GetConsole()->putMessage(
+                        Console::CONSOLE_MSGTYPE_INFO,
+                        Console::CONSOLE_SYSTEM_ERROR,
+                        _L("Error while loading scene: Deterministic node-local state is invalid"));
+                    return false;
+                }
+            }
+            if (!actor_entry.HasMember("beams") ||
+                !actor_entry["beams"].IsArray())
+            {
+                App::GetConsole()->putMessage(
+                    Console::CONSOLE_MSGTYPE_INFO,
+                    Console::CONSOLE_SYSTEM_ERROR,
+                    _L("Error while loading scene: Deterministic beam state is missing"));
+                return false;
+            }
+            for (const rapidjson::Value& beam_state:
+                actor_entry["beams"].GetArray())
+            {
+                if (!beam_state.IsArray() ||
+                    beam_state.Size() < 10U ||
+                    !IsFiniteJsonNumber(beam_state[9U]))
+                {
+                    App::GetConsole()->putMessage(
+                        Console::CONSOLE_MSGTYPE_INFO,
+                        Console::CONSOLE_SYSTEM_ERROR,
+                        _L("Error while loading scene: Deterministic beam stress is invalid"));
+                    return false;
+                }
             }
             if (!actor_entry["player_actor"].GetBool())
                 continue;
@@ -1291,6 +1459,17 @@ bool ActorManager::SaveScene(Ogre::String filename)
         j_actor_position.PushBack(actor->ar_nodes[0].AbsPosition.y, j_doc.GetAllocator());
         j_actor_position.PushBack(actor->ar_nodes[0].AbsPosition.z, j_doc.GetAllocator());
         j_entry.AddMember("position", j_actor_position, j_doc.GetAllocator());
+        if (has_input_payload)
+        {
+            rapidjson::Value j_physics_origin(rapidjson::kArrayType);
+            j_physics_origin.PushBack(actor->ar_origin.x, j_doc.GetAllocator());
+            j_physics_origin.PushBack(actor->ar_origin.y, j_doc.GetAllocator());
+            j_physics_origin.PushBack(actor->ar_origin.z, j_doc.GetAllocator());
+            j_entry.AddMember(
+                "physics_origin",
+                j_physics_origin,
+                j_doc.GetAllocator());
+        }
         j_entry.AddMember("rotation", actor->getRotation(), j_doc.GetAllocator());
         j_entry.AddMember("min_height", actor->getMinHeight(), j_doc.GetAllocator());
         j_entry.AddMember("spawn_rotation", actor->m_spawn_rotation, j_doc.GetAllocator());
@@ -1321,6 +1500,27 @@ bool ActorManager::SaveScene(Ogre::String filename)
         }
         j_entry.AddMember("physics_step", actor->m_physics_step, j_doc.GetAllocator());
         j_entry.AddMember("engine_update_step", actor->m_engine_update_step, j_doc.GetAllocator());
+        if (has_input_payload)
+        {
+            rapidjson::Value j_deterministic_runtime_flags(
+                rapidjson::kObjectType);
+            j_deterministic_runtime_flags.AddMember(
+                "update_physics",
+                actor->ar_update_physics,
+                j_doc.GetAllocator());
+            j_deterministic_runtime_flags.AddMember(
+                "collision_relevant",
+                actor->ar_collision_relevant,
+                j_doc.GetAllocator());
+            j_deterministic_runtime_flags.AddMember(
+                "ongoing_reset",
+                actor->m_ongoing_reset,
+                j_doc.GetAllocator());
+            j_entry.AddMember(
+                "deterministic_runtime_flags_v1",
+                j_deterministic_runtime_flags,
+                j_doc.GetAllocator());
+        }
         j_entry.AddMember("player_actor", actor==App::GetGameContext()->GetPlayerActor(), j_doc.GetAllocator());
         j_entry.AddMember("prev_player_actor", actor==App::GetGameContext()->GetPrevPlayerActor(), j_doc.GetAllocator());
 
@@ -1450,6 +1650,119 @@ bool ActorManager::SaveScene(Ogre::String filename)
         }
         j_entry.AddMember("axle_diffs", j_axle_diffs, j_doc.GetAllocator());
 
+        if (has_input_payload)
+        {
+            rapidjson::Value j_solver_state(rapidjson::kObjectType);
+            rapidjson::Value j_solver_wheels(rapidjson::kArrayType);
+            for (int i = 0; i < actor->ar_num_wheels; ++i)
+            {
+                const wheel_t& wheel = actor->ar_wheels[i];
+                rapidjson::Value row(rapidjson::kArrayType);
+                row.PushBack(wheel.wh_speed, j_doc.GetAllocator());
+                row.PushBack(wheel.wh_avg_speed, j_doc.GetAllocator());
+                row.PushBack(wheel.wh_alb_coef, j_doc.GetAllocator());
+                row.PushBack(wheel.wh_tc_coef, j_doc.GetAllocator());
+                row.PushBack(wheel.wh_torque, j_doc.GetAllocator());
+                row.PushBack(wheel.wh_last_torque, j_doc.GetAllocator());
+                row.PushBack(wheel.wh_last_retorque, j_doc.GetAllocator());
+                row.PushBack(wheel.wh_net_rp, j_doc.GetAllocator());
+                j_solver_wheels.PushBack(row, j_doc.GetAllocator());
+            }
+            j_solver_state.AddMember(
+                "wheels", j_solver_wheels, j_doc.GetAllocator());
+
+            rapidjson::Value j_solver_wheel_diffs(rapidjson::kArrayType);
+            for (int i = 0; i < actor->m_num_wheel_diffs; ++i)
+            {
+                j_solver_wheel_diffs.PushBack(
+                    actor->m_wheel_diffs[i]->di_delta_rotation,
+                    j_doc.GetAllocator());
+            }
+            j_solver_state.AddMember(
+                "wheel_differentials",
+                j_solver_wheel_diffs,
+                j_doc.GetAllocator());
+
+            rapidjson::Value j_solver_axle_diffs(rapidjson::kArrayType);
+            for (int i = 0; i < actor->m_num_axle_diffs; ++i)
+            {
+                j_solver_axle_diffs.PushBack(
+                    actor->m_axle_diffs[i]->di_delta_rotation,
+                    j_doc.GetAllocator());
+            }
+            j_solver_state.AddMember(
+                "axle_differentials",
+                j_solver_axle_diffs,
+                j_doc.GetAllocator());
+
+            rapidjson::Value j_intra_cadence(rapidjson::kArrayType);
+            rapidjson::Value j_inter_cadence(rapidjson::kArrayType);
+            for (int i = 0; i < actor->ar_num_collcabs; ++i)
+            {
+                rapidjson::Value intra(rapidjson::kArrayType);
+                intra.PushBack(
+                    actor->ar_intra_collcabrate[i].rate,
+                    j_doc.GetAllocator());
+                intra.PushBack(
+                    actor->ar_intra_collcabrate[i].distance,
+                    j_doc.GetAllocator());
+                j_intra_cadence.PushBack(intra, j_doc.GetAllocator());
+
+                rapidjson::Value inter(rapidjson::kArrayType);
+                inter.PushBack(
+                    actor->ar_inter_collcabrate[i].rate,
+                    j_doc.GetAllocator());
+                inter.PushBack(
+                    actor->ar_inter_collcabrate[i].distance,
+                    j_doc.GetAllocator());
+                j_inter_cadence.PushBack(inter, j_doc.GetAllocator());
+            }
+            j_solver_state.AddMember(
+                "intra_collision_cadence",
+                j_intra_cadence,
+                j_doc.GetAllocator());
+            j_solver_state.AddMember(
+                "inter_collision_cadence",
+                j_inter_cadence,
+                j_doc.GetAllocator());
+
+            rapidjson::Value j_solver_actor(rapidjson::kObjectType);
+            rapidjson::Value j_fusedrag(rapidjson::kArrayType);
+            j_fusedrag.PushBack(actor->ar_fusedrag.x, j_doc.GetAllocator());
+            j_fusedrag.PushBack(actor->ar_fusedrag.y, j_doc.GetAllocator());
+            j_fusedrag.PushBack(actor->ar_fusedrag.z, j_doc.GetAllocator());
+            j_solver_actor.AddMember("fusedrag", j_fusedrag, j_doc.GetAllocator());
+            j_solver_actor.AddMember("sleep_counter", actor->ar_sleep_counter, j_doc.GetAllocator());
+            j_solver_actor.AddMember(
+                "stabilizer_shock_sleep",
+                actor->m_stabilizer_shock_sleep,
+                j_doc.GetAllocator());
+            j_solver_actor.AddMember(
+                "stabilizer_shock_ratio",
+                actor->m_stabilizer_shock_ratio,
+                j_doc.GetAllocator());
+            j_solver_actor.AddMember(
+                "stabilizer_shock_request",
+                actor->m_stabilizer_shock_request,
+                j_doc.GetAllocator());
+            j_solver_actor.AddMember("tc_timer", actor->tc_timer, j_doc.GetAllocator());
+            j_solver_actor.AddMember(
+                "tc_pulse_state", actor->tc_pulse_state, j_doc.GetAllocator());
+            j_solver_actor.AddMember("alb_timer", actor->alb_timer, j_doc.GetAllocator());
+            j_solver_actor.AddMember(
+                "alb_pulse_state", actor->alb_pulse_state, j_doc.GetAllocator());
+            j_solver_actor.AddMember(
+                "anim_previous_crank",
+                actor->ar_anim_previous_crank,
+                j_doc.GetAllocator());
+            j_solver_state.AddMember(
+                "actor", j_solver_actor, j_doc.GetAllocator());
+            j_entry.AddMember(
+                rapidjson::StringRef(DETERMINISTIC_SOLVER_STATE_MEMBER),
+                j_solver_state,
+                j_doc.GetAllocator());
+        }
+
         // Transfercase
         if (actor->m_transfer_case)
         {
@@ -1559,6 +1872,39 @@ bool ActorManager::SaveScene(Ogre::String filename)
             j_node.PushBack(actor->ar_initial_node_positions[i].y, j_doc.GetAllocator());
             j_node.PushBack(actor->ar_initial_node_positions[i].z, j_doc.GetAllocator());
 
+            if (has_input_payload)
+            {
+                // Deterministic continuations digest actor-local coordinates.
+                // Persist them directly so a load never has to recover their
+                // exact float bits by subtracting the physics origin from the
+                // rounded absolute coordinate.
+                j_node.PushBack(actor->ar_nodes[i].RelPosition.x, j_doc.GetAllocator());
+                j_node.PushBack(actor->ar_nodes[i].RelPosition.y, j_doc.GetAllocator());
+                j_node.PushBack(actor->ar_nodes[i].RelPosition.z, j_doc.GetAllocator());
+
+                // Forces are accumulated after integration for consumption by
+                // the next fixed step. Collision history and live node
+                // coefficients also feed that solve, so all belong to an exact
+                // continuation rather than the generic savegame format.
+                j_node.PushBack(actor->ar_nodes[i].Forces.x, j_doc.GetAllocator());
+                j_node.PushBack(actor->ar_nodes[i].Forces.y, j_doc.GetAllocator());
+                j_node.PushBack(actor->ar_nodes[i].Forces.z, j_doc.GetAllocator());
+                j_node.PushBack(actor->ar_nodes[i].nd_has_ground_contact, j_doc.GetAllocator());
+                j_node.PushBack(actor->ar_nodes[i].nd_has_mesh_contact, j_doc.GetAllocator());
+                j_node.PushBack(actor->ar_nodes[i].nd_avg_collision_slip, j_doc.GetAllocator());
+                j_node.PushBack(actor->ar_nodes[i].nd_last_collision_slip.x, j_doc.GetAllocator());
+                j_node.PushBack(actor->ar_nodes[i].nd_last_collision_slip.y, j_doc.GetAllocator());
+                j_node.PushBack(actor->ar_nodes[i].nd_last_collision_slip.z, j_doc.GetAllocator());
+                j_node.PushBack(actor->ar_nodes[i].nd_last_collision_force.x, j_doc.GetAllocator());
+                j_node.PushBack(actor->ar_nodes[i].nd_last_collision_force.y, j_doc.GetAllocator());
+                j_node.PushBack(actor->ar_nodes[i].nd_last_collision_force.z, j_doc.GetAllocator());
+                j_node.PushBack(actor->ar_nodes[i].mass, j_doc.GetAllocator());
+                j_node.PushBack(actor->ar_nodes[i].buoyancy, j_doc.GetAllocator());
+                j_node.PushBack(actor->ar_nodes[i].friction_coef, j_doc.GetAllocator());
+                j_node.PushBack(actor->ar_nodes[i].surface_coef, j_doc.GetAllocator());
+                j_node.PushBack(actor->ar_nodes[i].volume_coef, j_doc.GetAllocator());
+            }
+
             j_nodes.PushBack(j_node, j_doc.GetAllocator());
         }
         j_entry.AddMember("nodes", j_nodes, j_doc.GetAllocator());
@@ -1579,6 +1925,8 @@ bool ActorManager::SaveScene(Ogre::String filename)
             j_beam.PushBack(actor->ar_beams[i].bm_inter_actor, j_doc.GetAllocator());
             ActorPtr locked_actor = actor->ar_beams[i].bm_locked_actor;
             j_beam.PushBack(locked_actor ? vector_index_lookup[locked_actor->ar_vector_index] : -1, j_doc.GetAllocator());
+            if (has_input_payload)
+                j_beam.PushBack(actor->ar_beams[i].stress, j_doc.GetAllocator());
 
             j_beams.PushBack(j_beam, j_doc.GetAllocator());
         }
@@ -1679,6 +2027,35 @@ bool ActorManager::RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_e
         return false;
     }
 
+    // The continuation envelope authenticates the input stream, while these
+    // arrays carry the live solver state it resumes. Prove every actor-local
+    // extent before mutating the freshly spawned actor so a hostile or stale
+    // checkpoint cannot partially restore or index beyond native storage.
+    if (m_deterministic_actor_input_pending_savegame != nullptr)
+    {
+        const rapidjson::Value& solver =
+            j_entry[DETERMINISTIC_SOLVER_STATE_MEMBER];
+        if (j_entry["nodes"].Size() !=
+                static_cast<rapidjson::SizeType>(actor->ar_num_nodes) ||
+            j_entry["beams"].Size() !=
+                static_cast<rapidjson::SizeType>(actor->ar_num_beams) ||
+            solver["wheels"].Size() !=
+                static_cast<rapidjson::SizeType>(actor->ar_num_wheels) ||
+            solver["wheel_differentials"].Size() !=
+                static_cast<rapidjson::SizeType>(actor->m_num_wheel_diffs) ||
+            solver["axle_differentials"].Size() !=
+                static_cast<rapidjson::SizeType>(actor->m_num_axle_diffs) ||
+            solver["intra_collision_cadence"].Size() !=
+                static_cast<rapidjson::SizeType>(actor->ar_num_collcabs) ||
+            solver["inter_collision_cadence"].Size() !=
+                static_cast<rapidjson::SizeType>(actor->ar_num_collcabs))
+        {
+            this->FailPendingDeterministicActorInputSavegame(
+                "restored Actor solver state shape rejected");
+            return false;
+        }
+    }
+
     bool has_material_payload = false;
     std::vector<CalibratedBeamSavegame::StagedBeam> staged_material;
     CalibratedBeamSavegame::Result material_validation;
@@ -1769,6 +2146,16 @@ bool ActorManager::RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_e
         j_entry["engine_update_step"].IsUint64()
             ? j_entry["engine_update_step"].GetUint64()
             : 0;
+    if (j_entry.HasMember("deterministic_runtime_flags_v1") &&
+        ValidateDeterministicRuntimeFlags(
+            j_entry["deterministic_runtime_flags_v1"]))
+    {
+        const rapidjson::Value& flags =
+            j_entry["deterministic_runtime_flags_v1"];
+        actor->ar_update_physics = flags["update_physics"].GetBool();
+        actor->ar_collision_relevant = flags["collision_relevant"].GetBool();
+        actor->m_ongoing_reset = flags["ongoing_reset"].GetBool();
+    }
 
     if (j_entry["player_actor"].GetBool())
     {
@@ -1890,6 +2277,90 @@ bool ActorManager::RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_e
         }
     }
 
+    if (j_entry.HasMember(DETERMINISTIC_SOLVER_STATE_MEMBER))
+    {
+        const rapidjson::Value& solver =
+            j_entry[DETERMINISTIC_SOLVER_STATE_MEMBER];
+        if (!ValidateDeterministicSolverState(solver) ||
+            solver["wheels"].Size() !=
+                static_cast<rapidjson::SizeType>(actor->ar_num_wheels) ||
+            solver["wheel_differentials"].Size() !=
+                static_cast<rapidjson::SizeType>(actor->m_num_wheel_diffs) ||
+            solver["axle_differentials"].Size() !=
+                static_cast<rapidjson::SizeType>(actor->m_num_axle_diffs) ||
+            solver["intra_collision_cadence"].Size() !=
+                static_cast<rapidjson::SizeType>(actor->ar_num_collcabs) ||
+            solver["inter_collision_cadence"].Size() !=
+                static_cast<rapidjson::SizeType>(actor->ar_num_collcabs))
+        {
+            if (m_deterministic_actor_input_pending_savegame != nullptr)
+            {
+                this->FailPendingDeterministicActorInputSavegame(
+                    "restored Actor solver state shape rejected");
+            }
+            return false;
+        }
+
+        for (int i = 0; i < actor->ar_num_wheels; ++i)
+        {
+            const rapidjson::Value& row = solver["wheels"][
+                static_cast<rapidjson::SizeType>(i)];
+            wheel_t& wheel = actor->ar_wheels[i];
+            wheel.wh_speed = row[0U].GetFloat();
+            wheel.wh_avg_speed = row[1U].GetFloat();
+            wheel.wh_alb_coef = row[2U].GetFloat();
+            wheel.wh_tc_coef = row[3U].GetFloat();
+            wheel.wh_torque = row[4U].GetFloat();
+            wheel.wh_last_torque = row[5U].GetFloat();
+            wheel.wh_last_retorque = row[6U].GetFloat();
+            wheel.wh_net_rp = row[7U].GetFloat();
+        }
+        for (int i = 0; i < actor->m_num_wheel_diffs; ++i)
+        {
+            actor->m_wheel_diffs[i]->di_delta_rotation =
+                solver["wheel_differentials"][
+                    static_cast<rapidjson::SizeType>(i)].GetFloat();
+        }
+        for (int i = 0; i < actor->m_num_axle_diffs; ++i)
+        {
+            actor->m_axle_diffs[i]->di_delta_rotation =
+                solver["axle_differentials"][
+                    static_cast<rapidjson::SizeType>(i)].GetFloat();
+        }
+        for (int i = 0; i < actor->ar_num_collcabs; ++i)
+        {
+            const rapidjson::Value& intra =
+                solver["intra_collision_cadence"][
+                    static_cast<rapidjson::SizeType>(i)];
+            actor->ar_intra_collcabrate[i].rate = intra[0U].GetInt();
+            actor->ar_intra_collcabrate[i].distance = intra[1U].GetInt();
+            const rapidjson::Value& inter =
+                solver["inter_collision_cadence"][
+                    static_cast<rapidjson::SizeType>(i)];
+            actor->ar_inter_collcabrate[i].rate = inter[0U].GetInt();
+            actor->ar_inter_collcabrate[i].distance = inter[1U].GetInt();
+        }
+
+        const rapidjson::Value& runtime_actor = solver["actor"];
+        actor->ar_fusedrag = Vector3(
+            runtime_actor["fusedrag"][0U].GetFloat(),
+            runtime_actor["fusedrag"][1U].GetFloat(),
+            runtime_actor["fusedrag"][2U].GetFloat());
+        actor->ar_sleep_counter = runtime_actor["sleep_counter"].GetFloat();
+        actor->m_stabilizer_shock_sleep =
+            runtime_actor["stabilizer_shock_sleep"].GetFloat();
+        actor->m_stabilizer_shock_ratio =
+            runtime_actor["stabilizer_shock_ratio"].GetFloat();
+        actor->m_stabilizer_shock_request =
+            runtime_actor["stabilizer_shock_request"].GetInt();
+        actor->tc_timer = runtime_actor["tc_timer"].GetFloat();
+        actor->tc_pulse_state = runtime_actor["tc_pulse_state"].GetBool();
+        actor->alb_timer = runtime_actor["alb_timer"].GetFloat();
+        actor->alb_pulse_state = runtime_actor["alb_pulse_state"].GetBool();
+        actor->ar_anim_previous_crank =
+            runtime_actor["anim_previous_crank"].GetFloat();
+    }
+
     if (actor->m_transfer_case)
     {
         actor->m_transfer_case->tr_4wd_mode = j_entry["transfercase"]["4WD"].GetBool();
@@ -1914,14 +2385,45 @@ bool ActorManager::RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_e
         }
     }
 
+    if (j_entry.HasMember("physics_origin") &&
+        IsFiniteNumberRow(j_entry["physics_origin"], 3U))
+    {
+        actor->ar_origin = Vector3(
+            j_entry["physics_origin"][0U].GetFloat(),
+            j_entry["physics_origin"][1U].GetFloat(),
+            j_entry["physics_origin"][2U].GetFloat());
+    }
+
     auto nodes = j_entry["nodes"].GetArray();
     for (rapidjson::SizeType i = 0; i < nodes.Size(); i++)
     {
         auto data = nodes[i].GetArray();
         actor->ar_nodes[i].AbsPosition      = Vector3(data[0].GetFloat(), data[1].GetFloat(), data[2].GetFloat());
-        actor->ar_nodes[i].RelPosition      = actor->ar_nodes[i].AbsPosition - actor->ar_origin;
+        actor->ar_nodes[i].RelPosition      = data.Size() >= 12U
+            ? Vector3(data[9U].GetFloat(), data[10U].GetFloat(), data[11U].GetFloat())
+            : actor->ar_nodes[i].AbsPosition - actor->ar_origin;
         actor->ar_nodes[i].Velocity         = Vector3(data[3].GetFloat(), data[4].GetFloat(), data[5].GetFloat());
         actor->ar_initial_node_positions[i] = Vector3(data[6].GetFloat(), data[7].GetFloat(), data[8].GetFloat());
+        if (data.Size() >= 24U)
+        {
+            actor->ar_nodes[i].Forces = Vector3(
+                data[12U].GetFloat(), data[13U].GetFloat(), data[14U].GetFloat());
+            actor->ar_nodes[i].nd_has_ground_contact = data[15U].GetBool();
+            actor->ar_nodes[i].nd_has_mesh_contact = data[16U].GetBool();
+            actor->ar_nodes[i].nd_avg_collision_slip = data[17U].GetFloat();
+            actor->ar_nodes[i].nd_last_collision_slip = Vector3(
+                data[18U].GetFloat(), data[19U].GetFloat(), data[20U].GetFloat());
+            actor->ar_nodes[i].nd_last_collision_force = Vector3(
+                data[21U].GetFloat(), data[22U].GetFloat(), data[23U].GetFloat());
+        }
+        if (data.Size() >= 29U)
+        {
+            actor->ar_nodes[i].mass = data[24U].GetFloat();
+            actor->ar_nodes[i].buoyancy = data[25U].GetFloat();
+            actor->ar_nodes[i].friction_coef = data[26U].GetFloat();
+            actor->ar_nodes[i].surface_coef = data[27U].GetFloat();
+            actor->ar_nodes[i].volume_coef = data[28U].GetFloat();
+        }
     }
 
     std::vector<ActorPtr> actors = this->GetLocalActors();
@@ -1939,6 +2441,8 @@ bool ActorManager::RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_e
         actor->ar_beams[i].bm_disabled        = data[6].GetBool();
         actor->ar_beams[i].bm_inter_actor     = data[7].GetBool();
         int locked_actor                      = data[8].GetInt();
+        if (data.Size() >= 10U)
+            actor->ar_beams[i].stress = data[9U].GetFloat();
         if (locked_actor != -1 &&
             locked_actor < (int)actors.size() &&
             actors[locked_actor] != nullptr)

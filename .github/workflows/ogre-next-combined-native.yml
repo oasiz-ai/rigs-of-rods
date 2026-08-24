@@ -12,11 +12,14 @@ on:
       - cmake/linux/**
       - cmake/macos/**
       - cmake/ogre_next_embedded/**
+      - resources/scripts/example_deterministic_input_resume_checkpoint.as
+      - resources/scripts/example_deterministic_input_save_checkpoint.as
       - source/main/**
       - tools/linux/RunRoR-combined
       - tools/ogre_next_probe/**
       - tools/run_agora_impact_regression.py
       - tools/run_calibrated_beam_soak.py
+      - tools/run_deterministic_savegame_resume.py
       - tools/run_playable_performance_scene.py
       - tools/stage_ogre_next_combined_resources.py
       - tools/verify_ogre_next_combined_binary_closure.py
@@ -26,6 +29,7 @@ on:
       - tests/tools/test_ogre_next_embedded_namespace_contract.py
       - tests/tools/test_run_agora_impact_regression.py
       - tests/tools/test_run_calibrated_beam_soak.py
+      - tests/tools/test_run_deterministic_savegame_resume.py
       - tests/tools/test_run_playable_performance_scene.py
       - tests/tools/test_renderer_combined_game_wiring_contract.py
   pull_request:
@@ -38,11 +42,14 @@ on:
       - cmake/linux/**
       - cmake/macos/**
       - cmake/ogre_next_embedded/**
+      - resources/scripts/example_deterministic_input_resume_checkpoint.as
+      - resources/scripts/example_deterministic_input_save_checkpoint.as
       - source/main/**
       - tools/linux/RunRoR-combined
       - tools/ogre_next_probe/**
       - tools/run_agora_impact_regression.py
       - tools/run_calibrated_beam_soak.py
+      - tools/run_deterministic_savegame_resume.py
       - tools/run_playable_performance_scene.py
       - tools/stage_ogre_next_combined_resources.py
       - tools/verify_ogre_next_combined_binary_closure.py
@@ -52,6 +59,7 @@ on:
       - tests/tools/test_ogre_next_embedded_namespace_contract.py
       - tests/tools/test_run_agora_impact_regression.py
       - tests/tools/test_run_calibrated_beam_soak.py
+      - tests/tools/test_run_deterministic_savegame_resume.py
       - tests/tools/test_run_playable_performance_scene.py
       - tests/tools/test_renderer_combined_game_wiring_contract.py
   workflow_dispatch:
@@ -186,11 +194,13 @@ jobs:
           python tests/tools/test_ogre_next_embedded_namespace_contract.py
           python tests/tools/test_run_playable_performance_scene.py
           python tests/tools/test_run_agora_impact_regression.py
+          python tests/tools/test_run_deterministic_savegame_resume.py
           python tests/tools/test_renderer_combined_game_wiring_contract.py
           python -O tests/tools/test_ogre_next_combined_provider_contract.py
           python -O tests/tools/test_ogre_next_embedded_namespace_contract.py
           python -O tests/tools/test_run_playable_performance_scene.py
           python -O tests/tools/test_run_agora_impact_regression.py
+          python -O tests/tools/test_run_deterministic_savegame_resume.py
           python -O tests/tools/test_renderer_combined_game_wiring_contract.py
 
       - name: Verify the locked native Conan graph
@@ -617,6 +627,68 @@ jobs:
               raise SystemExit("Agora impact report lacks the exact cross-worker match")
           PY
 
+      - name: Prove exact deterministic save and resume through packaged RoR-Combined
+        shell: bash
+        run: |
+          stage="$ROR_COMBINED_STAGE_DIR"
+          evidence="$stage/qualification/deterministic-savegame-resume"
+          test -x "$stage/RoR-Combined"
+          test -x "$stage/qualification/bin/ror_state_trace"
+          test -f "$stage/content/agora.zip"
+          test -f "$stage/content/simple2-terrain.zip"
+          test ! -e "$evidence"
+          LD_LIBRARY_PATH="$stage/lib" \
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
+          python tools/run_deterministic_savegame_resume.py \
+            --executable "$stage/RoR-Combined" \
+            --trace-tool "$stage/qualification/bin/ror_state_trace" \
+            --runtime-content "$stage/content" \
+            --artifact-dir "$evidence" \
+            --workers 1 \
+            --timeout 900
+          python - "$evidence/report.json" "$GITHUB_SHA" <<'PY'
+          import json
+          import re
+          import sys
+
+          report = json.load(open(sys.argv[1], encoding="utf-8"))
+          expected = {
+              "format": "ror-d0-deterministic-savegame-resume-report-v1",
+              "repository_commit": sys.argv[2],
+              "repository_dirty": False,
+              "content_commit": "34fefdd126784bf87b068fc283f812525d159dd7",
+              "scenario_id": 2026082001,
+              "target_id": 2026082001001,
+              "checkpoint_step": 120,
+              "final_step": 240,
+              "workers": 1,
+              "terminal_state_exact": True,
+              "input_artifacts_exact": True,
+          }
+          for field, value in expected.items():
+              if report.get(field) != value:
+                  raise SystemExit(
+                      f"save/resume report changed: {field}={report.get(field)!r}"
+                  )
+          digest = report.get("final_state_digest")
+          if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+              raise SystemExit("save/resume report lacks a terminal state digest")
+          observations = report.get("observations")
+          if not isinstance(observations, dict) or set(observations) != {"record", "resume"}:
+              raise SystemExit("save/resume report lacks exact record/resume observations")
+          for label, first, count in (("record", 0, 240), ("resume", 120, 120)):
+              observation = observations[label]
+              inspection = observation.get("inspection", {})
+              metadata = inspection.get("metadata", {})
+              final = inspection.get("final_step", {})
+              if (metadata.get("first_physics_step"), inspection.get("step_count")) != (first, count):
+                  raise SystemExit(f"save/resume {label} trace span changed")
+              if final.get("physics_step") != 239 or final.get("state_digest") != digest:
+                  raise SystemExit(f"save/resume {label} terminal state changed")
+          if observations["record"].get("input_sha256") != observations["resume"].get("input_sha256"):
+              raise SystemExit("save/resume authenticated input digest differs")
+          PY
+
       - name: Write deterministic package inventory
         shell: bash
         run: |
@@ -673,7 +745,7 @@ jobs:
                   entry["stage_link_target"] = link_target
               files.append(entry)
           document = {
-              "schema": "ror.ogre_next_combined_linux_package.v3",
+              "schema": "ror.ogre_next_combined_linux_package.v4",
               "source_commit": source_commit,
               "platform_policy": "linux-x86_64-vulkan",
               "entrypoint": "RunRoR",
@@ -694,6 +766,15 @@ jobs:
                   "steps": 6000,
                   "exact_state_trace_match": True,
                   "material_claim": "numerical-impact-fixture-not-physical-calibration",
+              },
+              "deterministic_savegame_resume": {
+                  "qualified": True,
+                  "report": "qualification/deterministic-savegame-resume/report.json",
+                  "checkpoint_step": 120,
+                  "final_step": 240,
+                  "workers": 1,
+                  "terminal_state_exact": True,
+                  "input_artifacts_exact": True,
               },
               "playability_qualified": False,
               "artifact_transport": "github-actions-upload-artifact-v7",
@@ -825,11 +906,13 @@ jobs:
           python tests/tools/test_ogre_next_embedded_namespace_contract.py
           python tests/tools/test_run_playable_performance_scene.py
           python tests/tools/test_run_agora_impact_regression.py
+          python tests/tools/test_run_deterministic_savegame_resume.py
           python tests/tools/test_renderer_combined_game_wiring_contract.py
           python -O tests/tools/test_ogre_next_combined_provider_contract.py
           python -O tests/tools/test_ogre_next_embedded_namespace_contract.py
           python -O tests/tools/test_run_playable_performance_scene.py
           python -O tests/tools/test_run_agora_impact_regression.py
+          python -O tests/tools/test_run_deterministic_savegame_resume.py
           python -O tests/tools/test_renderer_combined_game_wiring_contract.py
 
       - name: Verify the locked native Conan graph
@@ -1154,6 +1237,69 @@ jobs:
               raise SystemExit("Agora impact report lacks the exact cross-worker match")
           PY
 
+      - name: Prove exact deterministic save and resume through packaged RoR-Combined
+        shell: bash
+        run: |
+          app="$ROR_COMBINED_BUILD_DIR/bin/RoR-Combined.app"
+          evidence="$ROR_COMBINED_PACKAGE_DIR/qualification/deterministic-savegame-resume"
+          executable="$app/Contents/MacOS/RoR-Combined"
+          trace_tool="$ROR_COMBINED_BUILD_DIR/qualification-tools/ror_state_trace"
+          runtime_content="$app/Contents/Resources/content"
+          test -x "$executable"
+          test -x "$trace_tool"
+          test -f "$runtime_content/agora.zip"
+          test -f "$runtime_content/simple2-terrain.zip"
+          test ! -e "$evidence"
+          python tools/run_deterministic_savegame_resume.py \
+            --executable "$executable" \
+            --trace-tool "$trace_tool" \
+            --runtime-content "$runtime_content" \
+            --artifact-dir "$evidence" \
+            --workers 1 \
+            --timeout 900
+          python - "$evidence/report.json" "$GITHUB_SHA" <<'PY'
+          import json
+          import re
+          import sys
+
+          report = json.load(open(sys.argv[1], encoding="utf-8"))
+          expected = {
+              "format": "ror-d0-deterministic-savegame-resume-report-v1",
+              "repository_commit": sys.argv[2],
+              "repository_dirty": False,
+              "content_commit": "34fefdd126784bf87b068fc283f812525d159dd7",
+              "scenario_id": 2026082001,
+              "target_id": 2026082001001,
+              "checkpoint_step": 120,
+              "final_step": 240,
+              "workers": 1,
+              "terminal_state_exact": True,
+              "input_artifacts_exact": True,
+          }
+          for field, value in expected.items():
+              if report.get(field) != value:
+                  raise SystemExit(
+                      f"save/resume report changed: {field}={report.get(field)!r}"
+                  )
+          digest = report.get("final_state_digest")
+          if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+              raise SystemExit("save/resume report lacks a terminal state digest")
+          observations = report.get("observations")
+          if not isinstance(observations, dict) or set(observations) != {"record", "resume"}:
+              raise SystemExit("save/resume report lacks exact record/resume observations")
+          for label, first, count in (("record", 0, 240), ("resume", 120, 120)):
+              observation = observations[label]
+              inspection = observation.get("inspection", {})
+              metadata = inspection.get("metadata", {})
+              final = inspection.get("final_step", {})
+              if (metadata.get("first_physics_step"), inspection.get("step_count")) != (first, count):
+                  raise SystemExit(f"save/resume {label} trace span changed")
+              if final.get("physics_step") != 239 or final.get("state_digest") != digest:
+                  raise SystemExit(f"save/resume {label} terminal state changed")
+          if observations["record"].get("input_sha256") != observations["resume"].get("input_sha256"):
+              raise SystemExit("save/resume authenticated input digest differs")
+          PY
+
       - name: Package the signed application and deterministic inventory
         shell: bash
         run: |
@@ -1178,7 +1324,7 @@ jobs:
           archive = root / "RoR-Combined-macOS-arm64.zip"
           executable = app / "Contents/MacOS/RoR-Combined"
           document = {
-              "schema": "ror.ogre_next_combined_macos_package.v1",
+              "schema": "ror.ogre_next_combined_macos_package.v2",
               "source_commit": source_commit,
               "platform_policy": "macos-arm64-metal",
               "entrypoint": "RoR-Combined.app",
@@ -1201,6 +1347,15 @@ jobs:
                   "steps": 6000,
                   "exact_state_trace_match": True,
                   "material_claim": "numerical-impact-fixture-not-physical-calibration",
+              },
+              "deterministic_savegame_resume": {
+                  "qualified": True,
+                  "report": "qualification/deterministic-savegame-resume/report.json",
+                  "checkpoint_step": 120,
+                  "final_step": 240,
+                  "workers": 1,
+                  "terminal_state_exact": True,
+                  "input_artifacts_exact": True,
               },
               "runtime_package_qualified": True,
               "playability_qualified": False,
@@ -1344,11 +1499,13 @@ jobs:
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_ogre_next_embedded_namespace_contract.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_run_playable_performance_scene.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_run_agora_impact_regression.py')
+          Invoke-CheckedPython -PythonArguments @('tests/tools/test_run_deterministic_savegame_resume.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_renderer_combined_game_wiring_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_ogre_next_combined_provider_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_ogre_next_embedded_namespace_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_playable_performance_scene.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_agora_impact_regression.py')
+          Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_deterministic_savegame_resume.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_renderer_combined_game_wiring_contract.py')
 
       - name: Verify the locked native Conan graph
@@ -1461,6 +1618,37 @@ jobs:
             if (-not (Test-Path -LiteralPath $path)) {
               throw "Relocated combined runtime input is missing: $path"
             }
+          }
+          @'
+          import json
+          import os
+          from pathlib import Path
+
+          receipt = (
+              Path(os.environ["ROR_COMBINED_STAGE_DIR"])
+              / "resources/ogrenext/.complete.json"
+          )
+          document = json.loads(receipt.read_text(encoding="utf-8"))
+          expected = {
+              "schema": "ror.ogre_next_combined_resource_stage.v2",
+              "runtime_layout": "resources/ogrenext",
+              "shader_media_relative": "ShaderMedia",
+              "presentation_media_relative": "Presentation",
+          }
+          for field, value in expected.items():
+              if document.get(field) != value:
+                  raise SystemExit(
+                      f"Windows resource-stage receipt changed: "
+                      f"{field}={document.get(field)!r}"
+                  )
+          digest = document.get("manifest_sha256")
+          if not isinstance(digest, str) or len(digest) != 64:
+              raise SystemExit("Windows resource-stage digest is invalid")
+          if not isinstance(document.get("file_count"), int) or document["file_count"] <= 0:
+              raise SystemExit("Windows resource-stage inventory is empty")
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows resource-stage validation failed with exit code $LASTEXITCODE"
           }
           foreach ($forbidden in @('RoR.exe', 'RoR-Ogre14.exe')) {
             if (Test-Path -LiteralPath (Join-Path $stage $forbidden)) {
@@ -1800,6 +1988,87 @@ jobs:
             throw "Windows Agora impact report validation failed with exit code $LASTEXITCODE"
           }
 
+      - name: Prove exact deterministic save and resume through packaged RoR-Combined
+        shell: pwsh
+        run: |
+          $stage = $env:ROR_COMBINED_STAGE_DIR
+          $evidence = Join-Path $stage 'qualification/deterministic-savegame-resume'
+          $executable = Join-Path $stage 'RoR-Combined.exe'
+          $traceTool = Join-Path $stage 'qualification/bin/ror_state_trace.exe'
+          foreach ($path in @(
+              $executable,
+              $traceTool,
+              (Join-Path $stage 'content/agora.zip'),
+              (Join-Path $stage 'content/simple2-terrain.zip')
+          )) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Save/resume input is missing: $path"
+            }
+          }
+          if (Test-Path -LiteralPath $evidence) {
+            throw "Save/resume evidence already exists: $evidence"
+          }
+          python tools/run_deterministic_savegame_resume.py `
+            --executable $executable `
+            --trace-tool $traceTool `
+            --runtime-content (Join-Path $stage 'content') `
+            --artifact-dir $evidence `
+            --workers 1 `
+            --timeout 900
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows deterministic save/resume failed with exit code $LASTEXITCODE"
+          }
+          @'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          report_path = (
+              Path(os.environ["ROR_COMBINED_STAGE_DIR"])
+              / "qualification/deterministic-savegame-resume/report.json"
+          )
+          report = json.loads(report_path.read_text(encoding="utf-8"))
+          expected = {
+              "format": "ror-d0-deterministic-savegame-resume-report-v1",
+              "repository_commit": os.environ["GITHUB_SHA"],
+              "repository_dirty": False,
+              "content_commit": "34fefdd126784bf87b068fc283f812525d159dd7",
+              "scenario_id": 2026082001,
+              "target_id": 2026082001001,
+              "checkpoint_step": 120,
+              "final_step": 240,
+              "workers": 1,
+              "terminal_state_exact": True,
+              "input_artifacts_exact": True,
+          }
+          for field, value in expected.items():
+              if report.get(field) != value:
+                  raise SystemExit(
+                      f"save/resume report changed: {field}={report.get(field)!r}"
+                  )
+          digest = report.get("final_state_digest")
+          if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+              raise SystemExit("save/resume report lacks a terminal state digest")
+          observations = report.get("observations")
+          if not isinstance(observations, dict) or set(observations) != {"record", "resume"}:
+              raise SystemExit("save/resume report lacks exact record/resume observations")
+          for label, first, count in (("record", 0, 240), ("resume", 120, 120)):
+              observation = observations[label]
+              inspection = observation.get("inspection", {})
+              metadata = inspection.get("metadata", {})
+              final = inspection.get("final_step", {})
+              if (metadata.get("first_physics_step"), inspection.get("step_count")) != (first, count):
+                  raise SystemExit(f"save/resume {label} trace span changed")
+              if final.get("physics_step") != 239 or final.get("state_digest") != digest:
+                  raise SystemExit(f"save/resume {label} terminal state changed")
+          if observations["record"].get("input_sha256") != observations["resume"].get("input_sha256"):
+              raise SystemExit("save/resume authenticated input digest differs")
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows save/resume report validation failed with exit code $LASTEXITCODE"
+          }
+
       - name: Write deterministic Windows package inventory
         shell: pwsh
         run: |
@@ -1830,7 +2099,7 @@ jobs:
                   }
               )
           document = {
-              "schema": "ror.ogre_next_combined_windows_package.v2",
+              "schema": "ror.ogre_next_combined_windows_package.v3",
               "source_commit": os.environ["GITHUB_SHA"],
               "platform_policy": "windows-x64-d3d11",
               "entrypoint": "RoR-Combined.exe",
@@ -1851,6 +2120,15 @@ jobs:
                   "steps": 6000,
                   "exact_state_trace_match": True,
                   "material_claim": "numerical-impact-fixture-not-physical-calibration",
+              },
+              "deterministic_savegame_resume": {
+                  "qualified": True,
+                  "report": "qualification/deterministic-savegame-resume/report.json",
+                  "checkpoint_step": 120,
+                  "final_step": 240,
+                  "workers": 1,
+                  "terminal_state_exact": True,
+                  "input_artifacts_exact": True,
               },
               "playability_qualified": False,
               "artifact_transport": "github-actions-upload-artifact-v7",

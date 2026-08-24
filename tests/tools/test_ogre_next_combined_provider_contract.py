@@ -715,12 +715,21 @@ class CombinedProviderContractTests(unittest.TestCase):
             "cmake/conan/locks/ror-ogre14-macos-arm64-release.lock",
             "cmake/conan/locks/ror-ogre14-windows-x86_64-release.lock",
             "tools/linux/RunRoR-combined",
+            "resources/scripts/example_deterministic_input_resume_checkpoint.as",
+            "resources/scripts/example_deterministic_input_save_checkpoint.as",
+            "tools/run_deterministic_savegame_resume.py",
             "tools/run_playable_performance_scene.py",
+            "tests/tools/test_run_deterministic_savegame_resume.py",
             "tests/tools/test_run_playable_performance_scene.py",
         ):
             self.assertIn(f'"{source}"', PROVIDER)
 
     def test_linux_combined_workflow_builds_installs_and_smokes_one_target(self) -> None:
+        linux_job = block(
+            COMBINED_WORKFLOW,
+            "  linux-x86_64-vulkan:\n",
+            "  macos-arm64-metal:\n",
+        )
         for token in (
             "-DROR_OGRE_NEXT_COMBINED_RUNTIME=ON",
             "-DROR_BUILD_QUALIFICATION_TOOLS=ON",
@@ -742,7 +751,7 @@ class CombinedProviderContractTests(unittest.TestCase):
             'mv "$build/bin/resources/ogrenext" "$quarantine"',
             'test ! -e "$build/bin/resources/ogrenext"',
             "ror.ogre_next_combined_elf_closure.v1",
-            "ror.ogre_next_combined_linux_package.v3",
+            "ror.ogre_next_combined_linux_package.v4",
             '"transport_dereferences_file_symlinks": True',
             '"all_transport_files_inventoried": True',
             '"staged_symlink_count": staged_symlink_count',
@@ -762,6 +771,7 @@ class CombinedProviderContractTests(unittest.TestCase):
             "Render packaged Simple2 and semi through Ogre-Next",
             "tools/run_playable_performance_scene.py",
             "tests/tools/test_run_agora_impact_regression.py",
+            "tests/tools/test_run_deterministic_savegame_resume.py",
             "ci.ogre-next-combined.packaged-simple2-semi",
             "simple2_a.terrn2",
             "b6b0UID-semi.truck",
@@ -787,25 +797,36 @@ class CombinedProviderContractTests(unittest.TestCase):
             '"cross_worker_trace_comparisons"',
             '"exact_state_trace_match": True',
             "numerical-impact-fixture-not-physical-calibration",
+            "Prove exact deterministic save and resume through packaged RoR-Combined",
+            "tools/run_deterministic_savegame_resume.py",
+            "ror-d0-deterministic-savegame-resume-report-v1",
+            '"deterministic_savegame_resume"',
+            '"checkpoint_step": 120',
+            '"final_step": 240',
+            '"terminal_state_exact": True',
+            '"input_artifacts_exact": True',
             "if: success()",
         ):
             with self.subTest(token=token):
-                self.assertIn(token, COMBINED_WORKFLOW)
-        self.assertNotIn("--native-visual-showcase-a0", COMBINED_WORKFLOW)
-        self.assertNotIn("ROR_OGRE_NEXT_ALLOW_DIRTY_DEVELOPMENT_BUILD", COMBINED_WORKFLOW)
+                self.assertIn(token, linux_job)
+        self.assertNotIn("--native-visual-showcase-a0", linux_job)
+        self.assertNotIn("ROR_OGRE_NEXT_ALLOW_DIRTY_DEVELOPMENT_BUILD", linux_job)
         self.assertIn(
             'xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \\\n'
             "          python tools/run_playable_performance_scene.py",
-            COMBINED_WORKFLOW,
+            linux_job,
         )
         self.assertIn(
             "${{ runner.temp }}/ror-combined-packaged-scene/",
-            COMBINED_WORKFLOW,
+            linux_job,
         )
 
     def test_windows_combined_workflow_builds_installs_and_smokes_one_target(
         self,
     ) -> None:
+        windows_job = COMBINED_WORKFLOW[
+            COMBINED_WORKFLOW.index("  windows-x64-d3d11:\n") :
+        ]
         for token in (
             "windows-x64-d3d11:",
             "Windows x64 D3D11 RoR-Combined",
@@ -849,7 +870,7 @@ class CombinedProviderContractTests(unittest.TestCase):
             '"requested_frames": 12',
             '"accepted_frames": 12',
             '"rejected_frames": 0',
-            "ror.ogre_next_combined_windows_package.v2",
+            "ror.ogre_next_combined_windows_package.v3",
             '"renderer": "ogre-next"',
             '"legacy_visible_presentation": False',
             '"renderer_smoke_only": False',
@@ -863,6 +884,7 @@ class CombinedProviderContractTests(unittest.TestCase):
             "win32-user32-window-message",
             "packaged-scene-smoke",
             "tests/tools/test_run_agora_impact_regression.py",
+            "tests/tools/test_run_deterministic_savegame_resume.py",
             "--component Qualification_Tools",
             "qualification/bin/ror_state_trace.exe",
             "Prove authenticated deterministic Agora impact through packaged RoR-Combined",
@@ -875,25 +897,38 @@ class CombinedProviderContractTests(unittest.TestCase):
             '"cross_worker_trace_comparisons"',
             '"exact_state_trace_match": True',
             "numerical-impact-fixture-not-physical-calibration",
+            "Prove exact deterministic save and resume through packaged RoR-Combined",
+            "tools/run_deterministic_savegame_resume.py",
+            "ror-d0-deterministic-savegame-resume-report-v1",
+            '"deterministic_savegame_resume"',
+            '"checkpoint_step": 120',
+            '"final_step": 240',
+            '"terminal_state_exact": True',
+            '"input_artifacts_exact": True',
             "RoR-Combined-Windows-x64-D3D11-${{ github.sha }}",
             "if: success()",
         ):
             with self.subTest(token=token):
-                self.assertIn(token, COMBINED_WORKFLOW)
-        self.assertNotIn("RoR-Ogre14.exe' -truck", COMBINED_WORKFLOW)
-        self.assertNotIn("RoR.exe' -truck", COMBINED_WORKFLOW)
-        self.assertIn("function Invoke-CheckedPython", COMBINED_WORKFLOW)
+                self.assertIn(token, windows_job)
+        self.assertNotIn("RoR-Ogre14.exe' -truck", windows_job)
+        self.assertNotIn("RoR.exe' -truck", windows_job)
+        self.assertIn("function Invoke-CheckedPython", windows_job)
         self.assertIn(
-            "if ($LASTEXITCODE -ne 0)", COMBINED_WORKFLOW
+            "if ($LASTEXITCODE -ne 0)", windows_job
         )
         self.assertIn(
             "${{ runner.temp }}/ror-combined-packaged-scene/",
-            COMBINED_WORKFLOW,
+            windows_job,
         )
 
     def test_macos_combined_workflow_packages_the_game_not_the_showcase(
         self,
     ) -> None:
+        macos_job = block(
+            COMBINED_WORKFLOW,
+            "  macos-arm64-metal:\n",
+            "  windows-x64-d3d11:\n",
+        )
         for token in (
             "macos-arm64-metal:",
             "macOS arm64 Metal RoR-Combined",
@@ -932,7 +967,15 @@ class CombinedProviderContractTests(unittest.TestCase):
             'grep -Fq "$GITHUB_WORKSPACE"',
             "Prove authenticated deterministic Agora impact through packaged RoR-Combined",
             "ror-p1-agora-impact-regression-v2",
-            "ror.ogre_next_combined_macos_package.v1",
+            "Prove exact deterministic save and resume through packaged RoR-Combined",
+            "tools/run_deterministic_savegame_resume.py",
+            "ror-d0-deterministic-savegame-resume-report-v1",
+            "ror.ogre_next_combined_macos_package.v2",
+            '"deterministic_savegame_resume"',
+            '"checkpoint_step": 120',
+            '"final_step": 240',
+            '"terminal_state_exact": True',
+            '"input_artifacts_exact": True',
             '"runtime_package_qualified": True',
             '"actor_control_qualified": False',
             '"playability_qualified": False',
@@ -940,12 +983,7 @@ class CombinedProviderContractTests(unittest.TestCase):
             "if: success()",
         ):
             with self.subTest(token=token):
-                self.assertIn(token, COMBINED_WORKFLOW)
-        macos_job = block(
-            COMBINED_WORKFLOW,
-            "  macos-arm64-metal:\n",
-            "  windows-x64-d3d11:\n",
-        )
+                self.assertIn(token, macos_job)
         self.assertNotIn("--native-visual-showcase-a0", macos_job)
         self.assertNotIn("--qualify-actor-control", macos_job)
         self.assertNotIn(

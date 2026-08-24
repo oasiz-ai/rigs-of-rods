@@ -28,7 +28,34 @@ def valid_checkpoint() -> dict[str, object]:
         "deterministic_input_continuation_v1": "abc_DEF-123",
         "actors": [
             {
+                "beams": [[0.0, 0.0, 0.0, 1.0, 1.0, False, False, False, -1, 0.0]],
+                "deterministic_runtime_flags_v1": {
+                    "update_physics": True,
+                    "collision_relevant": True,
+                    "ongoing_reset": False,
+                },
+                "deterministic_solver_state_v1": {
+                    "wheels": [[0.0] * 8],
+                    "wheel_differentials": [],
+                    "axle_differentials": [],
+                    "intra_collision_cadence": [],
+                    "inter_collision_cadence": [],
+                    "actor": {
+                        "fusedrag": [0.0, 0.0, 0.0],
+                        "sleep_counter": 0.0,
+                        "stabilizer_shock_sleep": 0.0,
+                        "stabilizer_shock_ratio": 0.0,
+                        "stabilizer_shock_request": 0,
+                        "tc_timer": 0.0,
+                        "tc_pulse_state": False,
+                        "alb_timer": 0.0,
+                        "alb_pulse_state": False,
+                        "anim_previous_crank": 0.0,
+                    },
+                },
                 "filename": "agora.zip:" + gate.VEHICLE,
+                "nodes": [[506.0, 0.95, 510.75, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -9.81, 0.0, True, False, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 100.0, 0.0, 1.0, 1.0, 1.0]],
+                "physics_origin": [506.0, 0.95, 510.75],
                 "physics_step": gate.SAVE_STEP,
                 "player_actor": True,
             }
@@ -90,6 +117,23 @@ class SavegameResumeGateTests(unittest.TestCase):
             wrong_vehicle = valid_checkpoint()
             wrong_vehicle["actors"][0]["filename"] = "agora.zip:other.truck"
             mutations.append(wrong_vehicle)
+            wrong_origin = valid_checkpoint()
+            wrong_origin["actors"][0]["physics_origin"] = [0.0, float("nan"), 0.0]
+            mutations.append(wrong_origin)
+            wrong_node = valid_checkpoint()
+            wrong_node["actors"][0]["nodes"][0][22] = float("nan")
+            mutations.append(wrong_node)
+            wrong_flags = valid_checkpoint()
+            wrong_flags["actors"][0]["deterministic_runtime_flags_v1"].pop(
+                "collision_relevant"
+            )
+            mutations.append(wrong_flags)
+            wrong_solver = valid_checkpoint()
+            wrong_solver["actors"][0]["deterministic_solver_state_v1"]["wheels"][0][4] = float("inf")
+            mutations.append(wrong_solver)
+            wrong_stress = valid_checkpoint()
+            wrong_stress["actors"][0]["beams"][0][9] = float("inf")
+            mutations.append(wrong_stress)
 
             for index, payload in enumerate(mutations):
                 with self.subTest(index=index):
@@ -140,6 +184,24 @@ class SavegameResumeGateTests(unittest.TestCase):
             user, logs = gate.runtime_layout(Path("/tmp/isolated"), executable)
             self.assertEqual(user, Path("/tmp/isolated/RigsOfRods"))
             self.assertEqual(logs, user / "logs")
+
+            packaged = Path(
+                "/tmp/package/RoR-Combined.app/Contents/MacOS/RoR-Combined"
+            )
+            packaged_user, packaged_logs = gate.runtime_layout(
+                Path("/tmp/isolated"), packaged
+            )
+            self.assertEqual(
+                packaged_user,
+                Path(
+                    "/tmp/isolated/Library/Application Support/Rigs of Rods"
+                ),
+            )
+            self.assertEqual(
+                packaged_logs,
+                Path("/tmp/isolated/Library/Logs/Rigs of Rods"),
+            )
+
             initial = gate.build_command(executable, gate.SAVE_SCRIPT, True)
             resumed = gate.build_command(executable, gate.RESUME_SCRIPT, False)
         self.assertIn("-map", initial)
@@ -161,7 +223,9 @@ class SavegameResumeGateTests(unittest.TestCase):
         self.assertIn("completed == FINAL_STEP", save_source)
         self.assertIn('console.cVarSet("sim_state", "" + SIM_STATE_PAUSED)', save_source)
         self.assertIn("MSG_SIM_LOAD_SAVEGAME_REQUESTED", resume_source)
-        self.assertIn('gInputMode.getStr() != "record"', resume_source)
+        self.assertIn('if (mode == "off")', resume_source)
+        self.assertIn("restored-input-activation-timeout", resume_source)
+        self.assertIn('if (mode != "record" ||', resume_source)
         self.assertIn("completed != SAVE_STEP", resume_source)
         self.assertNotIn("-resume", resume_source)
 
