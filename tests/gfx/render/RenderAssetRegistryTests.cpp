@@ -54,6 +54,21 @@ RoR::Render::MeshResourceDescriptor MakeMesh() {
   return mesh;
 }
 
+RoR::Render::MeshResourceDescriptor MakeDistanceLodMesh() {
+  using namespace RoR::Render;
+  MeshResourceDescriptor mesh = MakeMesh();
+  mesh.positions.push_back({1.0F, 1.0F, 0.0F});
+  mesh.normals.push_back({0.0F, 0.0F, 1.0F});
+  mesh.indices = {0U, 1U, 2U, 2U, 1U, 3U};
+  MeshDistanceLodLevelDescriptor reduced;
+  reduced.activation_distance_meters = 25.0F;
+  reduced.indices = {0U, 1U, 2U};
+  mesh.distance_lod_levels.push_back(std::move(reduced));
+  Require(ValidateMeshResourceDescriptor(mesh).ok(),
+          "distance-LOD mesh fixture is invalid");
+  return mesh;
+}
+
 RoR::Render::TextureResourceDescriptor MakeBaseColorTexture() {
   using namespace RoR::Render;
   TextureResourceDescriptor texture;
@@ -234,6 +249,52 @@ void TestFloatingPayloadBitIdentity() {
   Require(!EquivalentRenderAssetPayload(positive_zero_sampler,
                                         negative_zero_sampler),
           "sampler payload equality collapsed signed-zero state bytes");
+}
+
+void TestDistanceLodPayloadIdentity() {
+  using namespace RoR::Render;
+
+  const MeshResourceDescriptor authoritative = MakeDistanceLodMesh();
+  MeshResourceDescriptor identical = authoritative;
+  Require(EquivalentMeshResourceContents(authoritative, identical) &&
+              EquivalentRenderAssetPayload(authoritative, identical),
+          "identical distance-LOD ladder changed mesh identity");
+
+  MeshResourceDescriptor changed_distance = authoritative;
+  changed_distance.distance_lod_levels.front().activation_distance_meters =
+      30.0F;
+  Require(ValidateMeshResourceDescriptor(changed_distance).ok() &&
+              !EquivalentMeshResourceContents(authoritative,
+                                              changed_distance) &&
+              !EquivalentRenderAssetPayload(authoritative,
+                                            changed_distance),
+          "distance-LOD activation bytes were omitted from mesh identity");
+
+  MeshResourceDescriptor changed_indices = authoritative;
+  changed_indices.distance_lod_levels.front().indices = {2U, 1U, 3U};
+  Require(ValidateMeshResourceDescriptor(changed_indices).ok() &&
+              !EquivalentMeshResourceContents(authoritative,
+                                              changed_indices) &&
+              !EquivalentRenderAssetPayload(authoritative, changed_indices),
+          "distance-LOD index bytes were omitted from mesh identity");
+
+  constexpr std::uint64_t kRegistry = 43U;
+  RenderAssetDelta snapshot = MakeBaseDelta(kRegistry);
+  snapshot.mutations.front().payload = authoritative;
+  RenderAssetRegistry registry(kRegistry);
+  Require(registry.Apply(snapshot).ok(),
+          "registry rejected authoritative distance-LOD snapshot");
+
+  RenderAssetDelta conflicting_replay = snapshot;
+  conflicting_replay.mutations.front().payload = changed_indices;
+  Require(registry.Apply(conflicting_replay).code ==
+              ValidationCode::REVISION_MISMATCH,
+          "same-sequence replay changed immutable distance-LOD contents");
+  const MeshResourceDescriptor *retained =
+      registry.ResolveMesh(Ref(RenderAssetKind::MESH, 1U));
+  Require(retained != nullptr &&
+              EquivalentMeshResourceContents(*retained, authoritative),
+          "conflicting distance-LOD replay mutated retained authority");
 }
 
 void TestOneSceneCanFeedTwoFrontendCatalogs() {
@@ -730,6 +791,7 @@ void TestValuelessPayloadFailsClosed() {
 int main() {
   TestStableIdentity();
   TestFloatingPayloadBitIdentity();
+  TestDistanceLodPayloadIdentity();
   TestOneSceneCanFeedTwoFrontendCatalogs();
   TestMalformedPayloadsCannotMintRegistryTrust();
   TestRegistryResolvedSceneRelationshipsRemainHostile();

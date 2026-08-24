@@ -80,6 +80,13 @@ bool EqualMesh(const MeshResourceDescriptor &lhs,
          EquivalentMeshResourceContents(lhs, rhs);
 }
 
+bool EqualMeshLod(const MeshDistanceLodLevelDescriptor &lhs,
+                  const MeshDistanceLodLevelDescriptor &rhs) noexcept {
+  return EqualFloatBits(lhs.activation_distance_meters,
+                        rhs.activation_distance_meters) &&
+         lhs.indices == rhs.indices;
+}
+
 bool EqualTexture(const TextureResourceDescriptor &lhs,
                   const TextureResourceDescriptor &rhs) noexcept {
   if (lhs.version != rhs.version || lhs.debug_name != rhs.debug_name ||
@@ -312,7 +319,9 @@ bool EquivalentMeshResourceContents(const MeshResourceDescriptor &lhs,
          EqualVector(lhs.texture_coordinates_1, rhs.texture_coordinates_1,
                      EqualFloat2Bits) &&
          EqualVector(lhs.colors, rhs.colors, EqualFloat4Bits) &&
-         lhs.indices == rhs.indices;
+         lhs.indices == rhs.indices &&
+         EqualVector(lhs.distance_lod_levels, rhs.distance_lod_levels,
+                     EqualMeshLod);
 }
 
 bool EquivalentRenderAssetPayload(const RenderAssetPayload &lhs,
