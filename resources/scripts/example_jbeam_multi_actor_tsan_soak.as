@@ -46,7 +46,7 @@ bool gForcedActive = false;
 bool gObservedCycleResponse = false;
 uint64 gCycleStartPhysicsStep = 0;
 float gLastProgressTime = -1.0f;
-Timer gSoakWallClock;
+Ogre::Timer gSoakWallClock;
 bool gSoakWallClockStarted = false;
 int gCompletedCycles = 0;
 int gCollisionResponses = 0;

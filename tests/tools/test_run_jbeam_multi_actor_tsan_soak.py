@@ -7,6 +7,7 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import time
 from unittest import mock
 import unittest
 
@@ -271,6 +272,35 @@ class JBeamMultiActorTSanSoakTests(unittest.TestCase):
                 "script-live\n",
             )
 
+    def test_product_command_fails_fast_on_scenario_compile_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            script_log = root / "Angelscript.log"
+            stdout_path = root / "stdout.log"
+            script_log.write_text(
+                f"{GATE.SCRIPT_MEMBER} (49, 1): Error = "
+                "Identifier 'Timer' is not a data type in global namespace\n",
+                encoding="utf-8",
+            )
+            started = time.monotonic()
+            with self.assertRaisesRegex(
+                GATE.support.SoakFailure,
+                "AngelScript rejected the exact TSan scenario",
+            ):
+                GATE.run_product_command(
+                    (
+                        sys.executable,
+                        "-c",
+                        "import time; time.sleep(10)",
+                    ),
+                    5,
+                    cwd=root,
+                    environment=GATE.os.environ,
+                    script_log=script_log,
+                    stdout_path=stdout_path,
+                )
+            self.assertLess(time.monotonic() - started, 3.0)
+
     def test_command_and_script_stay_in_combined_game_path(self) -> None:
         command = GATE.build_command(Path("/tmp/RoR-Combined"))
         self.assertIn("-map", command)
@@ -283,7 +313,7 @@ class JBeamMultiActorTSanSoakTests(unittest.TestCase):
         for token in (
             "TARGET_SECONDS = 600.0f",
             "MINIMUM_COMPLETED_CYCLES = 10",
-            "Timer gSoakWallClock",
+            "Ogre::Timer gSoakWallClock",
             "gSoakWallClock.getMilliseconds()",
             "MSG_SIM_DELETE_ACTOR_REQUESTED",
             "trySetDeterministicImpactVelocity",

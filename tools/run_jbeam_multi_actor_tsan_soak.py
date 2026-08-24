@@ -22,6 +22,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from typing import Mapping, Sequence
 
 import run_calibrated_beam_soak as support
@@ -95,6 +96,9 @@ REQUIRED_TSAN_OPTIONS = {
     "history_size": "7",
     "second_deadlock_stack": "1",
 }
+SCRIPT_COMPILE_ERROR_PATTERN = re.compile(
+    re.escape(SCRIPT_MEMBER) + r" \([0-9]+, [0-9]+\): Error = "
+)
 
 
 class TSanSoakFailure(RuntimeError):
@@ -343,6 +347,66 @@ def capture_sanitizer_reports(
     return reports
 
 
+def terminate_product(process: subprocess.Popen[bytes]) -> None:
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=10)
+
+
+def run_product_command(
+    command: Sequence[str],
+    timeout: int,
+    *,
+    cwd: Path,
+    environment: Mapping[str, str],
+    script_log: Path,
+    stdout_path: Path,
+) -> subprocess.CompletedProcess[bytes]:
+    """Run the product while failing promptly on scenario compilation errors."""
+    launch = list(command)
+    if not launch:
+        raise support.SoakFailure("cannot run an empty product command")
+    started = time.monotonic()
+    with stdout_path.open("wb") as stdout_stream:
+        process = subprocess.Popen(
+            launch,
+            cwd=str(cwd),
+            env=dict(environment),
+            stdout=stdout_stream,
+            stderr=subprocess.STDOUT,
+        )
+        try:
+            while process.poll() is None:
+                if script_log.is_file():
+                    script_text = script_log.read_text(
+                        encoding="utf-8", errors="replace"
+                    )
+                    if SCRIPT_COMPILE_ERROR_PATTERN.search(script_text):
+                        raise support.SoakFailure(
+                            "AngelScript rejected the exact TSan scenario"
+                        )
+                if time.monotonic() - started >= timeout:
+                    raise support.SoakFailure(
+                        f"command exceeded {timeout} seconds: "
+                        f"{' '.join(command)}"
+                    )
+                time.sleep(0.25)
+        except BaseException:
+            terminate_product(process)
+            raise
+        returncode = process.wait()
+    return subprocess.CompletedProcess(
+        launch,
+        returncode,
+        stdout_path.read_bytes(),
+    )
+
+
 def validate_logs(
     returncode: int,
     stdout: str,
@@ -472,18 +536,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
     command = build_command(executable)
+    stdout_path = diagnostics / "stdout.log"
     try:
-        completed = support.run_command(
+        completed = run_product_command(
             command,
             args.timeout,
             cwd=executable.parent,
             environment=environment,
+            script_log=layout["logs"] / "Angelscript.log",
+            stdout_path=stdout_path,
         )
     except support.SoakFailure as error:
         cause = error.__cause__
         captured_stdout = support.decode_output(
             getattr(cause, "stdout", None)
         )
+        if not captured_stdout and stdout_path.is_file():
+            captured_stdout = stdout_path.read_text(
+                encoding="utf-8", errors="replace"
+            )
         capture_runtime_diagnostics(
             layout,
             diagnostics,
