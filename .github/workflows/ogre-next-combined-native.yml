@@ -1008,6 +1008,8 @@ jobs:
           executable="$app/Contents/MacOS/RoR-Combined"
           scene="$RUNNER_TEMP/ror-combined-packaged-scene"
           test ! -e "$scene"
+          # Hosted macOS runners expose a 1024-wide drawable; request the
+          # real surface instead of rejecting the correctly clamped window.
           python tools/run_playable_performance_scene.py \
             --executable "$executable" \
             --artifact-dir "$scene" \
@@ -1015,7 +1017,7 @@ jobs:
             --terrain simple2_a.terrn2 \
             --actor b6b0UID-semi.truck \
             --graphics-preset high \
-            --width 1280 \
+            --width 1024 \
             --height 720 \
             --warmup-frames 2 \
             --minimum-frames 24 \
