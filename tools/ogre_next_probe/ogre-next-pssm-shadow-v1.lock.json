@@ -220,12 +220,12 @@
     {
       "role": "texture_gpu_manager_api",
       "path": "OgreMain/include/OgreTextureGpuManager.h",
-      "sha256": "413e19db7aef3f32bcdf717c69277d1010d77b7ec432382aed4cecae2a9eb91a"
+      "sha256": "de05f16c0ec931e42d46fdcd55557269f6b9ccf9b2be0b2c4c99baa0c098a100"
     },
     {
       "role": "texture_gpu_manager_allocation_runtime",
       "path": "OgreMain/src/OgreTextureGpuManager.cpp",
-      "sha256": "9db903623cea3e61db10caace8eb8e16ca109cb0ca6f3503a42074f4e1c07226"
+      "sha256": "e05b007104f5eb7877ffb2842fe0b0bca631585d948dfee501396afec994ce38"
     },
     {
       "role": "image_readback_api",

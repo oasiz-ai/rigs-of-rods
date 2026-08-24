@@ -73,6 +73,22 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
         self.assertEqual(
             validated["platform_policies"], VERIFIER.PLATFORM_POLICIES
         )
+        texture_sources = {
+            record["role"]: record["sha256"]
+            for record in validated["sources"]
+            if record["role"].startswith("texture_gpu_manager_")
+        }
+        self.assertEqual(
+            texture_sources,
+            {
+                "texture_gpu_manager_api": (
+                    "de05f16c0ec931e42d46fdcd55557269f6b9ccf9b2be0b2c4c99baa0c098a100"
+                ),
+                "texture_gpu_manager_allocation_runtime": (
+                    "e05b007104f5eb7877ffb2842fe0b0bca631585d948dfee501396afec994ce38"
+                ),
+            },
+        )
         reference = os.environ.get("ROR_OGRE_NEXT_REFERENCE_SOURCE_ROOT")
         if reference:
             reference_policy = os.environ.get(
