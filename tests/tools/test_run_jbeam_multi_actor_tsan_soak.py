@@ -198,6 +198,7 @@ class JBeamMultiActorTSanSoakTests(unittest.TestCase):
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
         for token in (
             "workflow_dispatch:",
+            "-DCMAKE_BUILD_TYPE=Release",
             "-DROR_OGRE_NEXT_COMBINED_RUNTIME=ON",
             "--target RoR-Combined",
             "-fsanitize=thread",

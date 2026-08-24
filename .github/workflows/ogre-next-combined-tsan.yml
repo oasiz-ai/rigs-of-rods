@@ -155,9 +155,9 @@ jobs:
             -S . \
             -B "$ROR_TSAN_BUILD_DIR" \
             -G Ninja \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake \
-            -DCMAKE_CXX_FLAGS="-fsanitize=thread -fno-omit-frame-pointer -fno-optimize-sibling-calls" \
+            -DCMAKE_CXX_FLAGS="-g -fsanitize=thread -fno-omit-frame-pointer -fno-optimize-sibling-calls" \
             -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread" \
             -DCONAN_HOST_PROFILE="$GITHUB_WORKSPACE/cmake/conan/profiles/linux-x86_64-release" \
             -DCONAN_BUILD_PROFILE="$GITHUB_WORKSPACE/cmake/conan/profiles/linux-x86_64-release" \
@@ -175,7 +175,7 @@ jobs:
           cmake
           --build "$ROR_TSAN_BUILD_DIR"
           --target RoR-Combined
-          --config RelWithDebInfo
+          --config Release
 
       - name: Prove ThreadSanitizer instrumentation and combined ownership
         shell: bash
