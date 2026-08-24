@@ -191,6 +191,24 @@ string(JSON ROR_OGRE_NEXT_VULKAN_SKY_SOURCE_SHA256 GET
     "${_ror_lock_json}" patches 3 source_sha256)
 string(JSON ROR_OGRE_NEXT_VULKAN_SKY_PATCHED_SHA256 GET
     "${_ror_lock_json}" patches 3 patched_sha256)
+string(JSON ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_PATCH_PATH GET
+    "${_ror_lock_json}" patches 4 path)
+string(JSON ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_PATCH_SHA256 GET
+    "${_ror_lock_json}" patches 4 sha256)
+string(JSON ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_PATCH_REASON GET
+    "${_ror_lock_json}" patches 4 reason)
+string(JSON ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_HEADER_PATH GET
+    "${_ror_lock_json}" patches 4 header_source_path)
+string(JSON ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_HEADER_SOURCE_SHA256 GET
+    "${_ror_lock_json}" patches 4 header_source_sha256)
+string(JSON ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_HEADER_PATCHED_SHA256 GET
+    "${_ror_lock_json}" patches 4 header_patched_sha256)
+string(JSON ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_IMPLEMENTATION_PATH GET
+    "${_ror_lock_json}" patches 4 implementation_source_path)
+string(JSON ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_IMPLEMENTATION_SOURCE_SHA256 GET
+    "${_ror_lock_json}" patches 4 implementation_source_sha256)
+string(JSON ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_IMPLEMENTATION_PATCHED_SHA256 GET
+    "${_ror_lock_json}" patches 4 implementation_patched_sha256)
 string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_NAME GET
     "${_ror_lock_json}" embedded_namespace namespace)
 string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_CMAKE_OPTION GET
@@ -618,7 +636,7 @@ endif ()
 file(SHA256
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_IBL_PATCH_PATH}"
     _ror_ibl_patch_sha256)
-if (NOT ROR_OGRE_NEXT_PATCH_COUNT EQUAL 4 OR
+if (NOT ROR_OGRE_NEXT_PATCH_COUNT EQUAL 5 OR
         NOT ROR_OGRE_NEXT_IBL_PATCH_PATH STREQUAL
         "patches/0005-metal-typed-ibl-uav-conversions.patch" OR
         NOT ROR_OGRE_NEXT_IBL_PATCH_SHA256 STREQUAL
@@ -667,6 +685,30 @@ if (NOT ROR_OGRE_NEXT_VULKAN_SKY_PATCH_PATH STREQUAL
         "793f66f9777a134970cf2b7dad44ee7da5204331cfe2e3db85544b3d8f8b8d62")
     message(FATAL_ERROR
         "The pinned OGRE-Next Vulkan sky array-slice adaptation changed")
+endif ()
+file(SHA256
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_PATCH_PATH}"
+    _ror_texture_shutdown_patch_sha256)
+if (NOT ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_PATCH_PATH STREQUAL
+        "patches/0010-texture-streaming-shutdown-atomic.patch" OR
+        NOT ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_PATCH_SHA256 STREQUAL
+        "a3200b9038561ef1508a125eceb1b889bd95100905edc8d7017ec83e77f67b12" OR
+        NOT _ror_texture_shutdown_patch_sha256 STREQUAL
+        ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_PATCH_SHA256 OR
+        NOT ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_HEADER_PATH STREQUAL
+        "OgreMain/include/OgreTextureGpuManager.h" OR
+        NOT ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_HEADER_SOURCE_SHA256 STREQUAL
+        "413e19db7aef3f32bcdf717c69277d1010d77b7ec432382aed4cecae2a9eb91a" OR
+        NOT ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_HEADER_PATCHED_SHA256 STREQUAL
+        "de05f16c0ec931e42d46fdcd55557269f6b9ccf9b2be0b2c4c99baa0c098a100" OR
+        NOT ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_IMPLEMENTATION_PATH STREQUAL
+        "OgreMain/src/OgreTextureGpuManager.cpp" OR
+        NOT ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_IMPLEMENTATION_SOURCE_SHA256 STREQUAL
+        "9db903623cea3e61db10caace8eb8e16ca109cb0ca6f3503a42074f4e1c07226" OR
+        NOT ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_IMPLEMENTATION_PATCHED_SHA256 STREQUAL
+        "e05b007104f5eb7877ffb2842fe0b0bca631585d948dfee501396afec994ce38")
+    message(FATAL_ERROR
+        "The pinned OGRE-Next texture shutdown synchronization changed")
 endif ()
 set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_PATH}")
@@ -1362,7 +1404,8 @@ set(_ror_ogre_next_patch_paths
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_PATCH_PATH}"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_IBL_PATCH_PATH}"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCH_PATH}"
-    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_VULKAN_SKY_PATCH_PATH}")
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_VULKAN_SKY_PATCH_PATH}"
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_PATCH_PATH}")
 if (ROR_OGRE_NEXT_EMBEDDED_NAMESPACE)
     list(APPEND _ror_ogre_next_patch_paths
         "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH}")
@@ -1598,6 +1641,20 @@ if (NOT _ror_extracted_vulkan_sky_source_sha256 STREQUAL
         "The pinned OGRE-Next Vulkan sky shader patch did not produce reviewed bytes: "
         "expected ${ROR_OGRE_NEXT_VULKAN_SKY_PATCHED_SHA256}, got "
         "${_ror_extracted_vulkan_sky_source_sha256}")
+endif ()
+
+file(SHA256
+    "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_HEADER_PATH}"
+    _ror_extracted_texture_shutdown_header_sha256)
+file(SHA256
+    "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_IMPLEMENTATION_PATH}"
+    _ror_extracted_texture_shutdown_implementation_sha256)
+if (NOT _ror_extracted_texture_shutdown_header_sha256 STREQUAL
+        ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_HEADER_PATCHED_SHA256 OR
+        NOT _ror_extracted_texture_shutdown_implementation_sha256 STREQUAL
+        ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_IMPLEMENTATION_PATCHED_SHA256)
+    message(FATAL_ERROR
+        "The pinned OGRE-Next texture shutdown patch did not produce reviewed bytes")
 endif ()
 
 foreach (_ror_normal_map_source_index RANGE 0

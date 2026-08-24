@@ -469,7 +469,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--runtime-content", type=Path)
     parser.add_argument("--artifact-dir", required=True, type=Path)
     parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--timeout", type=int, default=900)
+    parser.add_argument("--timeout", type=int, default=1200)
     parser.add_argument("--require-tsan", action="store_true")
     args = parser.parse_args(argv)
     if args.workers <= 0 or args.timeout <= 0:

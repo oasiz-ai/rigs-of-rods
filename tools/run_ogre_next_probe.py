@@ -888,6 +888,9 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
     expected_vulkan_sky_patch_sha256 = (
         "37d19c4c8fe808a17ff2d6d2eef2f575cab7e14d75e85f1865e274c9a5227a9e"
     )
+    expected_texture_shutdown_patch_sha256 = (
+        "a3200b9038561ef1508a125eceb1b889bd95100905edc8d7017ec83e77f67b12"
+    )
     if type(lock.get("schema_version")) is not int or lock.get("schema_version") != 6:
         raise ProbeError("unsupported OGRE-Next lock schema")
     if lock.get("repository") != "https://github.com/OGRECave/ogre-next":
@@ -1095,15 +1098,49 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
                 "793f66f9777a134970cf2b7dad44ee7da5204331cfe2e3db85544b3d8f8b8d62"
             ),
         },
+        {
+            "path": "patches/0010-texture-streaming-shutdown-atomic.patch",
+            "sha256": expected_texture_shutdown_patch_sha256,
+            "reason": (
+                "Synchronize Ogre-Next texture-streaming worker shutdown so "
+                "the visible renderer tears down without a ThreadSanitizer "
+                "data race"
+            ),
+            "header_source_path": "OgreMain/include/OgreTextureGpuManager.h",
+            "header_source_sha256": (
+                "413e19db7aef3f32bcdf717c69277d1010d77b7ec432382aed4cecae2a9eb91a"
+            ),
+            "header_patched_sha256": (
+                "de05f16c0ec931e42d46fdcd55557269f6b9ccf9b2be0b2c4c99baa0c098a100"
+            ),
+            "implementation_source_path": (
+                "OgreMain/src/OgreTextureGpuManager.cpp"
+            ),
+            "implementation_source_sha256": (
+                "9db903623cea3e61db10caace8eb8e16ca109cb0ca6f3503a42074f4e1c07226"
+            ),
+            "implementation_patched_sha256": (
+                "e05b007104f5eb7877ffb2842fe0b0bca631585d948dfee501396afec994ce38"
+            ),
+        },
     ]
     patches = lock.get("patches")
     if patches != expected_patches:
         raise ProbeError("the reviewed OGRE-Next adaptation patch set changed")
     for patch in patches:
         _require_sha256(patch.get("sha256"), "adaptation patch hash")
-        if "source_sha256" in patch:
-            _require_sha256(patch["source_sha256"], "adaptation source hash")
-            _require_sha256(patch["patched_sha256"], "adapted source hash")
+        for hash_field in (
+            "source_sha256",
+            "patched_sha256",
+            "header_source_sha256",
+            "header_patched_sha256",
+            "implementation_source_sha256",
+            "implementation_patched_sha256",
+        ):
+            if hash_field in patch:
+                _require_sha256(
+                    patch[hash_field], f"adaptation {hash_field} hash"
+                )
         patch_path = path.parent / patch["path"]
         if not patch_path.is_file():
             raise ProbeError(f"pinned patch is missing: {patch_path}")

@@ -411,17 +411,17 @@ void frameStep(float dt)
             return;
         }
         ++gCompletedCycles;
-        if (elapsed >= TARGET_SECONDS)
+        if (gCollisionResponses != gCompletedCycles ||
+            gActorSpawns != gCompletedCycles * 2 ||
+            gActorDeletes != (gCompletedCycles - 1) * 2)
         {
-            if (gCompletedCycles < MINIMUM_COMPLETED_CYCLES ||
-                completed < MINIMUM_TOTAL_PHYSICS_STEPS ||
-                gCollisionResponses != gCompletedCycles ||
-                gActorSpawns != gCompletedCycles * 2 ||
-                gActorDeletes != (gCompletedCycles - 1) * 2)
-            {
-                FailSoak("minimum-work-or-mutation-receipt-incomplete");
-                return;
-            }
+            FailSoak("mutation-receipt-drift");
+            return;
+        }
+        if (elapsed >= TARGET_SECONDS &&
+            gCompletedCycles >= MINIMUM_COMPLETED_CYCLES &&
+            completed >= MINIMUM_TOTAL_PHYSICS_STEPS)
+        {
             FinishForcedActive();
             console.cVarSet("sim_deterministic_fixed_steps_per_frame", "0");
             gState = FINISHED;

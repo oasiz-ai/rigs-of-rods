@@ -358,6 +358,39 @@ class OgreNextProbeContractTests(unittest.TestCase):
         self.assertIn("vec3( uv.xy, sliceIdx )", added_lines[0])
         self.assertNotIn("vec3( uv.xy, 0 )", added_lines[0])
 
+    def test_texture_streaming_shutdown_patch_is_atomic_and_exact(self) -> None:
+        patch = self.lock["patches"][4]
+        self.assertEqual(
+            patch["path"],
+            "patches/0010-texture-streaming-shutdown-atomic.patch",
+        )
+        self.assertEqual(
+            patch["header_source_sha256"],
+            "413e19db7aef3f32bcdf717c69277d1010d77b7ec432382aed4cecae2a9eb91a",
+        )
+        self.assertEqual(
+            patch["header_patched_sha256"],
+            "de05f16c0ec931e42d46fdcd55557269f6b9ccf9b2be0b2c4c99baa0c098a100",
+        )
+        self.assertEqual(
+            patch["implementation_source_sha256"],
+            "9db903623cea3e61db10caace8eb8e16ca109cb0ca6f3503a42074f4e1c07226",
+        )
+        self.assertEqual(
+            patch["implementation_patched_sha256"],
+            "e05b007104f5eb7877ffb2842fe0b0bca631585d948dfee501396afec994ce38",
+        )
+        source = (PROBE_DIR / patch["path"]).read_text(encoding="utf-8")
+        self.assertIn("std::atomic<bool>                  mShuttingDown", source)
+        self.assertIn(
+            "mShuttingDown.exchange( true, std::memory_order_acq_rel )",
+            source,
+        )
+        self.assertIn(
+            "mShuttingDown.load( std::memory_order_acquire )", source
+        )
+        self.assertNotIn("+        bool", source)
+
     def test_ibl_notice_and_patched_shader_are_fail_closed_in_cmake(self) -> None:
         cmake = PINNED_CMAKE_PATH.read_text(encoding="utf-8")
         reflection_media = self.lock["reflection_shader_media"]
@@ -370,10 +403,12 @@ class OgreNextProbeContractTests(unittest.TestCase):
             ]
         )
         for token in (
-            "ROR_OGRE_NEXT_PATCH_COUNT EQUAL 4",
+            "ROR_OGRE_NEXT_PATCH_COUNT EQUAL 5",
             "ROR_OGRE_NEXT_IBL_PATCHED_SHA256",
             "ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCHED_SHA256",
             "ROR_OGRE_NEXT_VULKAN_SKY_PATCHED_SHA256",
+            "ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_HEADER_PATCHED_SHA256",
+            "ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_IMPLEMENTATION_PATCHED_SHA256",
             "_ror_extracted_ibl_shader_sha256",
             "_ror_extracted_iblbaker_license_sha256",
             "ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE",

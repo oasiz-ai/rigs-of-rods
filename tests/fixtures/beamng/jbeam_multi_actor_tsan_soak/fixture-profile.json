@@ -33,7 +33,7 @@
   "rootPart": "ror_jbeam_spawn_fixture",
   "scenarioScript": {
     "path": "resources/scripts/example_jbeam_multi_actor_tsan_soak.as",
-    "sha256": "3e0d4e364c8a293555954914b518d3c8c8d1df891b4ccbdc4c51ab2890a5815a"
+    "sha256": "e616eefa8940ec035802476475101d167ccded118dd903e5c9e19596339874d6"
   },
   "schema": 1
 }

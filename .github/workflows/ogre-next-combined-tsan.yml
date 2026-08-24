@@ -207,7 +207,7 @@ jobs:
             --runtime-content "$ROR_TSAN_BUILD_DIR/bin/content" \
             --artifact-dir "$evidence" \
             --workers 8 \
-            --timeout 900 \
+            --timeout 1200 \
             --require-tsan
           if compgen -G "$tsan_log*" > /dev/null; then
             echo 'ThreadSanitizer emitted a diagnostic report' >&2

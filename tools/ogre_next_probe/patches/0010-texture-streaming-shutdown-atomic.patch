@@ -1,0 +1,18 @@
+diff --git a/OgreMain/include/OgreTextureGpuManager.h b/OgreMain/include/OgreTextureGpuManager.h
+--- a/OgreMain/include/OgreTextureGpuManager.h
++++ b/OgreMain/include/OgreTextureGpuManager.h
+@@ -530 +530 @@ namespace Ogre
+-        bool                               mShuttingDown;
++        std::atomic<bool>                  mShuttingDown;
+diff --git a/OgreMain/src/OgreTextureGpuManager.cpp b/OgreMain/src/OgreTextureGpuManager.cpp
+--- a/OgreMain/src/OgreTextureGpuManager.cpp
++++ b/OgreMain/src/OgreTextureGpuManager.cpp
+@@ -212,4 +212,3 @@ namespace Ogre
+-        if( !mShuttingDown )
++        if( !mShuttingDown.exchange( true, std::memory_order_acq_rel ) )
+         {
+-            mShuttingDown = true;
+ #if OGRE_PLATFORM != OGRE_PLATFORM_EMSCRIPTEN && !OGRE_FORCE_TEXTURE_STREAMING_ON_MAIN_THREAD
+@@ -2787 +2786 @@ namespace Ogre
+-        while( !mShuttingDown )
++        while( !mShuttingDown.load( std::memory_order_acquire ) )
