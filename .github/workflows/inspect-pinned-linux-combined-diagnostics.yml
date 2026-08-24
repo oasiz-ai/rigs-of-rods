@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: true
 
       - name: Download immutable failed-run diagnostics
         uses: actions/download-artifact@v7
