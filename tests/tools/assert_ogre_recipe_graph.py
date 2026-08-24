@@ -65,7 +65,7 @@ EXPECTED_PATCH_SHA256 = {
         "d75235c59bab56f565b4ad76f04032bc064ae99b08cf4173a4799ac877ce2b4e"
     ),
     "patches/14.5.2/always-lock-log-output.patch": (
-        "3ecc7af414c97e3d93a60f9eff6ce6f8ce698d17bf3cbd89d06825b0aa4e53da"
+        "eff50954cf166974530a370b67d5ef542b0285dca2290ae5f9067b4126424604"
     ),
 }
 EXPECTED_OGRE_OPTIONS = {

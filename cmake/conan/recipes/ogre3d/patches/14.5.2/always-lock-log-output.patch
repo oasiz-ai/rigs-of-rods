@@ -57,7 +57,7 @@
                      }
                      mLog << message << std::endl;
  
-@@ -151,7 +156,7 @@ namespace Ogre
+@@ -151,43 +156,43 @@ namespace Ogre
      //-----------------------------------------------------------------------
      void Log::setTimeStampEnabled(bool timeStamp)
      {
@@ -66,7 +66,6 @@
          mTimeStamp = timeStamp;
      }
  
-@@ -159,7 +164,7 @@ namespace Ogre
      //-----------------------------------------------------------------------
      void Log::setDebugOutputEnabled(bool debugOutput)
      {
@@ -75,7 +74,6 @@
          mDebugOut = debugOutput;
      }
  
-@@ -166,13 +171,13 @@ namespace Ogre
      //-----------------------------------------------------------------------
      void Log::setLogDetail(LoggingLevel ll)
      {
@@ -91,7 +89,6 @@
          mLogLevel = lml;
      }
  
-@@ -179,7 +184,7 @@ namespace Ogre
      //-----------------------------------------------------------------------
      void Log::addListener(LogListener* listener)
      {
@@ -100,7 +97,7 @@
          if (std::find(mListeners.begin(), mListeners.end(), listener) == mListeners.end())
              mListeners.push_back(listener);
      }
-@@ -187,7 +192,7 @@ namespace Ogre
+ 
      //-----------------------------------------------------------------------
      void Log::removeListener(LogListener* listener)
      {
@@ -109,3 +106,4 @@
          mtLogListener::iterator i = std::find(mListeners.begin(), mListeners.end(), listener);
          if (i != mListeners.end())
              mListeners.erase(i);
+     }
