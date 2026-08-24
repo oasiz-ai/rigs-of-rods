@@ -34,6 +34,8 @@ jobs:
           import json
           import os
           from pathlib import Path
+          import stat
+          import subprocess
 
           root = Path(os.environ["DIAGNOSTICS_ROOT"]).resolve(strict=True)
           files = sorted(path for path in root.rglob("*") if path.is_file())
@@ -118,6 +120,39 @@ jobs:
           if len(reports) == 1:
               report = json.loads(reports[0].read_text(encoding="utf-8"))
 
+          trace_analysis = {"status": "unavailable"}
+          trace_tools = [path for path in files if path.name == "ror_state_trace"]
+          record_traces = [path for path in focused if path.name == "record.rortrace"]
+          resume_traces = [path for path in focused if path.name == "resume.rortrace"]
+          if len(trace_tools) == len(record_traces) == len(resume_traces) == 1:
+              trace_tool = trace_tools[0]
+              trace_tool.chmod(trace_tool.stat().st_mode | stat.S_IXUSR)
+
+              def run_trace(arguments: list[str]) -> dict[str, object]:
+                  completed = subprocess.run(
+                      [str(trace_tool), *arguments],
+                      stdout=subprocess.PIPE,
+                      stderr=subprocess.STDOUT,
+                      text=True,
+                      timeout=60,
+                      check=False,
+                  )
+                  output = completed.stdout.strip()
+                  try:
+                      parsed: object = json.loads(output)
+                  except json.JSONDecodeError:
+                      parsed = output[:4000]
+                  return {"exit_code": completed.returncode, "output": parsed}
+
+              trace_analysis = {
+                  "status": "executed",
+                  "record": run_trace(["--inspect", str(record_traces[0])]),
+                  "resume": run_trace(["--inspect", str(resume_traces[0])]),
+                  "comparison": run_trace(
+                      [str(record_traces[0]), str(resume_traces[0])]
+                  ),
+              }
+
           summary = {
               "format": "ror-linux-save-resume-diagnostic-summary-v1",
               "source_run_id": 32786978090,
@@ -130,6 +165,7 @@ jobs:
               "d0_marker_lines": d0_lines,
               "fatal_marker_lines": fatal_lines,
               "runtime_tails": runtime_tails,
+              "trace_analysis": trace_analysis,
           }
           rendered = json.dumps(summary, indent=2, sort_keys=True)
           print(rendered)
@@ -161,6 +197,7 @@ jobs:
           )
           emit("Linux save-resume D0 markers", d0_lines[-40:])
           emit("Linux save-resume fatal markers", fatal_lines[-40:])
+          emit("Linux save-resume trace analysis", trace_analysis)
           for runtime_tail in runtime_tails:
               emit("Linux save-resume runtime tail", runtime_tail)
           PY
