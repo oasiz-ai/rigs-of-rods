@@ -1,0 +1,38 @@
+{
+  "authorship": "original-clean-room",
+  "documentationProfile": "ror-jbeam-conservative-subset-v1",
+  "execution": "threadsanitizer-instrumented-ogre-next-combined-product-path",
+  "expectedRuntime": {
+    "actorsPerCycle": 2,
+    "cabTrianglesPerActor": 5,
+    "collisionCabsPerActor": 5,
+    "cycleFixedSteps": 2000,
+    "fixedStepDenominator": 2000,
+    "fixedStepNumerator": 1,
+    "jbeamHydrosPerActor": 1,
+    "minimumCompletedCycles": 10,
+    "minimumDurationSeconds": 600,
+    "minimumTotalFixedSteps": 20000,
+    "nodesPerActor": 6,
+    "runtimeBeamsPerActor": 16
+  },
+  "fixtureId": "ror-d0-full-runtime-multi-actor-tsan-soak-v1",
+  "jbeamSource": {
+    "path": "tests/fixtures/beamng/jbeam_spawn_soak/vehicles/ror_jbeam_spawn/main.jbeam",
+    "sha256": "152214276db02490d9b87795716dd3e8fecfd7373719610a2a183254d86fc935"
+  },
+  "license": "GPL-3.0-or-later",
+  "prohibitedInputs": [
+    "lua-execution",
+    "ogre-script-execution",
+    "network",
+    "external-assets",
+    "third-party-mod-data"
+  ],
+  "rootPart": "ror_jbeam_spawn_fixture",
+  "scenarioScript": {
+    "path": "resources/scripts/example_jbeam_multi_actor_tsan_soak.as",
+    "sha256": "dc1a9f5e9d631dbc1c0c592dcafae8c7331a6c64b997a283316d597c3a3f695d"
+  },
+  "schema": 1
+}

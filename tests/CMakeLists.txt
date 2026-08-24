@@ -96,6 +96,12 @@ add_test(
         "${ROR_REPOSITORY_ROOT}/tests/tools/test_run_jbeam_inter_actor_collision.py"
 )
 add_test(
+    NAME jbeam_multi_actor_tsan_soak_tool
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_run_jbeam_multi_actor_tsan_soak.py"
+)
+add_test(
     NAME agora_impact_regression_tool
     COMMAND
         "${Python3_EXECUTABLE}"
@@ -105,6 +111,7 @@ set_tests_properties(
     calibrated_beam_soak_tool
     jbeam_spawn_soak_tool
     jbeam_inter_actor_collision_tool
+    jbeam_multi_actor_tsan_soak_tool
     agora_impact_regression_tool
     PROPERTIES
         LABELS "physics;integration;python"
@@ -4252,6 +4259,7 @@ set(ROR_CROSS_PLATFORM_PHYSICS_CORE_TESTS
     calibrated_beam_soak_tool
     jbeam_spawn_soak_tool
     jbeam_inter_actor_collision_tool
+    jbeam_multi_actor_tsan_soak_tool
     agora_impact_regression_tool
     beam_axial_kinematics
     beam_axial_response
