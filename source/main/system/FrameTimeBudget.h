@@ -193,6 +193,11 @@ struct FrameTimeBudgetPhaseStats {
     std::uint64_t samples = 0U;
     double total_ms = 0.0;
     double mean_ms = 0.0;
+    /// Nearest-rank upper histogram edges. These make a missed whole-frame
+    /// percentile attributable without retaining an unbounded frame trace.
+    double p50_ms = 0.0;
+    double p95_ms = 0.0;
+    double p99_ms = 0.0;
     double maximum_ms = 0.0;
     /// Share of the run's total accepted frame time, in [0, 1].
     double share = 0.0;
@@ -312,6 +317,8 @@ public:
 
 private:
     [[nodiscard]] double RankedMilliseconds(std::uint32_t percentile) const;
+    [[nodiscard]] double RankedPhaseMilliseconds(
+        std::size_t phase_index, std::uint32_t percentile) const;
     [[nodiscard]] std::uint64_t RankedNativeSceneDraws(
         std::uint32_t percentile) const;
 
@@ -325,6 +332,9 @@ private:
     bool scene_identity_changed_ = false;
 
     std::vector<std::uint32_t> bins_;
+    /// One bounded histogram per declared phase. All storage is allocated at
+    /// session construction; recording remains allocation-free.
+    std::vector<std::vector<std::uint32_t>> phase_bins_;
     std::vector<std::uint32_t> native_scene_draw_bins_;
     std::uint64_t observed_frames_ = 0U;
     std::uint64_t warmup_frames_ = 0U;

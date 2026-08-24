@@ -475,6 +475,9 @@ void TestPhaseAttribution()
         RoR::FrameTimeBudgetPhase::NATIVE_PUBLICATION);
     CHECK(report.phases[producer].samples == 100U);
     CHECK(NearlyEqual(report.phases[producer].mean_ms, 6.0, 1e-6));
+    CHECK(NearlyEqual(report.phases[producer].p50_ms, 6.015625, 1e-9));
+    CHECK(NearlyEqual(report.phases[producer].p95_ms, 6.015625, 1e-9));
+    CHECK(NearlyEqual(report.phases[producer].p99_ms, 6.015625, 1e-9));
     CHECK(NearlyEqual(report.phases[producer].share, 0.6, 1e-6));
     CHECK(NearlyEqual(report.phases[renderer].mean_ms, 3.0, 1e-6));
     CHECK(NearlyEqual(report.phases[renderer].share, 0.3, 1e-6));
@@ -483,6 +486,8 @@ void TestPhaseAttribution()
     CHECK(NearlyEqual(report.phases[native_render].share, 0.2, 1e-6));
     CHECK(report.phases[native_publication].samples == 100U);
     CHECK(report.phases[native_publication].total_ms == 0.0);
+    CHECK(NearlyEqual(
+        report.phases[native_publication].p95_ms, 0.015625, 1e-9));
     CHECK(NearlyEqual(report.remainder.mean_ms, 1.0, 1e-6));
     CHECK(NearlyEqual(report.remainder.share, 0.1, 1e-6));
     CHECK(NearlyEqual(report.phases[producer].share +
@@ -496,6 +501,9 @@ void TestPhaseAttribution()
           std::string::npos);
     CHECK(phase_document.find(
               "\"phase_native_publication_samples\": 100") !=
+          std::string::npos);
+    CHECK(phase_document.find(
+              "\"phase_producer_p95_ms\": 6.0156") !=
           std::string::npos);
 
     // Overlapping phases cannot produce a negative remainder.

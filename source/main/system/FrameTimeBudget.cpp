@@ -199,6 +199,9 @@ FrameTimeBudgetSession::FrameTimeBudgetSession(
     , context_(context)
     , limits_valid_(limits.valid())
     , bins_(kFrameTimeBudgetTotalBins, 0U)
+    , phase_bins_(
+          kFrameTimeBudgetPhaseCount,
+          std::vector<std::uint32_t>(kFrameTimeBudgetTotalBins, 0U))
     , native_scene_draw_bins_(
           kFrameTimeBudgetNativeSceneDrawTotalBins, 0U)
     , minimum_ns_((std::numeric_limits<std::uint64_t>::max)())
@@ -294,6 +297,14 @@ void FrameTimeBudgetSession::RecordPhase(
 
     const std::uint64_t sample_ns =
         static_cast<std::uint64_t>(seconds * 1000000000.0);
+    const std::size_t bin =
+        sample_ns >=
+                static_cast<std::uint64_t>(kFrameTimeBudgetBinCount) *
+                    kFrameTimeBudgetBinWidthNs
+            ? kFrameTimeBudgetBinCount
+            : static_cast<std::size_t>(
+                  sample_ns / kFrameTimeBudgetBinWidthNs);
+    ++phase_bins_[index][bin];
     ++phase_samples_[index];
     phase_total_ns_[index] += sample_ns;
     if (sample_ns > phase_maximum_ns_[index])
@@ -310,6 +321,14 @@ void FrameTimeBudgetSession::RecordPhaseMicroseconds(
         return;
 
     const std::uint64_t sample_ns = microseconds * 1000U;
+    const std::size_t bin =
+        sample_ns >=
+                static_cast<std::uint64_t>(kFrameTimeBudgetBinCount) *
+                    kFrameTimeBudgetBinWidthNs
+            ? kFrameTimeBudgetBinCount
+            : static_cast<std::size_t>(
+                  sample_ns / kFrameTimeBudgetBinWidthNs);
+    ++phase_bins_[index][bin];
     ++phase_samples_[index];
     phase_total_ns_[index] += sample_ns;
     if (sample_ns > phase_maximum_ns_[index])
@@ -401,6 +420,33 @@ double FrameTimeBudgetSession::RankedMilliseconds(
     return ToMilliseconds(maximum_ns_);
 }
 
+double FrameTimeBudgetSession::RankedPhaseMilliseconds(
+    std::size_t phase_index, std::uint32_t percentile) const
+{
+    if (phase_index >= kFrameTimeBudgetPhaseCount || percentile == 0U ||
+            percentile > 100U || phase_samples_[phase_index] == 0U)
+    {
+        return 0.0;
+    }
+    const std::uint64_t rank =
+        ((phase_samples_[phase_index] *
+              static_cast<std::uint64_t>(percentile)) +
+            99U) /
+        100U;
+    std::uint64_t cumulative = 0U;
+    const std::vector<std::uint32_t>& bins = phase_bins_[phase_index];
+    for (std::size_t bin = 0U; bin < bins.size(); ++bin)
+    {
+        cumulative += bins[bin];
+        if (cumulative < rank)
+            continue;
+        if (bin >= kFrameTimeBudgetBinCount)
+            return ToMilliseconds(phase_maximum_ns_[phase_index]);
+        return BinUpperEdgeMilliseconds(bin);
+    }
+    return ToMilliseconds(phase_maximum_ns_[phase_index]);
+}
+
 std::uint64_t FrameTimeBudgetSession::RankedNativeSceneDraws(
     std::uint32_t percentile) const
 {
@@ -471,6 +517,9 @@ FrameTimeBudgetReport FrameTimeBudgetSession::Finalize() const
             stats.mean_ms = stats.samples > 0U
                 ? stats.total_ms / static_cast<double>(stats.samples)
                 : 0.0;
+            stats.p50_ms = RankedPhaseMilliseconds(index, 50U);
+            stats.p95_ms = RankedPhaseMilliseconds(index, 95U);
+            stats.p99_ms = RankedPhaseMilliseconds(index, 99U);
             stats.share = total_frame_ms > 0.0
                 ? stats.total_ms / total_frame_ms
                 : 0.0;
@@ -692,6 +741,8 @@ std::string FormatFrameTimeBudgetSummary(const FrameTimeBudgetReport& report)
         summary += std::string(" ") +
             ToString(static_cast<FrameTimeBudgetPhase>(index)) + "_ms=" +
             FormatDouble(stats.mean_ms, 4) + " " +
+            ToString(static_cast<FrameTimeBudgetPhase>(index)) + "_p95_ms=" +
+            FormatDouble(stats.p95_ms, 4) + " " +
             ToString(static_cast<FrameTimeBudgetPhase>(index)) + "_share=" +
             FormatDouble(stats.share, 4);
     }
@@ -786,6 +837,12 @@ std::string SerializeFrameTimeBudgetReport(const FrameTimeBudgetReport& report)
             prefix + "total_ms", FormatDouble(stats.total_ms, 4)));
         fields.push_back(JsonRaw(
             prefix + "mean_ms", FormatDouble(stats.mean_ms, 4)));
+        fields.push_back(JsonRaw(
+            prefix + "p50_ms", FormatDouble(stats.p50_ms, 4)));
+        fields.push_back(JsonRaw(
+            prefix + "p95_ms", FormatDouble(stats.p95_ms, 4)));
+        fields.push_back(JsonRaw(
+            prefix + "p99_ms", FormatDouble(stats.p99_ms, 4)));
         fields.push_back(JsonRaw(
             prefix + "max_ms", FormatDouble(stats.maximum_ms, 4)));
         fields.push_back(JsonRaw(
