@@ -151,6 +151,16 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
             '"path": "@ROR_OGRE_NEXT_VULKAN_SKY_PATCH_PATH@"',
             '"sha256": "@ROR_OGRE_NEXT_VULKAN_SKY_PATCH_SHA256@"',
             '"patched_sha256": "@ROR_OGRE_NEXT_VULKAN_SKY_PATCHED_SHA256@"',
+            '"path": "@ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_PATCH_PATH@"',
+            '"sha256": "@ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_PATCH_SHA256@"',
+            (
+                '"header_patched_sha256": '
+                '"@ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_HEADER_PATCHED_SHA256@"'
+            ),
+            (
+                '"implementation_patched_sha256": '
+                '"@ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_IMPLEMENTATION_PATCHED_SHA256@"'
+            ),
             '"full_n1_link_evidence": "not_evaluated"',
         ):
             with self.subTest(token=token):
@@ -159,6 +169,88 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
             'set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_ENABLED_JSON "false")',
             self.cmake,
         )
+
+    def test_build_contract_patch_array_renders_to_canonical_lock(self) -> None:
+        rendered = self.template.split('  "patches": ', 1)[1].split(
+            ',\n  "embedded_namespace":', 1
+        )[0]
+        patches = self.lock["patches"]
+        bindings = {
+            "ROR_OGRE_NEXT_PATCH_PATH": patches[0]["path"],
+            "ROR_OGRE_NEXT_PATCH_SHA256": patches[0]["sha256"],
+            "ROR_OGRE_NEXT_PATCH_REASON": patches[0]["reason"],
+            "ROR_OGRE_NEXT_IBL_PATCH_PATH": patches[1]["path"],
+            "ROR_OGRE_NEXT_IBL_PATCH_SHA256": patches[1]["sha256"],
+            "ROR_OGRE_NEXT_IBL_PATCH_REASON": patches[1]["reason"],
+            "ROR_OGRE_NEXT_IBL_PATCH_SOURCE_PATH": patches[1][
+                "source_path"
+            ],
+            "ROR_OGRE_NEXT_IBL_PATCH_SOURCE_SHA256": patches[1][
+                "source_sha256"
+            ],
+            "ROR_OGRE_NEXT_IBL_PATCHED_SHA256": patches[1][
+                "patched_sha256"
+            ],
+            "ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCH_PATH": patches[2]["path"],
+            "ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCH_SHA256": patches[2][
+                "sha256"
+            ],
+            "ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCH_REASON": patches[2][
+                "reason"
+            ],
+            "ROR_OGRE_NEXT_METAL_ANISOTROPY_SOURCE_PATH": patches[2][
+                "source_path"
+            ],
+            "ROR_OGRE_NEXT_METAL_ANISOTROPY_SOURCE_SHA256": patches[2][
+                "source_sha256"
+            ],
+            "ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCHED_SHA256": patches[2][
+                "patched_sha256"
+            ],
+            "ROR_OGRE_NEXT_VULKAN_SKY_PATCH_PATH": patches[3]["path"],
+            "ROR_OGRE_NEXT_VULKAN_SKY_PATCH_SHA256": patches[3]["sha256"],
+            "ROR_OGRE_NEXT_VULKAN_SKY_PATCH_REASON": patches[3]["reason"],
+            "ROR_OGRE_NEXT_VULKAN_SKY_SOURCE_PATH": patches[3][
+                "source_path"
+            ],
+            "ROR_OGRE_NEXT_VULKAN_SKY_SOURCE_SHA256": patches[3][
+                "source_sha256"
+            ],
+            "ROR_OGRE_NEXT_VULKAN_SKY_PATCHED_SHA256": patches[3][
+                "patched_sha256"
+            ],
+            "ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_PATCH_PATH": patches[4]["path"],
+            "ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_PATCH_SHA256": patches[4][
+                "sha256"
+            ],
+            "ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_PATCH_REASON": patches[4][
+                "reason"
+            ],
+            "ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_HEADER_PATH": patches[4][
+                "header_source_path"
+            ],
+            "ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_HEADER_SOURCE_SHA256": patches[4][
+                "header_source_sha256"
+            ],
+            "ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_HEADER_PATCHED_SHA256": patches[4][
+                "header_patched_sha256"
+            ],
+            "ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_IMPLEMENTATION_PATH": patches[4][
+                "implementation_source_path"
+            ],
+            "ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_IMPLEMENTATION_SOURCE_SHA256": patches[4][
+                "implementation_source_sha256"
+            ],
+            "ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_IMPLEMENTATION_PATCHED_SHA256": patches[4][
+                "implementation_patched_sha256"
+            ],
+        }
+        for name, value in bindings.items():
+            rendered = rendered.replace(
+                f"@{name}@", json.dumps(value)[1:-1]
+            )
+        self.assertNotIn("@ROR_OGRE_NEXT_", rendered)
+        self.assertEqual(json.loads(rendered), patches)
 
     def test_every_ogrenext_header_target_explicitly_registers_helper(self) -> None:
         targets = (
