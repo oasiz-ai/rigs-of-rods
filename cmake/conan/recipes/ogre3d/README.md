@@ -34,6 +34,8 @@ separately.
   `b06ad20fdc2d250d11ef5de456866cd9f1f1b1e05c6d023d6c51ffa530a3d2f4`
 - Local hidden/offline Cocoa GL resource-host patch SHA-256:
   `d75235c59bab56f565b4ad76f04032bc064ae99b08cf4173a4799ac877ce2b4e`
+- Local always-on log serialization patch SHA-256:
+  `3ecc7af414c97e3d93a60f9eff6ce6f8ce698d17bf3cbd89d06825b0aa4e53da`
 - macOS arm64 Release lock:
   `cmake/conan/locks/ogre3d-14.5.2-macos-arm64-release.lock`
 
@@ -66,6 +68,15 @@ archive mutex macros to no-ops. Recursive locking is required because sloppy
 resource lookup makes `ZipArchive::open()` call the separately locked
 `findFileInfo()` helper. Load, unload, open, list, find, and existence
 operations now serialize on macOS, Linux, and Windows.
+
+The local log patch gives every `Ogre::Log` a real `std::recursive_mutex`,
+independent of `OGRE_CONFIG_THREADS`. Task-based thread mode 3 starts the
+`DefaultWorkQueue` threads while deliberately compiling `OGRE_AUTO_MUTEX` and
+`OGRE_LOCK_AUTO_MUTEX` to no-ops; without this patch, two worker messages can
+race through one file stream and `std::localtime`. All log mutation now uses
+the always-on mutex, and timestamp conversion uses `localtime_s` on Windows or
+`localtime_r` on Linux and macOS. Recursive locking preserves listener-driven
+logging and the existing public external-locking contract.
 
 The local ArchiveManager rollback patch retains the exact factory which
 created an archive, rejects null factory results and duplicate map insertion,

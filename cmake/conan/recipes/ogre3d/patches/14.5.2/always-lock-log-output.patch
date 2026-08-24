@@ -1,0 +1,111 @@
+--- a/OgreMain/include/OgreLog.h
++++ b/OgreMain/include/OgreLog.h
+@@ -35,6 +35,7 @@
+ #include "OgreHeaderPrefix.h"
+ 
+ #include <fstream>
++#include <mutex>
+ #include <sstream>
+ 
+ namespace Ogre {
+@@ -112,7 +113,11 @@ namespace Ogre {
+ 
+         class Stream;
+ 
+-        OGRE_AUTO_MUTEX; // public to allow external locking
++        // OGRE_CONFIG_THREADS=3 keeps a threaded DefaultWorkQueue but turns
++        // OGRE_AUTO_MUTEX into a no-op. Keep this public, recursive mutex under
++        // the same member name so external locking remains compatible and log
++        // listeners may safely log recursively.
++        mutable std::recursive_mutex mutex;
+         /**
+ 
+             Usual constructor - called by LogManager.
+--- a/OgreMain/src/OgreLog.cpp
++++ b/OgreMain/src/OgreLog.cpp
+@@ -85,7 +85,7 @@ namespace Ogre
+     //-----------------------------------------------------------------------
+     Log::~Log()
+     {
+-        OGRE_LOCK_AUTO_MUTEX;
++        std::lock_guard<std::recursive_mutex> lock(mutex);
+         if (!mSuppressFile)
+         {
+             mLog.close();
+@@ -95,7 +95,7 @@ namespace Ogre
+     //-----------------------------------------------------------------------
+     void Log::logMessage( const String& message, LogMessageLevel lml, bool maskDebug )
+     {
+-        OGRE_LOCK_AUTO_MUTEX;
++        std::lock_guard<std::recursive_mutex> lock(mutex);
+         if (lml >= mLogLevel)
+         {
+             bool skipThisMessage = false;
+@@ -136,8 +136,13 @@ namespace Ogre
+                     if (mTimeStamp)
+                     {
+                         auto t = std::time(nullptr);
+-                        auto pTime = std::localtime(&t);
+-                        mLog << std::put_time(pTime, "%H:%M:%S: ");
++                        std::tm localTime{};
++#if OGRE_PLATFORM == OGRE_PLATFORM_WIN32 || OGRE_PLATFORM == OGRE_PLATFORM_WINRT
++                        localtime_s(&localTime, &t);
++#else
++                        localtime_r(&t, &localTime);
++#endif
++                        mLog << std::put_time(&localTime, "%H:%M:%S: ");
+                     }
+                     mLog << message << std::endl;
+ 
+@@ -151,7 +156,7 @@ namespace Ogre
+     //-----------------------------------------------------------------------
+     void Log::setTimeStampEnabled(bool timeStamp)
+     {
+-        OGRE_LOCK_AUTO_MUTEX;
++        std::lock_guard<std::recursive_mutex> lock(mutex);
+         mTimeStamp = timeStamp;
+     }
+ 
+@@ -159,7 +164,7 @@ namespace Ogre
+     //-----------------------------------------------------------------------
+     void Log::setDebugOutputEnabled(bool debugOutput)
+     {
+-        OGRE_LOCK_AUTO_MUTEX;
++        std::lock_guard<std::recursive_mutex> lock(mutex);
+         mDebugOut = debugOutput;
+     }
+ 
+@@ -166,13 +171,13 @@ namespace Ogre
+     //-----------------------------------------------------------------------
+     void Log::setLogDetail(LoggingLevel ll)
+     {
+-        OGRE_LOCK_AUTO_MUTEX;
++        std::lock_guard<std::recursive_mutex> lock(mutex);
+         mLogLevel = LogMessageLevel(OGRE_LOG_THRESHOLD - ll);
+     }
+ 
+     void Log::setMinLogLevel(LogMessageLevel lml)
+     {
+-        OGRE_LOCK_AUTO_MUTEX;
++        std::lock_guard<std::recursive_mutex> lock(mutex);
+         mLogLevel = lml;
+     }
+ 
+@@ -179,7 +184,7 @@ namespace Ogre
+     //-----------------------------------------------------------------------
+     void Log::addListener(LogListener* listener)
+     {
+-        OGRE_LOCK_AUTO_MUTEX;
++        std::lock_guard<std::recursive_mutex> lock(mutex);
+         if (std::find(mListeners.begin(), mListeners.end(), listener) == mListeners.end())
+             mListeners.push_back(listener);
+     }
+@@ -187,7 +192,7 @@ namespace Ogre
+     //-----------------------------------------------------------------------
+     void Log::removeListener(LogListener* listener)
+     {
+-        OGRE_LOCK_AUTO_MUTEX;
++        std::lock_guard<std::recursive_mutex> lock(mutex);
+         mtLogListener::iterator i = std::find(mListeners.begin(), mListeners.end(), listener);
+         if (i != mListeners.end())
+             mListeners.erase(i);

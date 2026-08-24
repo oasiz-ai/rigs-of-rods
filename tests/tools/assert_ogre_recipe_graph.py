@@ -64,6 +64,9 @@ EXPECTED_PATCH_SHA256 = {
     "patches/14.5.2/allow-hidden-offline-cocoa-gl-context.patch": (
         "d75235c59bab56f565b4ad76f04032bc064ae99b08cf4173a4799ac877ce2b4e"
     ),
+    "patches/14.5.2/always-lock-log-output.patch": (
+        "3ecc7af414c97e3d93a60f9eff6ce6f8ce698d17bf3cbd89d06825b0aa4e53da"
+    ),
 }
 EXPECTED_OGRE_OPTIONS = {
     "codec_rsimage": "False",

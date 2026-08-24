@@ -665,6 +665,24 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         )
         self.assertIn("sdl_hidden={}", self.context)
 
+    def test_task_work_queue_logging_keeps_a_real_mutex(self) -> None:
+        log_patch = (
+            ROOT
+            / "cmake/conan/recipes/ogre3d/patches/14.5.2/"
+            "always-lock-log-output.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("mutable std::recursive_mutex mutex;", log_patch)
+        self.assertEqual(
+            log_patch.count(
+                "+        std::lock_guard<std::recursive_mutex> lock(mutex);"
+            ),
+            8,
+        )
+        self.assertIn("+                        localtime_s(&localTime, &t);", log_patch)
+        self.assertIn("+                        localtime_r(&t, &localTime);", log_patch)
+        self.assertNotIn("ThreadSanitizer", log_patch)
+        self.assertNotIn("no_sanitize", log_patch)
+
     def test_combined_media_is_package_relative_and_fail_closed(self) -> None:
         self.assertNotIn(
             "ROR_OGRE_NEXT_COMBINED_SHADER_MEDIA_ROOT", self.main

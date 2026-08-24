@@ -77,7 +77,11 @@ class Ogre14ExactMaterialScriptPreopenContractTests(unittest.TestCase):
             patch_lines[exact_index + 3],
             "patches/14.5.2/allow-hidden-offline-cocoa-gl-context.patch",
         )
-        self.assertEqual(exact_index + 4, len(patch_lines))
+        self.assertEqual(
+            patch_lines[exact_index + 4],
+            "patches/14.5.2/always-lock-log-output.patch",
+        )
+        self.assertEqual(exact_index + 5, len(patch_lines))
         touched = set(re.findall(r"^--- a/(.+)$", self.patch, re.MULTILINE))
         self.assertEqual(
             touched,
