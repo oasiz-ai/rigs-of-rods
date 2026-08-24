@@ -15,6 +15,12 @@ TOOL_PATH = TOOLS_ROOT / "run_jbeam_multi_actor_tsan_soak.py"
 WORKFLOW_PATH = (
     REPOSITORY_ROOT / ".github/workflows/ogre-next-combined-tsan.yml"
 )
+SOUND_MANAGER_HEADER_PATH = (
+    REPOSITORY_ROOT / "source/main/audio/SoundScriptManager.h"
+)
+SOUND_MANAGER_SOURCE_PATH = (
+    REPOSITORY_ROOT / "source/main/audio/SoundScriptManager.cpp"
+)
 
 import sys
 
@@ -186,6 +192,37 @@ class JBeamMultiActorTSanSoakTests(unittest.TestCase):
                 GATE.audit_tsan_instrumentation(
                     Path("/tmp/RoR-Combined"), environment
                 )
+
+    def test_parallel_actor_audio_uses_one_manager_owned_runtime_lock(self) -> None:
+        header = SOUND_MANAGER_HEADER_PATH.read_text(encoding="utf-8")
+        source = SOUND_MANAGER_SOURCE_PATH.read_text(encoding="utf-8")
+        self.assertIn("#include <mutex>", header)
+        self.assertIn("std::recursive_mutex m_runtime_mutex;", header)
+
+        guarded_signatures = (
+            "void SoundScriptManager::trigOnce(int actor_id",
+            "void SoundScriptManager::trigStart(int actor_id",
+            "void SoundScriptManager::trigStop(int actor_id",
+            "void SoundScriptManager::trigKill(int actor_id",
+            "void SoundScriptManager::trigToggle(int actor_id",
+            "bool SoundScriptManager::getTrigState(int actor_id",
+            "void SoundScriptManager::modulate(int actor_id",
+            "void SoundScriptManager::update(float dt)",
+            "void SoundScriptManager::SetListener(Vector3 position",
+            "SoundScriptInstancePtr SoundScriptManager::createInstance(",
+            "void SoundScriptManager::removeInstance(",
+            "void SoundScriptManager::setEnabled(bool state)",
+        )
+        lock = (
+            "std::lock_guard<std::recursive_mutex> "
+            "runtime_lock(m_runtime_mutex);"
+        )
+        for signature in guarded_signatures:
+            with self.subTest(signature=signature):
+                method_start = source.index(signature)
+                body_start = source.index("{", method_start)
+                self.assertIn(lock, source[body_start : body_start + 180])
+        self.assertEqual(source.count(lock), len(guarded_signatures))
 
     def test_command_and_script_stay_in_combined_game_path(self) -> None:
         command = GATE.build_command(Path("/tmp/RoR-Combined"))

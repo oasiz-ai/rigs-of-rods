@@ -31,6 +31,8 @@
 
 #include <OgreScriptLoader.h>
 
+#include <mutex> // std::recursive_mutex, std::lock_guard
+
 #define SOUND_PLAY_ONCE(_ACTOR_, _TRIG_)        App::GetSoundScriptManager()->trigOnce    ( (_ACTOR_), (_TRIG_) )
 #define SOUND_START(_ACTOR_, _TRIG_)            App::GetSoundScriptManager()->trigStart   ( (_ACTOR_), (_TRIG_) )
 #define SOUND_STOP(_ACTOR_, _TRIG_)             App::GetSoundScriptManager()->trigStop    ( (_ACTOR_), (_TRIG_) )
@@ -365,6 +367,10 @@ private:
     // state map
     // soundLinks, soundItems, actor_ids, triggers
     std::map <int, std::map <int, std::map <int, std::map <int, bool > > > > state_map;
+
+    // Parallel actor physics addresses this one manager and its shared tables.
+    // Recursive locking preserves nested triggers while serializing audio work.
+    std::recursive_mutex m_runtime_mutex;
 
     void SetListenerEnvironment(Ogre::Vector3 position);
 

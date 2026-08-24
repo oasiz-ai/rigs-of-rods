@@ -113,6 +113,8 @@ void SoundScriptManager::trigOnce(const ActorPtr& actor, int trig, int linkType,
 
 void SoundScriptManager::trigOnce(int actor_id, int trig, int linkType, int linkItemID)
 {
+    std::lock_guard<std::recursive_mutex> runtime_lock(m_runtime_mutex);
+
     if (disabled)
         return;
 
@@ -141,6 +143,8 @@ void SoundScriptManager::trigStart(const ActorPtr& actor, int trig, int linkType
 
 void SoundScriptManager::trigStart(int actor_id, int trig, int linkType, int linkItemID)
 {
+    std::lock_guard<std::recursive_mutex> runtime_lock(m_runtime_mutex);
+
     if (disabled)
         return;
     if (getTrigState(actor_id, trig, linkType, linkItemID))
@@ -172,6 +176,8 @@ void SoundScriptManager::trigStop(const ActorPtr& actor, int trig, int linkType,
 
 void SoundScriptManager::trigStop(int actor_id, int trig, int linkType, int linkItemID)
 {
+    std::lock_guard<std::recursive_mutex> runtime_lock(m_runtime_mutex);
+
     if (disabled)
         return;
     if (!getTrigState(actor_id, trig, linkType, linkItemID))
@@ -202,6 +208,8 @@ void SoundScriptManager::trigKill(const ActorPtr& actor, int trig, int linkType,
 
 void SoundScriptManager::trigKill(int actor_id, int trig, int linkType, int linkItemID)
 {
+    std::lock_guard<std::recursive_mutex> runtime_lock(m_runtime_mutex);
+
     if (disabled)
         return;
     if (!getTrigState(actor_id, trig, linkType, linkItemID))
@@ -232,6 +240,8 @@ void SoundScriptManager::trigToggle(const ActorPtr& actor, int trig, int linkTyp
 
 void SoundScriptManager::trigToggle(int actor_id, int trig, int linkType, int linkItemID)
 {
+    std::lock_guard<std::recursive_mutex> runtime_lock(m_runtime_mutex);
+
     if (disabled)
         return;
 
@@ -254,6 +264,8 @@ bool SoundScriptManager::getTrigState(const ActorPtr& actor, int trig, int linkT
 
 bool SoundScriptManager::getTrigState(int actor_id, int trig, int linkType, int linkItemID)
 {
+    std::lock_guard<std::recursive_mutex> runtime_lock(m_runtime_mutex);
+
     if (disabled)
         return false;
 
@@ -273,6 +285,8 @@ void SoundScriptManager::modulate(const ActorPtr& actor, int mod, float value, i
 
 void SoundScriptManager::modulate(int actor_id, int mod, float value, int linkType, int linkItemID)
 {
+    std::lock_guard<std::recursive_mutex> runtime_lock(m_runtime_mutex);
+
     if (disabled)
         return;
 
@@ -307,6 +321,8 @@ void SoundScriptManager::modulate(int actor_id, int mod, float value, int linkTy
 
 void SoundScriptManager::update(float dt)
 {
+    std::lock_guard<std::recursive_mutex> runtime_lock(m_runtime_mutex);
+
     if (App::sim_state->getEnum<SimState>() == SimState::RUNNING ||
         App::sim_state->getEnum<SimState>() == SimState::EDITOR_MODE)
     {
@@ -327,6 +343,8 @@ void SoundScriptManager::update(float dt)
 
 void SoundScriptManager::SetListener(Vector3 position, Vector3 direction, Vector3 up, Vector3 velocity)
 {
+    std::lock_guard<std::recursive_mutex> runtime_lock(m_runtime_mutex);
+
     if (disabled)
         return;
     sound_manager->SetListener(position, direction, up, velocity);
@@ -359,6 +377,8 @@ SoundScriptTemplatePtr SoundScriptManager::createTemplate(String name, String gr
 
 SoundScriptInstancePtr SoundScriptManager::createInstance(Ogre::String templatename, int actor_id, int soundLinkType, int soundLinkItemId)
 {
+    std::lock_guard<std::recursive_mutex> runtime_lock(m_runtime_mutex);
+
     //first, search template
     SoundScriptTemplatePtr templ = NULL;
 
@@ -412,6 +432,8 @@ SoundScriptInstancePtr SoundScriptManager::createInstance(Ogre::String templaten
 
 void SoundScriptManager::removeInstance(const SoundScriptInstancePtr& ssi)
 {
+    std::lock_guard<std::recursive_mutex> runtime_lock(m_runtime_mutex);
+
     // Find lookup table entries
     int trigsPos = -1;
     for (int i = 0; i < free_trigs[ssi->templ->trigger_source]; i++)
@@ -552,6 +574,8 @@ void SoundScriptManager::skipToNextOpenBrace(DataStreamPtr& stream)
 
 void SoundScriptManager::setEnabled(bool state)
 {
+    std::lock_guard<std::recursive_mutex> runtime_lock(m_runtime_mutex);
+
     if (state)
         sound_manager->resumeAllSounds();
     else
