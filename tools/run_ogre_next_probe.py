@@ -36,6 +36,13 @@ DISPLAY_DOMAIN_MEDIA_PATH = (
 DISPLAY_DOMAIN_MEDIA_RELATIVE = (
     "Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any"
 )
+INDIRECT_ALPHA_MEDIA_PATH = (
+    PROBE_SOURCE
+    / "media/Hlms/RoR/IndirectAlpha/IndirectAlpha_piece_ps.any"
+)
+INDIRECT_ALPHA_MEDIA_RELATIVE = (
+    "Hlms/RoR/IndirectAlpha/IndirectAlpha_piece_ps.any"
+)
 DISPLAY_DOMAIN_NOTICE_PATH = "licenses/Rigs-of-Rods-GPL-3.0.txt"
 DISPLAY_DOMAIN_LICENSE_EXPRESSION = "GPL-3.0-or-later"
 DISPLAY_DOMAIN_NOTICE_SOURCE = REPOSITORY_ROOT / "COPYING"
@@ -3475,7 +3482,7 @@ def validate_n1_checkpoint(
         "catalog": catalog.get("sequence") == (7 if modern_pbr else 1)
         and catalog.get("transactional_replay_after_restart") is True,
         "dynamic_meshes": dynamic_meshes.get("schema")
-        == "ror.ogre_next_dynamic_mesh.v1"
+        == "ror.ogre_next_dynamic_mesh.v2"
         and dynamic_meshes.get("base_deformation_revision") == 1
         and dynamic_meshes.get("deformed_deformation_revision") == 2
         and dynamic_meshes.get("full_update_owned") is True
@@ -3491,7 +3498,23 @@ def validate_n1_checkpoint(
         and dynamic_meshes["base_attachment_fnv1a64"]
         != dynamic_meshes["deformed_attachment_fnv1a64"]
         and dynamic_meshes.get("base_exact_replay") is True
-        and dynamic_meshes.get("deformed_exact_replay") is True,
+        and dynamic_meshes.get("deformed_exact_replay") is True
+        and dynamic_meshes.get("persistent_vertex_storage_exact") is True
+        and dynamic_meshes.get("persistent_buffer_updates") == 1
+        and dynamic_meshes.get(
+            "native_mesh_rebuilds_through_persistent_update"
+        )
+        == 1
+        and isinstance(
+            dynamic_meshes.get(
+                "uploaded_vertex_bytes_through_persistent_update"
+            ),
+            int,
+        )
+        and dynamic_meshes[
+            "uploaded_vertex_bytes_through_persistent_update"
+        ]
+        > 0,
         "hdr_format": hdr.get("format") == "RGBA16_FLOAT",
         "hdr_energy": isinstance(hdr.get("maximum_luminance"), (int, float))
         and hdr["maximum_luminance"] > 1.05,
@@ -4371,16 +4394,21 @@ def shader_media_manifest(root: Path) -> dict[str, Any]:
     return _shader_media_manifest_from_entries(entries)
 
 
-def hdr_media_manifest(media_root: Path) -> dict[str, Any]:
+HDR_BASE_MEDIA_ROOTS = (
+    Path("2.0/scripts/Compositors"),
+    Path("2.0/scripts/materials/Common"),
+    Path("2.0/scripts/materials/HDR"),
+)
+ROR_HDR_MEDIA_ROOTS = (Path("2.0/scripts/materials/RoRHaze"),)
+
+
+def hdr_media_manifest(
+    media_root: Path,
+    roots: tuple[Path, ...] = HDR_BASE_MEDIA_ROOTS + ROR_HDR_MEDIA_ROOTS,
+) -> dict[str, Any]:
     # These roots must stay identical to the CMake HDR manifest roots and to
     # VerifyOgreNextN1HdrMedia's scan roots; RoRHaze carries the RoR-owned
     # aerial-haze material and shader siblings.
-    roots = (
-        Path("2.0/scripts/Compositors"),
-        Path("2.0/scripts/materials/Common"),
-        Path("2.0/scripts/materials/HDR"),
-        Path("2.0/scripts/materials/RoRHaze"),
-    )
     entries_by_path: dict[str, tuple[str, int, str]] = {}
     for relative_root in roots:
         root = media_root / relative_root
@@ -4418,6 +4446,14 @@ def hdr_media_manifest(media_root: Path) -> dict[str, Any]:
         "file_count": len(entries),
         "entries": entries,
     }
+
+
+def expected_hdr_media_manifest(source_media_root: Path) -> dict[str, Any]:
+    pinned = hdr_media_manifest(source_media_root, HDR_BASE_MEDIA_ROOTS)
+    reviewed = hdr_media_manifest(PROBE_SOURCE / "media", ROR_HDR_MEDIA_ROOTS)
+    return _shader_media_manifest_from_entries(
+        [*pinned["entries"], *reviewed["entries"]]
+    )
 
 
 def validate_n1_package(
@@ -4481,6 +4517,7 @@ def validate_n1_package(
     package_manifest = shader_media_manifest(package_media_root / "Hlms")
     reviewed_media = (
         (DISPLAY_DOMAIN_MEDIA_RELATIVE, DISPLAY_DOMAIN_MEDIA_PATH),
+        (INDIRECT_ALPHA_MEDIA_RELATIVE, INDIRECT_ALPHA_MEDIA_PATH),
         (SUN_VISIBILITY_V2_MEDIA_RELATIVE, SUN_VISIBILITY_V2_MEDIA_PATH),
         (UV_AFFINE_PBS_MEDIA_RELATIVE, UV_AFFINE_PBS_MEDIA_PATH),
     )
@@ -4509,7 +4546,7 @@ def validate_n1_package(
             "OGRE-Next N1 staged HLMS tree differs from the pinned source plus "
             "reviewed RoR shader manifest"
         )
-    source_hdr_manifest = hdr_media_manifest(source_media_root)
+    source_hdr_manifest = expected_hdr_media_manifest(source_media_root)
     package_hdr_manifest = hdr_media_manifest(package_media_root)
     if package_hdr_manifest != source_hdr_manifest:
         raise ProbeError(

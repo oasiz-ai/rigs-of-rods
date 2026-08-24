@@ -4538,6 +4538,11 @@ public:
         OgreNextNativeVertexLayout::INVALID;
     std::uint32_t vertex_stride_bytes = 0U;
     std::uint64_t native_storage_generation = 0U;
+    /// True only for a direct-present Ogre-Next mesh whose vertex buffer may
+    /// be rewritten in place between completed frames. Interop meshes remain
+    /// immutable because an outstanding same-device lease may still name the
+    /// prior contents.
+    bool dynamic_vertex_storage = false;
     /// Immutable triangle count for base level then every native distance LOD.
     /// Populated and read back as one transaction with the Ogre mesh; only an
     /// Item's selected level is mutable during rendering.
@@ -5152,9 +5157,18 @@ public:
         throw std::logic_error(
             "Ogre-Next mesh creation has no reviewed native vertex layout");
       }
+      native.dynamic_vertex_storage = descriptor.dynamic && !native_interop;
       vertex_buffer = vao_manager->createVertexBuffer(
-          elements, descriptor.positions.size(), Ogre::BT_IMMUTABLE, vertices,
-          true);
+          elements, descriptor.positions.size(),
+          native.dynamic_vertex_storage ? Ogre::BT_DYNAMIC_PERSISTENT
+                                        : Ogre::BT_IMMUTABLE,
+          vertices, !native.dynamic_vertex_storage);
+      if (native.dynamic_vertex_storage) {
+        // Dynamic buffers cannot retain a CPU shadow copy. Ogre synchronously
+        // consumed initialData during createVertexBuffer, so this allocation
+        // remains ours and must be retired here.
+        OGRE_FREE_SIMD(vertices, Ogre::MEMCATEGORY_GEOMETRY);
+      }
       vertices = nullptr;
       native.vertex_stride_bytes = static_cast<std::uint32_t>(
           vertex_buffer->getBytesPerElement());
@@ -5215,10 +5229,10 @@ public:
       // CPU descriptor, so no GPU readback is needed, and the caster VAO
       // owns its own index buffer so SubMesh teardown never double-frees a
       // buffer shared across pass VAOs.
-      // Dynamic meshes recreate their native mesh on every deformation
-      // revision; packing a second buffer per revision would trade steady
-      // per-frame CPU for a caster-fetch win the deforming set is too small
-      // to show. They keep the shared VAO.
+      // Dynamic meshes update one persistent vertex buffer in place. Packing
+      // a second caster buffer would require a second full deformation copy
+      // every revision for a caster-fetch win the deforming set is too small
+      // to show, so both passes intentionally share the updated VAO.
       if (descriptor.dynamic || OgreNextStage0FeatureDisabled("shadow_vao")) {
         submesh->mVao[Ogre::VpShadow].push_back(vao);
       } else {
@@ -5552,6 +5566,101 @@ public:
       }
       std::rethrow_exception(creation_failure);
     }
+  }
+
+  /// Rewrites one retained direct-present Ogre-Next deformation buffer while
+  /// preserving its Mesh, Item, VAO, index buffers, and native storage
+  /// generation. This still uploads a complete validated vertex stream; it is
+  /// the stable native-storage prerequisite for G0, not the later node-map
+  /// compute deformation itself.
+  std::uint64_t UpdateDynamicMeshVertexBuffer(
+      NativeMesh &native, const MeshResourceDescriptor &base_mesh,
+      const DynamicMeshUpdateDescriptor &update) {
+    if (!native.mesh || native.vertex_buffer == nullptr ||
+        native.asset != update.mesh || !native.dynamic_vertex_storage ||
+        native.vertex_buffer->getBufferType() != Ogre::BT_DYNAMIC_PERSISTENT ||
+        native.vertex_buffer->getNumElements() != update.positions.size() ||
+        update.normals.size() != update.positions.size()) {
+      throw std::logic_error(
+          "validated Ogre-Next deformation cannot reuse its native vertex storage");
+    }
+    const std::size_t vertex_count = update.positions.size();
+    if (vertex_count == 0U || native.vertex_stride_bytes == 0U ||
+        vertex_count > (std::numeric_limits<std::uint64_t>::max)() /
+                           native.vertex_stride_bytes) {
+      throw std::overflow_error(
+          "Ogre-Next deformation vertex upload byte count is unrepresentable");
+    }
+    OgreNextN1NativeMeshBounds bounds;
+    if (!update.has_updated_bounds ||
+        !TryBuildOgreNextN1NativeMeshBounds(update.updated_local_bounds,
+                                            bounds)) {
+      throw std::logic_error(
+          "validated Ogre-Next deformation bounds became non-finite before native update");
+    }
+
+    void *mapped = nullptr;
+    try {
+      mapped = native.vertex_buffer->map(0U, vertex_count);
+      if (mapped == nullptr) {
+        throw std::runtime_error(
+            "Ogre-Next persistent deformation buffer map returned null");
+      }
+      if (native.vertex_layout == OgreNextNativeVertexLayout::
+                                      POSITION_NORMAL_TANGENT_UV0_FLOAT32_48) {
+        if (update.tangents.size() != vertex_count ||
+            base_mesh.texture_coordinates_0.size() != vertex_count) {
+          throw std::logic_error(
+              "validated RT4 deformation lost tangent or immutable UV0 cardinality");
+        }
+        auto *vertices = static_cast<Rt4PbrVertex *>(mapped);
+        for (std::size_t index = 0U; index < vertex_count; ++index) {
+          const Float3 &position = update.positions[index];
+          const Float3 &normal = update.normals[index];
+          const Float4 &tangent = update.tangents[index];
+          const Float2 &uv = base_mesh.texture_coordinates_0[index];
+          vertices[index] = {
+              {position.x, position.y, position.z},
+              {normal.x, normal.y, normal.z},
+              {tangent.x, tangent.y, tangent.z, tangent.w},
+              {uv.x, uv.y},
+          };
+        }
+      } else if (native.vertex_layout ==
+                 OgreNextNativeVertexLayout::POSITION_NORMAL_FLOAT32_24) {
+        auto *vertices = static_cast<N1Vertex *>(mapped);
+        for (std::size_t index = 0U; index < vertex_count; ++index) {
+          const Float3 &position = update.positions[index];
+          const Float3 &normal = update.normals[index];
+          vertices[index] = {{position.x, position.y, position.z},
+                             {normal.x, normal.y, normal.z}};
+        }
+      } else {
+        throw std::logic_error(
+            "Ogre-Next deformation update has no reviewed native vertex layout");
+      }
+      native.vertex_buffer->unmap(Ogre::UO_KEEP_PERSISTENT);
+      mapped = nullptr;
+    } catch (...) {
+      if (mapped != nullptr && native.vertex_buffer->isCurrentlyMapped()) {
+        try {
+          native.vertex_buffer->unmap(Ogre::UO_UNMAP_ALL);
+        } catch (...) {
+          faulted = true;
+        }
+      }
+      throw;
+    }
+
+    native.mesh->_setBounds(
+        Ogre::Aabb(Ogre::Vector3(bounds.center.x, bounds.center.y,
+                                bounds.center.z),
+                   Ogre::Vector3(bounds.half_size.x, bounds.half_size.y,
+                                 bounds.half_size.z)),
+        false);
+    native.mesh->_setBoundingSphereRadius(bounds.radius);
+    return static_cast<std::uint64_t>(vertex_count) *
+           native.vertex_stride_bytes;
   }
 
   NativeAnalyticSkySection CreateAnalyticSkySection(
@@ -6576,6 +6685,14 @@ public:
       return true;
     }
     bool clean = true;
+    if (native.dynamic_vertex_storage && native.vertex_buffer != nullptr &&
+        native.vertex_buffer->getMappingState() != Ogre::MS_UNMAPPED) {
+      try {
+        native.vertex_buffer->unmap(Ogre::UO_UNMAP_ALL);
+      } catch (...) {
+        clean = false;
+      }
+    }
     try {
       Ogre::MeshManager::getSingleton().remove(native.mesh);
     } catch (...) {
@@ -15554,6 +15671,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
     std::uint64_t diff_updated = 0U;
     std::uint64_t diff_destroyed = 0U;
     std::uint64_t diff_dynamic_updates = 0U;
+    std::uint64_t diff_dynamic_buffer_updates = 0U;
+    std::uint64_t diff_dynamic_mesh_rebuilds = 0U;
+    std::uint64_t diff_dynamic_vertex_upload_bytes = 0U;
     std::uint64_t diff_verified = 0U;
 
     const auto resolve_retained_render_mesh =
@@ -15974,13 +16094,13 @@ RenderOperationResult OgreNextN1Frontend::Render(
       return RenderOperationResult::Success();
     };
 
-    // Deformable content changed: Items cannot rebind meshes, so the item is
-    // recreated against a freshly uploaded deformed mesh while the retained
-    // SceneNode, receiver clone, and record identity survive. The prior
-    // deformed mesh retires through the interop frame-mesh list (destroyed
-    // after the next published-frame discard); on the immediate path Ogre's
-    // VaoManager already defers the actual GPU free by frame count.
-    const auto rebuild_deformed_instance =
+    // Apply a deformation revision. Consecutive non-base revisions on the
+    // direct-present frontend rewrite the retained Ogre-Next persistent
+    // vertex buffer in place; Mesh, Item, VAO, index storage, and native
+    // storage generation remain stable. Base/deformed transitions still have
+    // to rebind the Item, and same-device interop keeps the older immutable
+    // allocation behavior because an outstanding lease may name its bytes.
+    const auto apply_deformed_instance_update =
         [&](Impl::RetainedInstance &record,
             const MeshInstanceDescriptor &instance) -> RenderOperationResult {
       const MeshResourceDescriptor *base_mesh =
@@ -15990,6 +16110,42 @@ RenderOperationResult OgreNextN1Frontend::Render(
             RenderOperationCode::RESOURCE_STALE,
             "N1 native asset allocation is missing for a validated scene");
       }
+      const DynamicMeshUpdateDescriptor *update = nullptr;
+      if (instance.deformation_revision > 1U) {
+        const auto found = std::find_if(
+            snapshot.dynamic_mesh_updates().begin(),
+            snapshot.dynamic_mesh_updates().end(),
+            [&instance](const DynamicMeshUpdateDescriptor &candidate) {
+              return candidate.instance_id == instance.instance_id;
+            });
+        if (found == snapshot.dynamic_mesh_updates().end() ||
+            found->instance_id != instance.instance_id) {
+          return RenderOperationResult::Failure(
+              RenderOperationCode::RESOURCE_STALE,
+              "N2 could not resolve the validated full deformation update");
+        }
+        update = &*found;
+      }
+      const auto add_upload_bytes = [&](std::uint64_t bytes) {
+        if (diff_dynamic_vertex_upload_bytes >
+            (std::numeric_limits<std::uint64_t>::max)() - bytes) {
+          throw std::overflow_error(
+              "Ogre-Next per-present deformation upload telemetry exhausted");
+        }
+        diff_dynamic_vertex_upload_bytes += bytes;
+      };
+      if (record.descriptor.deformation_revision > 1U &&
+          instance.deformation_revision > 1U &&
+          record.deformed_mesh.mesh &&
+          record.deformed_mesh.dynamic_vertex_storage &&
+          !impl_->native_interop) {
+        add_upload_bytes(impl_->UpdateDynamicMeshVertexBuffer(
+            record.deformed_mesh, *base_mesh, *update));
+        ++diff_dynamic_updates;
+        ++diff_dynamic_buffer_updates;
+        return RenderOperationResult::Success();
+      }
+
       if (record.item != nullptr) {
         record.node->detachObject(record.item);
         impl_->scene_manager->destroyItem(record.item);
@@ -16008,18 +16164,6 @@ RenderOperationResult OgreNextN1Frontend::Render(
       // back to one legitimately restores the undeformed catalog mesh.
       const Impl::NativeMesh *render_mesh = nullptr;
       if (instance.deformation_revision > 1U) {
-        const auto update = std::find_if(
-            snapshot.dynamic_mesh_updates().begin(),
-            snapshot.dynamic_mesh_updates().end(),
-            [&instance](const DynamicMeshUpdateDescriptor &candidate) {
-              return candidate.instance_id == instance.instance_id;
-            });
-        if (update == snapshot.dynamic_mesh_updates().end() ||
-            update->instance_id != instance.instance_id) {
-          return RenderOperationResult::Failure(
-              RenderOperationCode::RESOURCE_STALE,
-              "N2 could not resolve the validated full deformation update");
-        }
         MeshResourceDescriptor deformed = *base_mesh;
         deformed.positions = update->positions;
         deformed.normals = update->normals;
@@ -16033,6 +16177,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
         record.deformed_mesh =
             impl_->CreateMesh(instance.mesh, deformed, suffix);
         render_mesh = &record.deformed_mesh;
+        add_upload_bytes(static_cast<std::uint64_t>(
+                             update->positions.size()) *
+                         render_mesh->vertex_stride_bytes);
       } else {
         const auto mesh = impl_->meshes.find(instance.mesh.id);
         if (mesh == impl_->meshes.end() ||
@@ -16053,6 +16200,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
         impl_->scene_manager->notifyStaticDirty(record.node);
       }
       ++diff_dynamic_updates;
+      ++diff_dynamic_mesh_rebuilds;
       return RenderOperationResult::Success();
     };
 
@@ -16437,10 +16585,10 @@ RenderOperationResult OgreNextN1Frontend::Render(
             "retained-scene diff lost a scheduled deformation update");
       }
       impl_->SubtractRetainedContribution(record->second);
-      const RenderOperationResult rebuilt =
-          rebuild_deformed_instance(record->second, *instance);
-      if (!rebuilt) {
-        return fail_after_cleanup(rebuilt);
+      const RenderOperationResult deformation_applied =
+          apply_deformed_instance_update(record->second, *instance);
+      if (!deformation_applied) {
+        return fail_after_cleanup(deformation_applied);
       }
       const RenderOperationResult updated =
           update_retained_instance(record->second, *instance);
@@ -18417,6 +18565,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
       retained.last_updated = diff_updated;
       retained.last_destroyed = diff_destroyed;
       retained.last_dynamic_updates = diff_dynamic_updates;
+      retained.last_dynamic_buffer_updates =
+          diff_dynamic_buffer_updates;
+      retained.last_dynamic_mesh_rebuilds = diff_dynamic_mesh_rebuilds;
+      retained.last_dynamic_vertex_upload_bytes =
+          diff_dynamic_vertex_upload_bytes;
       retained.last_verified = diff_verified;
       retained.last_diff_used_retained_block_proof =
           used_retained_block_proof;
@@ -18462,6 +18615,10 @@ RenderOperationResult OgreNextN1Frontend::Render(
       retained.updated += diff_updated;
       retained.destroyed += diff_destroyed;
       retained.dynamic_updates += diff_dynamic_updates;
+      retained.dynamic_buffer_updates += diff_dynamic_buffer_updates;
+      retained.dynamic_mesh_rebuilds += diff_dynamic_mesh_rebuilds;
+      retained.dynamic_vertex_upload_bytes +=
+          diff_dynamic_vertex_upload_bytes;
       retained.verified += diff_verified;
       retained.retained_instances =
           static_cast<std::uint64_t>(impl_->retained_instances.size());

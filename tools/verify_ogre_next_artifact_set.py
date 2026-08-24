@@ -2921,12 +2921,16 @@ def _verify_rt4_semantics(
             "deformed_attachment_fnv1a64",
             "base_exact_replay",
             "deformed_exact_replay",
+            "persistent_vertex_storage_exact",
+            "persistent_buffer_updates",
+            "native_mesh_rebuilds_through_persistent_update",
+            "uploaded_vertex_bytes_through_persistent_update",
         },
         "RT4 dynamic-mesh report",
     )
     dynamic_mesh_checks = {
         "schema": dynamic_meshes.get("schema")
-        == "ror.ogre_next_dynamic_mesh.v1",
+        == "ror.ogre_next_dynamic_mesh.v2",
         "revisions": _json_exact(
             dynamic_meshes.get("base_deformation_revision"), 1
         )
@@ -2947,6 +2951,23 @@ def _verify_rt4_semantics(
         != dynamic_meshes.get("deformed_attachment_fnv1a64"),
         "replay": dynamic_meshes.get("base_exact_replay") is True
         and dynamic_meshes.get("deformed_exact_replay") is True,
+        "stable_storage": (
+            dynamic_meshes.get("persistent_vertex_storage_exact") is True
+            and _json_exact(
+                dynamic_meshes.get("persistent_buffer_updates"), 1
+            )
+            and _json_exact(
+                dynamic_meshes.get(
+                    "native_mesh_rebuilds_through_persistent_update"
+                ),
+                1,
+            )
+            and _is_positive_int(
+                dynamic_meshes.get(
+                    "uploaded_vertex_bytes_through_persistent_update"
+                )
+            )
+        ),
     }
     failed_dynamic_meshes = sorted(
         name for name, passed in dynamic_mesh_checks.items() if not passed

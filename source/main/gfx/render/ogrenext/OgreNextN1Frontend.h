@@ -62,7 +62,13 @@ constexpr std::uint32_t kOgreNextNativeLightingPassAuditVersion = 6U;
 /// the full instance vector. Version 6 adds the exact per-present Ogre-Next
 /// renderer workload and compositor-pass split used by the playable
 /// performance gate; these are never inferred from the hidden producer.
-constexpr std::uint32_t kOgreNextRetainedSceneAuditVersion = 6U;
+/// Version 7 separates deformation revisions that update a retained
+/// Ogre-Next persistent vertex buffer from revisions that have to rebuild a
+/// native Mesh/Item binding. It also reports the exact bytes uploaded by
+/// those full-vertex deformation updates; this is explicit evidence that the
+/// stable-storage prerequisite is live, not a claim that G0 node-map GPU
+/// deformation is complete.
+constexpr std::uint32_t kOgreNextRetainedSceneAuditVersion = 7U;
 
 /// Rotating native re-verification budget for the retained scene: after the
 /// per-frame diff, up to this many retained instances that were not created
@@ -92,11 +98,17 @@ struct OgreNextRetainedSceneAudit final {
   std::uint64_t updated = 0U;
   std::uint64_t destroyed = 0U;
   std::uint64_t dynamic_updates = 0U;
+  std::uint64_t dynamic_buffer_updates = 0U;
+  std::uint64_t dynamic_mesh_rebuilds = 0U;
+  std::uint64_t dynamic_vertex_upload_bytes = 0U;
   std::uint64_t verified = 0U;
   std::uint64_t last_created = 0U;
   std::uint64_t last_updated = 0U;
   std::uint64_t last_destroyed = 0U;
   std::uint64_t last_dynamic_updates = 0U;
+  std::uint64_t last_dynamic_buffer_updates = 0U;
+  std::uint64_t last_dynamic_mesh_rebuilds = 0U;
+  std::uint64_t last_dynamic_vertex_upload_bytes = 0U;
   std::uint64_t last_verified = 0U;
   bool last_diff_used_retained_block_proof = false;
   std::uint64_t verify_window = kOgreNextRetainedVerifyWindow;

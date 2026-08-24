@@ -5458,6 +5458,8 @@ int main(int argc, char *argv[])
                                  retained_scene_audit.last_created +
                                          retained_scene_audit.last_destroyed !=
                                      0U ||
+                                 retained_scene_audit.last_dynamic_updates !=
+                                     0U ||
                                  retained_scene_audit.frames_diffed >=
                                      renderer_combined_retained_scene_logged_frame +
                                          300U))
@@ -5465,6 +5467,10 @@ int main(int argc, char *argv[])
                                 LOG(fmt::format(
                                     "[RoR|RendererCombined|RetainedScene] "
                                     "created={} updated={} destroyed={} "
+                                    "dynamic_updates={} "
+                                    "dynamic_buffer_updates={} "
+                                    "dynamic_mesh_rebuilds={} "
+                                    "dynamic_vertex_upload_bytes={} "
                                     "retained={} verified={} retained_proof={} "
                                     "validation_phase_us={} "
                                     "frame_prepare_phase_us={} "
@@ -5479,6 +5485,14 @@ int main(int argc, char *argv[])
                                     retained_scene_audit.last_created,
                                     retained_scene_audit.last_updated,
                                     retained_scene_audit.last_destroyed,
+                                    retained_scene_audit
+                                        .last_dynamic_updates,
+                                    retained_scene_audit
+                                        .last_dynamic_buffer_updates,
+                                    retained_scene_audit
+                                        .last_dynamic_mesh_rebuilds,
+                                    retained_scene_audit
+                                        .last_dynamic_vertex_upload_bytes,
                                     retained_scene_audit.retained_instances,
                                     retained_scene_audit.last_verified,
                                     retained_scene_audit

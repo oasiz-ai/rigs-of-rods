@@ -726,25 +726,43 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             self.assertIn(token, self.policy)
         self.assertIn("kOgreNextN1MaximumDirectionalLights = 0U", self.policy_header)
 
-    def test_full_dynamic_mesh_replacement_is_native_and_replay_exact(self) -> None:
+    def test_dynamic_mesh_uses_stable_ogre_next_storage_and_replay_exact(self) -> None:
         for token in (
             "RunDynamicMeshProof",
             "MakeDynamicCatalog",
             "MakeDynamicScene",
             "DynamicMeshUpdateDescriptor update",
             "synchronous_full_frame_owned",
-            "full dynamic mesh replacement was not visible and deterministic",
-            "ror.ogre_next_dynamic_mesh.v1",
+            "persistent Ogre-Next deformation was not visible, stable, and deterministic",
+            "ror.ogre_next_dynamic_mesh.v2",
             "base_exact_replay",
             "deformed_exact_replay",
+            "persistent_vertex_storage_exact",
         ):
             self.assertIn(token, self.smoke)
         for token in (
-            "impl_->CreateMesh(instance.mesh, deformed, suffix)",
-            "rebuild_deformed_instance",
+            "Ogre::BT_DYNAMIC_PERSISTENT",
+            "UpdateDynamicMeshVertexBuffer",
+            "apply_deformed_instance_update",
+            "dynamic_vertex_storage",
+            "Ogre::UO_KEEP_PERSISTENT",
+            "!impl_->native_interop",
             "frame_meshes.push_back(std::move(record.deformed_mesh))",
         ):
             self.assertIn(token, self.frontend)
+
+    def test_indirect_alpha_shader_is_staged_into_the_exact_n1_package(self) -> None:
+        for token in (
+            "ROR_OGRE_NEXT_INDIRECT_ALPHA_MEDIA_SOURCE",
+            "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms/RoR/IndirectAlpha",
+            "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms/"
+            "${ROR_OGRE_NEXT_INDIRECT_ALPHA_MEDIA_RELATIVE}",
+        ):
+            self.assertIn(token, self.entry_cmake)
+        self.assertIn(
+            "(INDIRECT_ALPHA_MEDIA_RELATIVE, INDIRECT_ALPHA_MEDIA_PATH)",
+            RUNNER_PATH.read_text(encoding="utf-8"),
+        )
         self.assertIn('"dynamic_meshes"', RUNNER_PATH.read_text(encoding="utf-8"))
 
     def test_rt4_directional_light_mapping_is_bounded_and_exact(self) -> None:
@@ -2316,7 +2334,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                 "transactional_replay_after_restart": True,
             },
             "dynamic_meshes": {
-                "schema": "ror.ogre_next_dynamic_mesh.v1",
+                "schema": "ror.ogre_next_dynamic_mesh.v2",
                 "base_deformation_revision": 1,
                 "deformed_deformation_revision": 2,
                 "full_update_owned": True,
@@ -2326,6 +2344,10 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                 "deformed_attachment_fnv1a64": "2" * 16,
                 "base_exact_replay": True,
                 "deformed_exact_replay": True,
+                "persistent_vertex_storage_exact": True,
+                "persistent_buffer_updates": 1,
+                "native_mesh_rebuilds_through_persistent_update": 1,
+                "uploaded_vertex_bytes_through_persistent_update": 192,
             },
             "hdr": {
                 "format": "RGBA16_FLOAT",
@@ -2449,6 +2471,8 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                     return ror_hash
                 if path == RUNNER.DISPLAY_DOMAIN_MEDIA_PATH:
                     return "7" * 64
+                if path == RUNNER.INDIRECT_ALPHA_MEDIA_PATH:
+                    return "b" * 64
                 if path == RUNNER.SUN_VISIBILITY_V2_MEDIA_PATH:
                     return "8" * 64
                 if path == RUNNER.UV_AFFINE_PBS_MEDIA_PATH:
@@ -2471,6 +2495,11 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                         "RoR/DisplayDomain/DisplayDomain_piece_ps.any",
                         RUNNER.DISPLAY_DOMAIN_MEDIA_PATH.stat().st_size,
                         "7" * 64,
+                    ),
+                    (
+                        "RoR/IndirectAlpha/IndirectAlpha_piece_ps.any",
+                        RUNNER.INDIRECT_ALPHA_MEDIA_PATH.stat().st_size,
+                        "b" * 64,
                     ),
                     (
                         "RoR/SunVisibilityV2/SunVisibilityV2.metal",
@@ -2501,6 +2530,10 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                 "shader_media_manifest",
                 side_effect=[manifest, package_manifest],
             ) as media_manifest, mock.patch.object(
+                RUNNER,
+                "expected_hdr_media_manifest",
+                return_value=hdr_manifest,
+            ), mock.patch.object(
                 RUNNER, "hdr_media_manifest", return_value=hdr_manifest
             ):
                 self.assertEqual(
@@ -2511,6 +2544,15 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                 media_manifest.side_effect = [manifest, package_manifest]
                 with mock.patch.object(
                     RUNNER, "DISPLAY_DOMAIN_MEDIA_PATH", indirect_media
+                ), self.assertRaisesRegex(
+                    RUNNER.ProbeError, "missing or symbolic"
+                ):
+                    RUNNER.validate_n1_package(Path(temp), lock)
+                indirect_alpha = Path(temp) / "indirect-alpha.any"
+                indirect_alpha.symlink_to(RUNNER.INDIRECT_ALPHA_MEDIA_PATH)
+                media_manifest.side_effect = [manifest, package_manifest]
+                with mock.patch.object(
+                    RUNNER, "INDIRECT_ALPHA_MEDIA_PATH", indirect_alpha
                 ), self.assertRaisesRegex(
                     RUNNER.ProbeError, "missing or symbolic"
                 ):
@@ -2617,7 +2659,7 @@ class RuntimeAuditPerformanceContractTests(unittest.TestCase):
         self,
     ) -> None:
         self.assertIn(
-            "kOgreNextRetainedSceneAuditVersion = 6U",
+            "kOgreNextRetainedSceneAuditVersion = 7U",
             self.frontend_header,
         )
         render_timer = self.frontend.index(
@@ -2673,6 +2715,7 @@ class RuntimeAuditPerformanceContractTests(unittest.TestCase):
             "native_render_phase_us={}",
             "post_render_phase_us={}",
             "publication_phase_us={}",
+            "retained_scene_audit.last_dynamic_updates !=",
         ):
             self.assertIn(
                 token,

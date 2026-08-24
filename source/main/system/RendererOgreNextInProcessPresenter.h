@@ -285,11 +285,17 @@ struct RendererRetainedSceneAudit final {
   std::uint64_t updated = 0U;
   std::uint64_t destroyed = 0U;
   std::uint64_t dynamic_updates = 0U;
+  std::uint64_t dynamic_buffer_updates = 0U;
+  std::uint64_t dynamic_mesh_rebuilds = 0U;
+  std::uint64_t dynamic_vertex_upload_bytes = 0U;
   std::uint64_t verified = 0U;
   std::uint64_t last_created = 0U;
   std::uint64_t last_updated = 0U;
   std::uint64_t last_destroyed = 0U;
   std::uint64_t last_dynamic_updates = 0U;
+  std::uint64_t last_dynamic_buffer_updates = 0U;
+  std::uint64_t last_dynamic_mesh_rebuilds = 0U;
+  std::uint64_t last_dynamic_vertex_upload_bytes = 0U;
   std::uint64_t last_verified = 0U;
   bool last_diff_used_retained_block_proof = false;
   std::uint64_t verify_window = 0U;

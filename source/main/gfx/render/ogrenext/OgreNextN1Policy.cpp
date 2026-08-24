@@ -1489,10 +1489,11 @@ BuildOgreNextN1CapabilityReport(RasterGraphicsApi raster_api,
   report.maximum_views = 1U;
   report.maximum_frames_in_flight = 1U;
   report.supported_outputs = FrameOutputMask::COLOR;
-  // The frontend consumes one complete DynamicMeshUpdateDescriptor, creates a
-  // frame-owned Ogre v2 mesh, submits it synchronously, and destroys it only
-  // after the frame (or retains it with the same-device interop lease). It
-  // never aliases or incrementally reads mutable solver memory.
+  // The frontend consumes one complete DynamicMeshUpdateDescriptor. The
+  // direct-present path copies it into retained Ogre v2 persistent vertex
+  // storage between completed frames; same-device interop retains immutable
+  // per-revision meshes while a lease may name the prior bytes. Neither path
+  // aliases or incrementally reads mutable solver memory.
   report.supports_dynamic_mesh_updates = true;
   report.supports_continuous_particles = true;
   report.raster_ready = raster_api == RasterGraphicsApi::METAL ||

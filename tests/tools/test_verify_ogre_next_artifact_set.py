@@ -1276,7 +1276,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "transactional_replay_after_restart": True,
             },
             "dynamic_meshes": {
-                "schema": "ror.ogre_next_dynamic_mesh.v1",
+                "schema": "ror.ogre_next_dynamic_mesh.v2",
                 "base_deformation_revision": 1,
                 "deformed_deformation_revision": 2,
                 "full_update_owned": True,
@@ -1286,6 +1286,10 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "deformed_attachment_fnv1a64": "fedcba9876543210",
                 "base_exact_replay": True,
                 "deformed_exact_replay": True,
+                "persistent_vertex_storage_exact": True,
+                "persistent_buffer_updates": 1,
+                "native_mesh_rebuilds_through_persistent_update": 1,
+                "uploaded_vertex_bytes_through_persistent_update": 384,
             },
             "analytic_sky": {
                 "schema": "ror.ogre_next_analytic_sky.v2",

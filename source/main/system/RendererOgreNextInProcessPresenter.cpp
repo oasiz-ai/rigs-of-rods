@@ -913,11 +913,20 @@ public:
     output.updated = audit.updated;
     output.destroyed = audit.destroyed;
     output.dynamic_updates = audit.dynamic_updates;
+    output.dynamic_buffer_updates = audit.dynamic_buffer_updates;
+    output.dynamic_mesh_rebuilds = audit.dynamic_mesh_rebuilds;
+    output.dynamic_vertex_upload_bytes =
+        audit.dynamic_vertex_upload_bytes;
     output.verified = audit.verified;
     output.last_created = audit.last_created;
     output.last_updated = audit.last_updated;
     output.last_destroyed = audit.last_destroyed;
     output.last_dynamic_updates = audit.last_dynamic_updates;
+    output.last_dynamic_buffer_updates =
+        audit.last_dynamic_buffer_updates;
+    output.last_dynamic_mesh_rebuilds = audit.last_dynamic_mesh_rebuilds;
+    output.last_dynamic_vertex_upload_bytes =
+        audit.last_dynamic_vertex_upload_bytes;
     output.last_verified = audit.last_verified;
     output.last_diff_used_retained_block_proof =
         audit.last_diff_used_retained_block_proof;

@@ -103,6 +103,10 @@ struct SmokeResult final {
     std::size_t changed_pixels = 0U;
     bool base_exact_replay = false;
     bool deformed_exact_replay = false;
+    bool persistent_vertex_storage_exact = false;
+    std::uint64_t persistent_buffer_updates = 0U;
+    std::uint64_t native_mesh_rebuilds = 0U;
+    std::uint64_t uploaded_vertex_bytes = 0U;
   } dynamic_mesh;
   struct DistanceLodEvidence final {
     std::uint32_t portable_level_count = 0U;
@@ -1198,7 +1202,7 @@ std::shared_ptr<const SceneSnapshot> MakeDisplayDomainUnlitScene(
 
 std::shared_ptr<const SceneSnapshot>
 MakeDynamicScene(std::uint64_t snapshot_id, bool modern_pbr,
-                 bool deformed) {
+                 std::uint64_t deformation_revision) {
   SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = snapshot_id;
   descriptor.asset_registry_id = kDynamicRegistryId;
@@ -1213,18 +1217,21 @@ MakeDynamicScene(std::uint64_t snapshot_id, bool modern_pbr,
   instance.instance_id = 1U;
   instance.mesh = AssetRef(RenderAssetKind::MESH, 1U);
   instance.material = AssetRef(RenderAssetKind::MATERIAL, 2U);
-  instance.deformation_revision = deformed ? 2U : 1U;
-  if (deformed) {
-    mesh.positions[2U] = {0.65F, 0.30F, 0.0F};
+  instance.deformation_revision = deformation_revision;
+  if (deformation_revision > 1U) {
+    mesh.positions[2U] =
+        deformation_revision == 2U ? Float3{0.65F, 0.30F, 0.0F}
+                                   : Float3{0.65F, 0.70F, 0.0F};
     mesh.local_bounds.minimum = {-1.15F, -0.85F, 0.0F};
-    mesh.local_bounds.maximum = {1.15F, 0.30F, 0.0F};
+    mesh.local_bounds.maximum =
+        {1.15F, deformation_revision == 2U ? 0.30F : 0.70F, 0.0F};
   }
   instance.local_bounds = mesh.local_bounds;
   descriptor.mesh_instances.push_back(instance);
 
-  if (deformed) {
+  if (deformation_revision > 1U) {
     DynamicMeshUpdateDescriptor update;
-    update.update_sequence = 1U;
+    update.update_sequence = deformation_revision - 1U;
     update.instance_id = instance.instance_id;
     update.mesh = instance.mesh;
     update.topology_revision = instance.topology_revision;
@@ -2053,7 +2060,7 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
          << "    \"transactional_replay_after_restart\": true\n"
          << "  },\n"
          << "  \"dynamic_meshes\": {\n"
-         << "    \"schema\": \"ror.ogre_next_dynamic_mesh.v1\",\n"
+         << "    \"schema\": \"ror.ogre_next_dynamic_mesh.v2\",\n"
          << "    \"base_deformation_revision\": 1,\n"
          << "    \"deformed_deformation_revision\": 2,\n"
          << "    \"full_update_owned\": true,\n"
@@ -2070,7 +2077,17 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
          << ",\n"
          << "    \"deformed_exact_replay\": "
          << (result.dynamic_mesh.deformed_exact_replay ? "true" : "false")
-         << "\n"
+         << ",\n"
+         << "    \"persistent_vertex_storage_exact\": "
+         << (result.dynamic_mesh.persistent_vertex_storage_exact ? "true"
+                                                                 : "false")
+         << ",\n"
+         << "    \"persistent_buffer_updates\": "
+         << result.dynamic_mesh.persistent_buffer_updates << ",\n"
+         << "    \"native_mesh_rebuilds_through_persistent_update\": "
+         << result.dynamic_mesh.native_mesh_rebuilds << ",\n"
+         << "    \"uploaded_vertex_bytes_through_persistent_update\": "
+         << result.dynamic_mesh.uploaded_vertex_bytes << "\n"
          << "  },\n";
   report << "  \"distance_lod\": {\n"
          << "    \"schema\": \"ror.ogre_next_distance_lod.v2\",\n"
@@ -3491,8 +3508,10 @@ RunDisplayDomainUnlitProof(const std::string &media_root) {
 SmokeResult::DynamicMeshEvidence
 RunDynamicMeshProof(const std::string &media_root, bool modern_pbr) {
   const RenderAssetDelta catalog = MakeDynamicCatalog(modern_pbr);
-  const auto base_scene = MakeDynamicScene(850U, modern_pbr, false);
-  const auto deformed_scene = MakeDynamicScene(851U, modern_pbr, true);
+  const auto base_scene = MakeDynamicScene(850U, modern_pbr, 1U);
+  const auto deformed_scene = MakeDynamicScene(851U, modern_pbr, 2U);
+  const auto next_deformed_scene =
+      MakeDynamicScene(852U, modern_pbr, 3U);
 
   OgreNextN1Configuration configuration{
       media_root,
@@ -3505,6 +3524,7 @@ RunDynamicMeshProof(const std::string &media_root, bool modern_pbr) {
 
   RenderFrameOutput base_output;
   RenderFrameOutput deformed_output;
+  RenderFrameOutput next_deformed_output;
   RenderFrameOutput base_replay_output;
   RenderFrameOutput deformed_replay_output;
   RequireSuccess(frontend.Render(
@@ -3515,12 +3535,21 @@ RunDynamicMeshProof(const std::string &media_root, bool modern_pbr) {
                      MakeFrame(2U, deformed_scene, PixelFormat::RGBA8_SRGB),
                      deformed_output),
                  "full dynamic deformation Render");
+  const OgreNextRetainedSceneAudit first_deformation_audit =
+      frontend.QueryRetainedSceneAudit();
   RequireSuccess(frontend.Render(
-                     MakeFrame(3U, base_scene, PixelFormat::RGBA8_SRGB),
+                     MakeFrame(3U, next_deformed_scene,
+                               PixelFormat::RGBA8_SRGB),
+                     next_deformed_output),
+                 "persistent dynamic deformation Render");
+  const OgreNextRetainedSceneAudit persistent_deformation_audit =
+      frontend.QueryRetainedSceneAudit();
+  RequireSuccess(frontend.Render(
+                     MakeFrame(4U, base_scene, PixelFormat::RGBA8_SRGB),
                      base_replay_output),
                  "dynamic base replay Render");
   RequireSuccess(frontend.Render(
-                     MakeFrame(4U, deformed_scene, PixelFormat::RGBA8_SRGB),
+                     MakeFrame(5U, deformed_scene, PixelFormat::RGBA8_SRGB),
                      deformed_replay_output),
                  "full dynamic deformation replay Render");
 
@@ -3535,11 +3564,39 @@ RunDynamicMeshProof(const std::string &media_root, bool modern_pbr) {
       base_replay.attachment_bytes == evidence.base.attachment_bytes;
   evidence.deformed_exact_replay =
       deformed_replay.attachment_bytes == evidence.deformed.attachment_bytes;
+  const Metrics next_deformed = InspectSdr(next_deformed_output);
+  const std::uint64_t expected_upload_bytes =
+      static_cast<std::uint64_t>(
+          next_deformed_scene->dynamic_mesh_updates().front().positions.size()) *
+      (modern_pbr ? kOgreNextPositionNormalTangentUv0VertexStrideBytes
+                  : kOgreNextPositionNormalVertexStrideBytes);
+  evidence.persistent_vertex_storage_exact =
+      first_deformation_audit.version ==
+          kOgreNextRetainedSceneAuditVersion &&
+      first_deformation_audit.last_dynamic_updates == 1U &&
+      first_deformation_audit.last_dynamic_buffer_updates == 0U &&
+      first_deformation_audit.last_dynamic_mesh_rebuilds == 1U &&
+      persistent_deformation_audit.version ==
+          kOgreNextRetainedSceneAuditVersion &&
+      persistent_deformation_audit.last_dynamic_updates == 1U &&
+      persistent_deformation_audit.last_dynamic_buffer_updates == 1U &&
+      persistent_deformation_audit.last_dynamic_mesh_rebuilds == 0U &&
+      persistent_deformation_audit.last_dynamic_vertex_upload_bytes ==
+          expected_upload_bytes;
+  evidence.persistent_buffer_updates =
+      persistent_deformation_audit.dynamic_buffer_updates;
+  evidence.native_mesh_rebuilds =
+      persistent_deformation_audit.dynamic_mesh_rebuilds;
+  evidence.uploaded_vertex_bytes =
+      persistent_deformation_audit.dynamic_vertex_upload_bytes;
   Require(evidence.changed_pixels >= 256U &&
               evidence.base.attachment_fnv1a64 !=
                   evidence.deformed.attachment_fnv1a64 &&
-              evidence.base_exact_replay && evidence.deformed_exact_replay,
-          "full dynamic mesh replacement was not visible and deterministic");
+              CountChangedPixels(evidence.deformed.attachment_bytes,
+                                 next_deformed.attachment_bytes, 4U) >= 64U &&
+              evidence.base_exact_replay && evidence.deformed_exact_replay &&
+              evidence.persistent_vertex_storage_exact,
+          "persistent Ogre-Next deformation was not visible, stable, and deterministic");
   RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "dynamic mesh proof Shutdown");
   return evidence;
