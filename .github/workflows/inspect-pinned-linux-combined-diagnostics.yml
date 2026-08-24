@@ -15,6 +15,8 @@ jobs:
     name: Inspect Linux save-resume diagnostics
     runs-on: ubuntu-22.04
     steps:
+      - uses: actions/checkout@v7
+
       - name: Download immutable failed-run diagnostics
         uses: actions/download-artifact@v7
         with:
@@ -23,6 +25,31 @@ jobs:
           repository: oasiz-ai/rigs-of-rods
           run-id: "32786978090"
           path: ${{ runner.temp }}/linux-diagnostics
+
+      - name: Download last qualified Linux runtime baseline
+        uses: actions/download-artifact@v7
+        with:
+          artifact-ids: "9509986113"
+          github-token: ${{ github.token }}
+          repository: oasiz-ai/rigs-of-rods
+          run-id: "32698175848"
+          path: ${{ runner.temp }}/linux-qualified-baseline
+
+      - name: Install baseline replay prerequisites
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libgl1-mesa-dev \
+            libglu1-mesa-dev \
+            libvulkan-dev \
+            mesa-vulkan-drivers \
+            xauth \
+            xvfb
+          lvp_icd="$(find /usr/share/vulkan/icd.d -name 'lvp*json' -print -quit)"
+          test -n "$lvp_icd"
+          echo "VK_ICD_FILENAMES=$lvp_icd" >> "$GITHUB_ENV"
+          echo "LIBGL_ALWAYS_SOFTWARE=1" >> "$GITHUB_ENV"
 
       - name: Surface allowlisted save-resume evidence
         shell: bash
@@ -240,4 +267,93 @@ jobs:
           emit("Linux save-resume trace analysis", trace_analysis)
           for runtime_tail in runtime_tails:
               emit("Linux save-resume runtime tail", runtime_tail)
+          PY
+
+      - name: Replay last qualified package twice
+        shell: bash
+        env:
+          BASELINE_ROOT: ${{ runner.temp }}/linux-qualified-baseline
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          root = Path(os.environ["BASELINE_ROOT"]).resolve(strict=True)
+          executables = [path for path in root.rglob("RoR-Combined") if path.is_file()]
+          trace_tools = [path for path in root.rglob("ror_state_trace") if path.is_file()]
+          if len(executables) != 1 or len(trace_tools) != 1:
+              raise SystemExit(
+                  f"baseline package shape differs: executables={executables}, trace_tools={trace_tools}"
+              )
+          executable = executables[0]
+          stage = executable.parent
+          trace_tool = trace_tools[0]
+          executable.chmod(executable.stat().st_mode | 0o100)
+          trace_tool.chmod(trace_tool.stat().st_mode | 0o100)
+          environment = os.environ.copy()
+          environment["LD_LIBRARY_PATH"] = str(stage / "lib")
+
+          results = []
+          for attempt in (1, 2):
+              artifact_dir = Path(os.environ["RUNNER_TEMP"]) / f"baseline-replay-{attempt}"
+              command = [
+                  "xvfb-run",
+                  "--auto-servernum",
+                  "--server-args=-screen 0 1280x720x24",
+                  sys.executable,
+                  "tools/run_deterministic_savegame_resume.py",
+                  "--executable",
+                  str(executable),
+                  "--trace-tool",
+                  str(trace_tool),
+                  "--runtime-content",
+                  str(stage / "content"),
+                  "--artifact-dir",
+                  str(artifact_dir),
+                  "--workers",
+                  "1",
+                  "--timeout",
+                  "900",
+              ]
+              completed = subprocess.run(
+                  command,
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.STDOUT,
+                  text=True,
+                  timeout=1000,
+                  check=False,
+                  env=environment,
+              )
+              report_path = artifact_dir / "report.json"
+              report = (
+                  json.loads(report_path.read_text(encoding="utf-8"))
+                  if report_path.is_file()
+                  else None
+              )
+              results.append(
+                  {
+                      "attempt": attempt,
+                      "exit_code": completed.returncode,
+                      "output_tail": completed.stdout.splitlines()[-20:],
+                      "report_present": report is not None,
+                      "final_state_digest": (
+                          report.get("final_state_digest") if report is not None else None
+                      ),
+                  }
+              )
+
+          annotation = json.dumps(
+              {
+                  "source_run_id": 32698175848,
+                  "source_artifact_id": 9509986113,
+                  "source_commit": "c984fae2d138cc562067cfb5c3c12fd40387d7ab",
+                  "results": results,
+              },
+              sort_keys=True,
+          )
+          annotation = annotation.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print(f"::error title=Qualified Linux baseline replay::{annotation}")
           PY
