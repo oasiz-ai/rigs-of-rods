@@ -16141,6 +16141,20 @@ RenderOperationResult OgreNextN1Frontend::Render(
           !impl_->native_interop) {
         add_upload_bytes(impl_->UpdateDynamicMeshVertexBuffer(
             record.deformed_mesh, *base_mesh, *update));
+        // Item snapshots the Mesh AABB when it is created. Rewriting only the
+        // retained vertex buffer and Mesh bounds therefore leaves the native
+        // culling/PSSM object bounds stale unless the same validated bounds
+        // are propagated to the retained Item as part of this transaction.
+        // getWorldAabbUpdated() below will then derive the world box after
+        // update_retained_instance applies this revision's transform.
+        const Ogre::Aabb updated_mesh_bounds =
+            record.deformed_mesh.mesh->getAabb();
+        record.item->setLocalAabb(updated_mesh_bounds);
+        if (!NearlyEqual(record.item->getLocalAabb(),
+                         updated_mesh_bounds)) {
+          throw std::runtime_error(
+              "Ogre-Next persistent deformation Item bounds failed native readback");
+        }
         ++diff_dynamic_updates;
         ++diff_dynamic_buffer_updates;
         return RenderOperationResult::Success();

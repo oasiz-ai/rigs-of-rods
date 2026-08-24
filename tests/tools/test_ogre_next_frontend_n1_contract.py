@@ -746,6 +746,8 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "apply_deformed_instance_update",
             "dynamic_vertex_storage",
             "Ogre::UO_KEEP_PERSISTENT",
+            "record.item->setLocalAabb(updated_mesh_bounds)",
+            "persistent deformation Item bounds failed native readback",
             "!impl_->native_interop",
             "frame_meshes.push_back(std::move(record.deformed_mesh))",
         ):
