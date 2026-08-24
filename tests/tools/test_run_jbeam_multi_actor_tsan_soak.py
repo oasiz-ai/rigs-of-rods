@@ -207,11 +207,20 @@ class JBeamMultiActorTSanSoakTests(unittest.TestCase):
             "elapsed_seconds\", 0) < 600",
             "legacy_visible_fallback\": False",
             "sanitizer-evidence-not-qualified-runtime-package",
+            "include-hidden-files: true",
         ):
             self.assertIn(token, workflow)
         self.assertNotIn("--native-visual-showcase", workflow)
         self.assertNotIn("suppressions=", workflow)
         self.assertNotIn("ror_ogre_next_combined_verified", workflow)
+
+        source = TOOL_PATH.read_text(encoding="utf-8")
+        process_receipt = source.index('diagnostics / "process-result.json"')
+        required_script_log = source.index(
+            'layout["logs"] / "Angelscript.log", "AngelScript log"'
+        )
+        self.assertLess(process_receipt, required_script_log)
+        self.assertIn("shutil.copy2(report_path", source)
 
 
 if __name__ == "__main__":

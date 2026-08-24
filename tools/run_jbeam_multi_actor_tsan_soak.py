@@ -415,23 +415,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     except support.SoakFailure as error:
         raise TSanSoakFailure(str(error)) from error
     stdout = support.decode_output(completed.stdout)
-    try:
-        engine_log = support.read_required(layout["logs"] / "RoR.log", "RoR log")
-        script_log = support.read_required(
-            layout["logs"] / "Angelscript.log", "AngelScript log"
-        )
-    except support.SoakFailure as error:
-        raise TSanSoakFailure(str(error)) from error
     (diagnostics / "stdout.log").write_text(stdout, encoding="utf-8")
-    (diagnostics / "RoR.log").write_text(engine_log, encoding="utf-8")
-    (diagnostics / "Angelscript.log").write_text(script_log, encoding="utf-8")
-    telemetry = validate_logs(
-        completed.returncode,
-        stdout,
-        engine_log,
-        script_log,
-        archive_sha256,
+    (diagnostics / "process-result.json").write_text(
+        json.dumps(
+            {
+                "command": list(build_command(executable)),
+                "returncode": completed.returncode,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
     )
+    for source, destination in (
+        (layout["logs"] / "RoR.log", diagnostics / "RoR.log"),
+        (layout["logs"] / "Angelscript.log", diagnostics / "Angelscript.log"),
+    ):
+        if source.is_file():
+            shutil.copy2(source, destination)
 
     if instrumentation is not None:
         sanitizer_reports = tuple(
@@ -441,9 +443,31 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             if path.is_file() and path.stat().st_size > 0
         )
+        for report_path in sanitizer_reports:
+            shutil.copy2(report_path, diagnostics / report_path.name)
         if sanitizer_reports:
             names = ", ".join(str(path) for path in sanitizer_reports)
             raise TSanSoakFailure(f"ThreadSanitizer emitted reports: {names}")
+    if completed.returncode != 0:
+        raise TSanSoakFailure(
+            f"RoR-Combined exited before log validation with "
+            f"{completed.returncode}"
+        )
+
+    try:
+        engine_log = support.read_required(layout["logs"] / "RoR.log", "RoR log")
+        script_log = support.read_required(
+            layout["logs"] / "Angelscript.log", "AngelScript log"
+        )
+    except support.SoakFailure as error:
+        raise TSanSoakFailure(str(error)) from error
+    telemetry = validate_logs(
+        completed.returncode,
+        stdout,
+        engine_log,
+        script_log,
+        archive_sha256,
+    )
 
     report = {
         "artifact_claim": "sanitizer-evidence-not-qualified-runtime-package",

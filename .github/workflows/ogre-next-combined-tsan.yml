@@ -273,5 +273,6 @@ jobs:
           name: RoR-Combined-Linux-x86_64-TSan-Evidence-${{ github.sha }}
           path: ${{ runner.temp }}/ror-combined-tsan-artifacts
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 30
           compression-level: 6
