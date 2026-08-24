@@ -61,6 +61,9 @@ EXPECTED_PATCH_SHA256 = {
     "patches/14.5.2/bounds-safe-generated-lod-index-buffers.patch": (
         "4a69f8d4f902511f61827c234a122c3d0e9432425734b977f71922149965575e"
     ),
+    "patches/14.5.2/allow-hidden-offline-cocoa-gl-context.patch": (
+        "d75235c59bab56f565b4ad76f04032bc064ae99b08cf4173a4799ac877ce2b4e"
+    ),
 }
 EXPECTED_OGRE_OPTIONS = {
     "codec_rsimage": "False",

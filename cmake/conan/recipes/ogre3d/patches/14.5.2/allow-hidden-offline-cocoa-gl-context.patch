@@ -1,0 +1,29 @@
+--- a/RenderSystems/GLSupport/src/OSX/OgreOSXCocoaWindow.mm
++++ b/RenderSystems/GLSupport/src/OSX/OgreOSXCocoaWindow.mm
+@@ -139,6 +139,7 @@
+         int surfaceOrder = 1;
+         int contextProfile = GLNativeSupport::CONTEXT_COMPATIBILITY;
+         bool currentGLContext = false;
++        bool allowSoftwareRenderer = false;
+         NSOpenGLContext *externalGLContext = nil;
+         NSObject* externalWindowHandle = nil; // NSOpenGLView, NSView or NSWindow
+         NameValuePairList::const_iterator opt;
+@@ -202,2 +203,6 @@
++            opt = miscParams->find("allowSoftwareRenderer");
++            if (opt != miscParams->end())
++                allowSoftwareRenderer = StringConverter::parseBool(opt->second);
++
+             opt = miscParams->find("externalGLControl");
+             if (opt != miscParams->end())
+@@ -266,1 +271,7 @@
++            if (allowSoftwareRenderer)
++            {
++                attribs[i++] = NSOpenGLPFAAllowOfflineRenderers;
++            }
++            else
++            {
+             // Specifying "NoRecovery" gives us a context that cannot fall back to the software renderer.
+@@ -271,2 +283,3 @@
+             attribs[i++] = NSOpenGLPFAAccelerated;
++            }
+             attribs[i++] = NSOpenGLPFADoubleBuffer;

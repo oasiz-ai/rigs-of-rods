@@ -183,6 +183,7 @@ list(APPEND _ror_relevant_source_files
     "cmake/conan/recipes/ogre3d/patches/14.5.2/terrain-composite-revision-metal-readback.patch"
     "cmake/conan/recipes/ogre3d/patches/14.5.2/exact-material-script-preopen.patch"
     "cmake/conan/recipes/ogre3d/patches/14.5.2/expose-shadow-material-declaration-names.patch"
+    "cmake/conan/recipes/ogre3d/patches/14.5.2/allow-hidden-offline-cocoa-gl-context.patch"
     "cmake/conan/recipes/ogre3d/README.md"
     "cmake/conan/recipes/ogre3d/test_package/CMakeLists.txt"
     "cmake/conan/recipes/ogre3d/test_package/conanfile.py"
@@ -3362,6 +3363,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             cmake/conan/recipes/ogre3d/patches/14.5.2/terrain-composite-revision-metal-readback.patch
             cmake/conan/recipes/ogre3d/patches/14.5.2/exact-material-script-preopen.patch
             cmake/conan/recipes/ogre3d/patches/14.5.2/expose-shadow-material-declaration-names.patch
+            cmake/conan/recipes/ogre3d/patches/14.5.2/allow-hidden-offline-cocoa-gl-context.patch
             cmake/conan/recipes/ogre3d/README.md
             cmake/conan/recipes/ogre3d/test_package/CMakeLists.txt
             cmake/conan/recipes/ogre3d/test_package/conanfile.py

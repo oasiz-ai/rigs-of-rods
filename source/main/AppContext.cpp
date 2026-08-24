@@ -695,6 +695,13 @@ bool AppContext::SetUpRendering(
         // a second presentation surface.
         miscParams["hidden"] = "true";
         miscParams["border"] = "none";
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+        // The hidden OGRE 14 process is a resource/scene producer, never the
+        // presentation owner. Permit its GL3 context to use macOS's offline
+        // renderer on headless build hosts; Ogre-Next Metal remains the sole
+        // visible presenter and owns every displayed frame.
+        miscParams["allowSoftwareRenderer"] = "true";
+#endif
     }
 #if OGRE_PLATFORM == OGRE_PLATFORM_WIN32
     const auto rd = ropts["Rendering Device"];
@@ -907,8 +914,27 @@ bool AppContext::SetUpRendering(
             ropts["Full Screen"].currentValue == "Yes",
         &miscParams);
 #endif
-    if (m_renderer_child_owns_presentation &&
-        !m_render_window->isHidden())
+    bool resource_host_hidden = m_render_window->isHidden();
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    if (m_renderer_child_owns_presentation)
+    {
+        // OGRE 14's Metal RenderWindow wraps the external SDL-owned NSWindow,
+        // but does not mirror that NSWindow's hidden state into isHidden().
+        // The platform window flags are the authoritative visibility state.
+        // Validate them after RenderWindow creation as well as before it so a
+        // backend cannot reveal a second presentation window while attaching.
+        const Uint32 actual_flags = SDL_GetWindowFlags(m_sdl_window);
+        resource_host_hidden =
+            (actual_flags & SDL_WINDOW_HIDDEN) != 0U &&
+            (actual_flags & SDL_WINDOW_SHOWN) == 0U;
+        LOG(fmt::format(
+            "[RoR|Startup|Rendering] Hidden macOS resource host verified: "
+            "sdl_hidden={} ogre_hidden={}",
+            resource_host_hidden ? "true" : "false",
+            m_render_window->isHidden() ? "true" : "false"));
+    }
+#endif
+    if (m_renderer_child_owns_presentation && !resource_host_hidden)
     {
         ErrorUtils::ShowError(
             _L("Startup error"),

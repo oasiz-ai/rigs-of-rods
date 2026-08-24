@@ -606,7 +606,18 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         self.assertLess(glx, no_wayland)
         self.assertIn('miscParams["hidden"] = "true";', self.context)
         self.assertIn(
-            "!m_render_window->isHidden()", self.context
+            "bool resource_host_hidden = m_render_window->isHidden();",
+            self.context,
+        )
+        self.assertIn(
+            "(actual_flags & SDL_WINDOW_HIDDEN) != 0U", self.context
+        )
+        self.assertIn(
+            "(actual_flags & SDL_WINDOW_SHOWN) == 0U", self.context
+        )
+        self.assertIn(
+            "m_renderer_child_owns_presentation && !resource_host_hidden",
+            self.context,
         )
         self.assertIn(
             "const bool resource_window_missing = false;", self.main
@@ -615,6 +626,44 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             "AppContext has already\n"
             "        // fail-closed on RenderWindow::isHidden()", self.main
         )
+
+    def test_macos_headless_resource_host_never_becomes_presenter(self) -> None:
+        cocoa_patch = (
+            ROOT
+            / "cmake/conan/recipes/ogre3d/patches/14.5.2/"
+            "allow-hidden-offline-cocoa-gl-context.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn("bool allowSoftwareRenderer = false;", cocoa_patch)
+        self.assertIn(
+            'miscParams->find("allowSoftwareRenderer")', cocoa_patch
+        )
+        self.assertIn("if (allowSoftwareRenderer)", cocoa_patch)
+        self.assertIn("NSOpenGLPFAAllowOfflineRenderers", cocoa_patch)
+        self.assertIn("else\n+            {", cocoa_patch)
+        self.assertNotIn(
+            "-            attribs[i++] = NSOpenGLPFANoRecovery;",
+            cocoa_patch,
+        )
+        self.assertIn(
+            'Specifying "NoRecovery" gives us a context that cannot fall back',
+            cocoa_patch,
+        )
+        self.assertIn("NSOpenGLPFAAccelerated", cocoa_patch)
+
+        ownership = self.context.index(
+            "if (m_renderer_child_owns_presentation)"
+        )
+        software = self.context.index(
+            'miscParams["allowSoftwareRenderer"] = "true";', ownership
+        )
+        create_window = self.context.index("// Create render window", software)
+        self.assertLess(ownership, software)
+        self.assertLess(software, create_window)
+        self.assertIn(
+            "m_renderer_child_owns_presentation && !resource_host_hidden",
+            self.context,
+        )
+        self.assertIn("sdl_hidden={}", self.context)
 
     def test_combined_media_is_package_relative_and_fail_closed(self) -> None:
         self.assertNotIn(

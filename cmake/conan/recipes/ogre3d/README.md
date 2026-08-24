@@ -32,6 +32,8 @@ separately.
   `3344cd639959553bda2ec978ad66e4b42df00e2f56f75d39a2d780ce4aa38478`
 - Local exact shadow-material declaration-name patch SHA-256:
   `b06ad20fdc2d250d11ef5de456866cd9f1f1b1e05c6d023d6c51ffa530a3d2f4`
+- Local hidden/offline Cocoa GL resource-host patch SHA-256:
+  `d75235c59bab56f565b4ad76f04032bc064ae99b08cf4173a4799ac877ce2b4e`
 - macOS arm64 Release lock:
   `cmake/conan/locks/ogre3d-14.5.2-macos-arm64-release.lock`
 
@@ -81,6 +83,13 @@ every level-zero `TU_AUTOMIPMAP` upload regenerate its mip chain, synchronize
 shared-storage readback, preserve the per-mip dimensions already supplied by
 `Texture::createSurfaceList()`, and select the pixel buffer's actual mip level
 and face for both private and shared textures.
+
+The local Cocoa GL patch adds an explicit, default-disabled
+`allowSoftwareRenderer` window parameter. RoR sets it only for the hidden
+OGRE 14 resource/scene host in the combined runtime. That host may therefore
+select an offline or software OpenGL 3.2 context on a headless macOS machine,
+while ordinary OGRE 14 windows retain their accelerated/no-recovery contract.
+The separate Ogre-Next Metal window remains the only visible presenter.
 
 The local material-script pre-open patch adds an explicit default-false opt-in
 and optional `ResourceLoadingListener::resourceStreamOpening()` callback after
