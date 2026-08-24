@@ -10,6 +10,14 @@ on:
       - tests/fixtures/beamng/jbeam_multi_actor_tsan_soak/**
       - tests/tools/test_run_jbeam_multi_actor_tsan_soak.py
       - tools/run_jbeam_multi_actor_tsan_soak.py
+      - source/main/gfx/render/Ogre14ParticleCaptureSource.cpp
+      - source/main/gfx/render/Ogre14ParticleCaptureSource.h
+      - source/main/gfx/render/ogrenext/OgreNextN1ParticleRuntime.cpp
+      - source/main/gfx/render/ogrenext/OgreNextN1ParticleRuntime.h
+      - tools/ogre_next_probe/cmake/PinnedOgreNext.cmake
+      - tools/ogre_next_probe/ogre-next.lock.json
+      - tools/ogre_next_probe/patches/**
+      - tools/run_ogre_next_probe.py
   workflow_dispatch:
 
 permissions:
