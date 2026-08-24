@@ -5470,7 +5470,9 @@ Render::ValidationResult OgreNextDemoMaterialSource::TryProject(
 
 Render::ValidationResult OgreNextDemoMaterialSource::Apply(
     std::vector<Render::GraphicsSceneAssetInput> &assets,
-    OgreNextDemoMaterialApplyTiming *timing) noexcept {
+    OgreNextDemoMaterialApplyTiming *timing,
+    const std::vector<Render::GraphicsSceneAssetInput>
+        *already_published_assets) noexcept {
   try {
     if (pending_ == nullptr || !pending_->capture_open) {
       return Failure(Render::ValidationCode::SEQUENCE_MISMATCH,
@@ -5479,6 +5481,55 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
     }
     OgreNextDemoMaterialApplyTiming candidate_timing;
     const auto input_index_started = std::chrono::steady_clock::now();
+    if (already_published_assets != nullptr) {
+      for (std::size_t index = 0U;
+           index < already_published_assets->size(); ++index) {
+        const std::uint64_t identity =
+            (*already_published_assets)[index].source_asset_id;
+        if (identity == 0U ||
+            (index != 0U &&
+             (*already_published_assets)[index - 1U].source_asset_id >=
+                 identity)) {
+          return Failure(
+              identity == 0U ? Render::ValidationCode::INVALID_IDENTIFIER
+                             : Render::ValidationCode::SEQUENCE_MISMATCH,
+              "ogre_next_demo.material.already_published_assets",
+              "retained owner assets must have nonzero strictly increasing "
+              "source identities");
+        }
+      }
+    }
+    const auto find_already_published =
+        [already_published_assets](std::uint64_t source_asset_id)
+        -> const Render::GraphicsSceneAssetInput * {
+      if (already_published_assets == nullptr) {
+        return nullptr;
+      }
+      const auto found = std::lower_bound(
+          already_published_assets->begin(),
+          already_published_assets->end(), source_asset_id,
+          [](const Render::GraphicsSceneAssetInput &entry,
+             std::uint64_t identity) {
+            return entry.source_asset_id < identity;
+          });
+      return found != already_published_assets->end() &&
+                     found->source_asset_id == source_asset_id
+                 ? &*found
+                 : nullptr;
+    };
+    const auto equivalent_asset =
+        [](const Render::GraphicsSceneAssetInput &lhs,
+           const Render::GraphicsSceneAssetInput &rhs) {
+      if (lhs.source_asset_id != rhs.source_asset_id ||
+          lhs.material_bindings != rhs.material_bindings || !lhs.payload ||
+          !rhs.payload || lhs.payload->valueless_by_exception() ||
+          rhs.payload->valueless_by_exception()) {
+        return false;
+      }
+      return lhs.payload == rhs.payload ||
+             Render::EquivalentRenderAssetPayload(*lhs.payload,
+                                                  *rhs.payload);
+    };
     const std::size_t retained_owner_asset_hint =
         pending_->cache->retained_owner_assets_valid
             ? pending_->cache->retained_owner_asset_count
@@ -5807,6 +5858,18 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
       dependency.payload = payload;
       const auto existing_index = asset_indices.find(source_asset_id);
       if (existing_index == asset_indices.end()) {
+        const Render::GraphicsSceneAssetInput *const published =
+            find_already_published(source_asset_id);
+        if (published != nullptr) {
+          if (!equivalent_asset(*published, dependency)) {
+            return Failure(
+                Render::ValidationCode::REVISION_MISMATCH, field,
+                "retained owner and projected dependency disagree for one "
+                "source identity");
+          }
+          ++candidate_timing.already_published_assets_elided;
+          return Render::ValidationResult::Success();
+        }
         asset_indices.emplace(source_asset_id, candidate.size());
         candidate.push_back(std::move(dependency));
         return Render::ValidationResult::Success();
@@ -5833,6 +5896,19 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
       const auto material_index =
           asset_indices.find(projection.material_source_id);
       if (material_index == asset_indices.end()) {
+        const Render::GraphicsSceneAssetInput *const published =
+            find_already_published(projection.material_source_id);
+        if (published != nullptr) {
+          if (!equivalent_asset(*published, projected_material)) {
+            return Failure(
+                Render::ValidationCode::REVISION_MISMATCH,
+                "ogre_next_demo.material.retained_material_collision",
+                "retained owner and projected material disagree for one "
+                "source identity");
+          }
+          ++candidate_timing.already_published_assets_elided;
+          return Render::ValidationResult::Success();
+        }
         asset_indices.emplace(projected_material.source_asset_id,
                               candidate.size());
         candidate.push_back(projected_material);
@@ -6135,6 +6211,28 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
                                                     accounting_audit);
     if (!accounting_validation) {
       return accounting_validation;
+    }
+    if (already_published_assets != nullptr && !candidate.empty()) {
+      std::vector<Render::GraphicsSceneAssetInput> residue;
+      residue.reserve(candidate.size());
+      for (std::size_t index = 0U; index < candidate.size(); ++index) {
+        Render::GraphicsSceneAssetInput &asset = candidate[index];
+        const Render::GraphicsSceneAssetInput *const published =
+            find_already_published(asset.source_asset_id);
+        if (published == nullptr) {
+          residue.push_back(std::move(asset));
+          continue;
+        }
+        if (!equivalent_asset(*published, asset)) {
+          return Failure(
+              Render::ValidationCode::REVISION_MISMATCH,
+              "ogre_next_demo.material.retained_residue_collision",
+              "retained owner and frame residue disagree for one source "
+              "identity");
+        }
+        ++candidate_timing.already_published_assets_elided;
+      }
+      candidate = std::move(residue);
     }
     std::sort(candidate.begin(), candidate.end(),
               [](const auto &first, const auto &second) {

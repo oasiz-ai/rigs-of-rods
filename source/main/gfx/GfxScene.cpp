@@ -6601,7 +6601,10 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             {
                 dynamic_validation =
                     m_ogre_next_demo_material_source.Apply(
-                        nonterrain_assets, &material_apply_timing);
+                        nonterrain_assets, &material_apply_timing,
+                        pending->static_state_retained
+                            ? m_ogre14_static_retention_assets_owner.get()
+                            : nullptr);
                 if (!dynamic_validation)
                     return dynamic_validation;
                 pending->new_material_projection_count =
@@ -7380,7 +7383,8 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
             "material_apply={} other={} material_index={} material_plan={} "
             "material_authority={} material_owners={} material_finalize={} "
             "material_authority_plan_cache_hit={} "
-            "material_owner_cache_hit={} material_owner_assets={}",
+            "material_owner_cache_hit={} material_owner_assets={} "
+            "material_owner_assets_elided={}",
             m_ogre14_section_log_captures,
             m_ogre14_section_log_terrain_ns / m_ogre14_section_log_captures,
             m_ogre14_section_log_static_ns / m_ogre14_section_log_captures,
@@ -7433,7 +7437,9 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
             m_ogre14_pending_capture->material_apply_timing
                 .retained_owner_publication_reused,
             m_ogre14_pending_capture->material_apply_timing
-                .retained_owner_asset_count));
+                .retained_owner_asset_count,
+            m_ogre14_pending_capture->material_apply_timing
+                .already_published_assets_elided));
     }
     const Gfx::Detail::OgreNextDemoMaterialSourceCounters& capture_counters =
         m_ogre14_pending_capture->material_source_counters;

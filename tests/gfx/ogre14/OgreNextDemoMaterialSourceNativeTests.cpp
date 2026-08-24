@@ -2495,6 +2495,85 @@ void TestNativeMaterialSourceLifecycle() {
           "exact retained owner assets were rebuilt or changed identity");
   source.Commit();
 
+  // The production retained-scene route already publishes these immutable
+  // owners through GraphicsSceneFrameInput::retained_static_assets. Apply
+  // must still authenticate them, but its per-frame output is an empty
+  // disjoint residue rather than a full copy that is removed downstream.
+  Require(source.BeginCapture(), "begin retained-owner residue elision");
+  Ogre14GraphicsSceneMaterialCaptureInput retained_residue_input =
+      CaptureInput();
+  bool retained_residue_projected = false;
+  RequireOk(source.TryProject(kSectionKey, native->material, true, true,
+                              retained_residue_input,
+                              retained_residue_projected),
+            "project retained-owner residue elision");
+  std::vector<GraphicsSceneAssetInput> retained_residue_assets =
+      BuildPlaceholderAssets(retained_residue_input);
+  OgreNextDemoMaterialApplyTiming retained_residue_timing;
+  RequireOk(source.Apply(retained_residue_assets, &retained_residue_timing,
+                         &v2_assets),
+            "apply retained-owner residue elision");
+  Require(retained_residue_projected && retained_residue_assets.empty() &&
+              retained_residue_timing.retained_authority_plan_reused &&
+              retained_residue_timing.retained_owner_publication_reused &&
+              retained_residue_timing.already_published_assets_elided == 3U &&
+              SameAssetOwners(v2_assets, retained_identity_assets),
+          "retained-owner projection was copied, unauthenticated, or mutated");
+  source.Commit();
+
+  Require(source.BeginCapture(), "begin retained-owner conflict rejection");
+  Ogre14GraphicsSceneMaterialCaptureInput retained_conflict_input =
+      CaptureInput();
+  bool retained_conflict_projected = false;
+  RequireOk(source.TryProject(kSectionKey, native->material, true, true,
+                              retained_conflict_input,
+                              retained_conflict_projected),
+            "project retained-owner conflict rejection");
+  std::vector<GraphicsSceneAssetInput> retained_conflict_assets =
+      BuildPlaceholderAssets(retained_conflict_input);
+  std::vector<GraphicsSceneAssetInput> conflicting_owner = v2_assets;
+  conflicting_owner.front().source_asset_id =
+      conflicting_owner[1U].source_asset_id;
+  const ValidationResult retained_conflict = source.Apply(
+      retained_conflict_assets, nullptr, &conflicting_owner);
+  Require(!retained_conflict &&
+              retained_conflict.field ==
+                  "ogre_next_demo.material.already_published_assets" &&
+              !retained_conflict_assets.empty(),
+          "unordered retained owner was accepted or partially published");
+  source.Discard();
+
+  Require(source.BeginCapture(), "begin retained-owner byte conflict");
+  Ogre14GraphicsSceneMaterialCaptureInput retained_byte_conflict_input =
+      CaptureInput();
+  bool retained_byte_conflict_projected = false;
+  RequireOk(source.TryProject(kSectionKey, native->material, true, true,
+                              retained_byte_conflict_input,
+                              retained_byte_conflict_projected),
+            "project retained-owner byte conflict");
+  std::vector<GraphicsSceneAssetInput> retained_byte_conflict_assets =
+      BuildPlaceholderAssets(retained_byte_conflict_input);
+  conflicting_owner = v2_assets;
+  const auto conflicting_material = std::find_if(
+      conflicting_owner.begin(), conflicting_owner.end(),
+      [](const GraphicsSceneAssetInput &asset) {
+        return asset.payload != nullptr &&
+               RenderAssetPayloadKind(*asset.payload) ==
+                   RenderAssetKind::MATERIAL;
+      });
+  Require(conflicting_material != conflicting_owner.end(),
+          "retained-owner conflict fixture has no projected material");
+  conflicting_material->material_bindings[static_cast<std::size_t>(
+      MaterialTextureSlot::BASE_COLOR)].texture_source_asset_id ^= 1U;
+  const ValidationResult retained_byte_conflict = source.Apply(
+      retained_byte_conflict_assets, nullptr, &conflicting_owner);
+  Require(retained_byte_conflict_projected && !retained_byte_conflict &&
+              retained_byte_conflict.field ==
+                  "ogre_next_demo.material.retained_residue_collision" &&
+              !retained_byte_conflict_assets.empty(),
+          "retained owner byte conflict was accepted or partially published");
+  source.Discard();
+
   Ogre14SelectedTextureSourceResolution managed_resolution;
   RequireOk(selected_resolver.ResolveSelectedTextureSource(
                 *texture, managed_resolution),

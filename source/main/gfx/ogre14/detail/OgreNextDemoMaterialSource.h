@@ -62,6 +62,7 @@ struct OgreNextDemoMaterialApplyTiming final {
   std::uint64_t owner_publication_ns = 0U;
   std::uint64_t accounting_and_sort_ns = 0U;
   std::uint64_t retained_owner_asset_count = 0U;
+  std::uint64_t already_published_assets_elided = 0U;
   bool retained_authority_plan_reused = false;
   bool retained_owner_publication_reused = false;
 };
@@ -139,10 +140,16 @@ public:
              bool &projected) noexcept;
 
   /// Replaces matching synthetic matte material assets and appends their
-  /// immutable texture/sampler owners. Input is unchanged on failure.
+  /// immutable texture/sampler owners. `already_published_assets`, when
+  /// supplied, is the sorted immutable retained-scene owner: exact duplicates
+  /// are validated but omitted from the output residue instead of being
+  /// copied into this frame and subtracted again downstream. Input and the
+  /// retained owner are unchanged on failure.
   [[nodiscard]] Render::ValidationResult
   Apply(std::vector<Render::GraphicsSceneAssetInput> &assets,
-        OgreNextDemoMaterialApplyTiming *timing = nullptr) noexcept;
+        OgreNextDemoMaterialApplyTiming *timing = nullptr,
+        const std::vector<Render::GraphicsSceneAssetInput>
+            *already_published_assets = nullptr) noexcept;
 
   [[nodiscard]] std::size_t NewProjectionCount() const noexcept;
   [[nodiscard]] std::size_t UsedProjectionCount() const noexcept;
