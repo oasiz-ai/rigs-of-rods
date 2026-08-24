@@ -667,6 +667,19 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "RenderOperationResult ResetSceneGeneration()", start
         )
         body = self.reflection_runtime[start:end]
+        prepared_guard = body.index("if (pending != nullptr)")
+        deferred_guard = body.index("if (in_flight != nullptr")
+        cancellation = body.index("CancelInFlightCapture()")
+        residual_guard = body.index("if (scheduler.has_pending_plan())")
+        unbind = body.index("SetPbsBinding(false)")
+        self.assertLess(prepared_guard, deferred_guard)
+        self.assertLess(deferred_guard, cancellation)
+        self.assertLess(cancellation, residual_guard)
+        self.assertLess(residual_guard, unbind)
+        self.assertIn(
+            "deferred reflection capture could not be canceled at probe retirement",
+            body,
+        )
         for forbidden in (
             "scheduler.BeginFrame",
             "pcc->updateAllDirtyProbes",

@@ -2135,7 +2135,22 @@ public:
       return Failure(RenderOperationCode::BACKEND_FAILURE,
                      "runtime is fault-latched after native cleanup failure");
     }
-    if (pending != nullptr || scheduler.has_pending_plan()) {
+    if (pending != nullptr) {
+      return Failure(RenderOperationCode::OUTSTANDING_LEASES,
+                     "reflection work remains pending at probe retirement");
+    }
+    // A deferred PCC readback may legitimately outlive the last rendered
+    // frame. The capture has not published native probe state yet, so scene
+    // retirement must abort that scheduler transaction instead of requiring
+    // another render merely to drain it. A prepared frame above remains an
+    // outstanding lease and is never canceled implicitly.
+    if (in_flight != nullptr && !CancelInFlightCapture()) {
+      faulted = true;
+      return Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "deferred reflection capture could not be canceled at probe retirement");
+    }
+    if (scheduler.has_pending_plan()) {
       return Failure(RenderOperationCode::OUTSTANDING_LEASES,
                      "reflection work remains pending at probe retirement");
     }

@@ -261,10 +261,13 @@ public:
   /// onto the deferred list, and empties the live set: exactly the state
   /// PrepareFrame+FinalizeFrame reach from an empty descriptor list, minus the
   /// scheduler/capture transaction they cannot legitimately open outside a
-  /// render. Idempotent -- returns Success without touching native state when
-  /// the live set is already empty and PBS already unbound, so a rendered
-  /// final scene behaves byte-identically to today. Native destruction is NOT
-  /// performed here: it stays with the deferred drain inside
+  /// render. An unpublished deferred capture that outlives the final rendered
+  /// frame is canceled before committed probes retire; an already prepared
+  /// frame remains an outstanding lease and is rejected. Idempotent -- returns
+  /// Success without touching native state when the live set is already empty
+  /// and PBS already unbound, so a rendered final scene behaves byte-identically
+  /// to today. Native destruction is NOT performed here: it stays with the
+  /// deferred drain inside
   /// ResetSceneGeneration, so both paths converge on one destruction site.
   /// Call immediately before ResetSceneGeneration, which still re-queries the
   /// native binding and refuses if this did not achieve the required state.
