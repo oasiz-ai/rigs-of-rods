@@ -20,6 +20,7 @@
 // userValue[1] = (Beer-Lambert transmittance RGB, attenuation distance metres)
 // userValue[2] = (IOR, slab thickness metres, transmission factor, projection Y scale)
 @property( ror_thin_slab_transmission )
+@undefpiece( applyRefractions )
 @piece( applyRefractions )
 	midf3 incident = -pixelData.viewDir;
 	midf3 slabNormal = pixelData.normal;
@@ -71,6 +72,5 @@
 		pow( attenuationBase.z, attenuationExponent ) );
 	finalColour += refractionCol * attenuation *
 				   midf_c( material.userValue[2].z );
-	finalColour.w = _h( 1.0 );
 @end
 @end

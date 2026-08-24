@@ -277,7 +277,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             lock.write_bytes(source_lock.read_bytes())
             self.assertEqual(
                 UV_AFFINE_SHADER_VERIFIER.verify_shader(root, lock),
-                "db5439057c71d6b10b287a010fc171abc429c7c737cadb8fc2c1b0606ce690e6",
+                "3d60e9a0e30f2c4490de0b9f88406c9ce9a32acfaff01f308ec5f64922de3159",
             )
             shader.write_bytes(shader.read_bytes() + b"\n")
             with self.assertRaisesRegex(ValueError, "digest mismatch"):
@@ -501,7 +501,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "digest != expected.sha256",
         ):
             self.assertIn(token, self.entry_cmake + self.media_integrity)
-        self.assertIn(".stage-v11", self.entry_cmake)
+        self.assertIn(".stage-v12", self.entry_cmake)
         self.assertIn(
             '"Compute/Algorithms/IBL/SpecularIblIntegrator_piece_cs.any"',
             self.entry_cmake,
