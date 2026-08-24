@@ -6626,14 +6626,55 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 particle_finalize_started = std::chrono::steady_clock::now();
             if (!captured_dust_systems.empty())
             {
-                const auto dust_material_asset = std::find_if(
-                    nonterrain_assets.begin(), nonterrain_assets.end(),
-                    [dust_material_source_id](const auto& asset)
+                // Apply keeps the frame residue and retained static owner
+                // disjoint. Particle closure validation needs the joined
+                // publication view, however: SmokeMat and its texture or
+                // sampler can legitimately live in the immutable owner on a
+                // retention-hit frame. Both vectors are strictly ordered by
+                // source identity, so resolve without copying or rebuilding
+                // the union that the producer will receive.
+                const bool joined_static_owner =
+                    pending->static_state_retained;
+                const auto find_joined_asset =
+                    [this, &nonterrain_assets, joined_static_owner](
+                        std::uint64_t source_asset_id)
+                        -> const Render::GraphicsSceneAssetInput*
                     {
-                        return asset.source_asset_id ==
-                            dust_material_source_id;
-                    });
-                if (dust_material_asset == nonterrain_assets.end() ||
+                        const auto residue = std::lower_bound(
+                            nonterrain_assets.begin(),
+                            nonterrain_assets.end(), source_asset_id,
+                            [](const auto& asset, std::uint64_t identity)
+                            {
+                                return asset.source_asset_id < identity;
+                            });
+                        if (residue != nonterrain_assets.end() &&
+                            residue->source_asset_id == source_asset_id)
+                        {
+                            return &*residue;
+                        }
+                        if (!joined_static_owner ||
+                            m_ogre14_static_retention_assets_owner == nullptr)
+                        {
+                            return nullptr;
+                        }
+                        const auto& retained =
+                            *m_ogre14_static_retention_assets_owner;
+                        const auto owner = std::lower_bound(
+                            retained.begin(), retained.end(),
+                            source_asset_id,
+                            [](const auto& asset, std::uint64_t identity)
+                            {
+                                return asset.source_asset_id < identity;
+                            });
+                        return owner != retained.end() &&
+                                owner->source_asset_id == source_asset_id
+                            ? &*owner
+                            : nullptr;
+                    };
+                const Render::GraphicsSceneAssetInput* const
+                    dust_material_asset =
+                        find_joined_asset(dust_material_source_id);
+                if (dust_material_asset == nullptr ||
                     dust_material_asset->payload == nullptr ||
                     Render::RenderAssetPayloadKind(
                         *dust_material_asset->payload) !=
@@ -6656,28 +6697,20 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                         "continuous_particles.tracks_Dust.source_assets",
                         "SmokeMat did not retain exact smoke.dds and clamp sampler source identities");
                 }
-                const auto dust_texture_asset = std::find_if(
-                    nonterrain_assets.begin(), nonterrain_assets.end(),
-                    [&base_binding](const auto& asset)
-                    {
-                        return asset.source_asset_id ==
-                            base_binding.texture_source_asset_id;
-                    });
+                const Render::GraphicsSceneAssetInput* const
+                    dust_texture_asset = find_joined_asset(
+                        base_binding.texture_source_asset_id);
                 const Render::TextureResourceDescriptor* dust_texture =
-                    dust_texture_asset != nonterrain_assets.end() &&
+                    dust_texture_asset != nullptr &&
                             dust_texture_asset->payload != nullptr
                         ? std::get_if<Render::TextureResourceDescriptor>(
                               dust_texture_asset->payload.get())
                         : nullptr;
-                const auto dust_sampler_asset = std::find_if(
-                    nonterrain_assets.begin(), nonterrain_assets.end(),
-                    [&base_binding](const auto& asset)
-                    {
-                        return asset.source_asset_id ==
-                            base_binding.sampler_source_asset_id;
-                    });
+                const Render::GraphicsSceneAssetInput* const
+                    dust_sampler_asset = find_joined_asset(
+                        base_binding.sampler_source_asset_id);
                 const Render::SamplerResourceDescriptor* dust_sampler =
-                    dust_sampler_asset != nonterrain_assets.end() &&
+                    dust_sampler_asset != nullptr &&
                             dust_sampler_asset->payload != nullptr
                         ? std::get_if<Render::SamplerResourceDescriptor>(
                               dust_sampler_asset->payload.get())

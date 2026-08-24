@@ -75,6 +75,32 @@ class RetainedStaticSceneContractTests(unittest.TestCase):
         self.assertIn("candidate.frame.assets", window)
         self.assertIn("if (!dynamic_validation)", self.scene[start : start + 700])
 
+    def test_particles_resolve_material_closure_from_joined_assets(self) -> None:
+        # Material Apply elides exact assets already carried by the retained
+        # owner. Continuous particles must therefore resolve SmokeMat and its
+        # source texture/sampler from the same residue-plus-owner publication
+        # view instead of treating an elided asset as missing.
+        anchor = "const auto find_joined_asset ="
+        start = self.scene.index(anchor)
+        window = self.scene[start : start + 4800]
+        self.assertIn("std::lower_bound(\n                            nonterrain_assets", window)
+        self.assertIn("joined_static_owner", window)
+        self.assertIn(
+            "const bool joined_static_owner =\n                    pending->static_state_retained;",
+            self.scene[start - 200 : start],
+        )
+        self.assertIn("m_ogre14_static_retention_assets_owner", window)
+        self.assertIn("find_joined_asset(dust_material_source_id)", window)
+        self.assertIn(
+            "find_joined_asset(\n                        base_binding.texture_source_asset_id)",
+            window,
+        )
+        self.assertIn(
+            "find_joined_asset(\n                        base_binding.sampler_source_asset_id)",
+            window,
+        )
+        self.assertNotIn("std::find_if(\n                    nonterrain_assets", window)
+
     def test_refresh_mints_new_owner_vectors(self) -> None:
         # Owner identity is the producer's only change signal, so a refresh
         # must allocate fresh vectors rather than edit a published owner.
