@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
+import tempfile
 from unittest import mock
 import unittest
 
@@ -70,6 +72,10 @@ class JBeamMultiActorTSanSoakTests(unittest.TestCase):
         )
         self.assertEqual(
             profile["expectedRuntime"]["minimumDurationSeconds"], 600
+        )
+        self.assertEqual(
+            profile["expectedRuntime"]["durationClock"],
+            "ogre-monotonic-timer",
         )
         self.assertEqual(
             profile["expectedRuntime"]["minimumCompletedCycles"], 10
@@ -224,6 +230,47 @@ class JBeamMultiActorTSanSoakTests(unittest.TestCase):
                 self.assertIn(lock, source[body_start : body_start + 180])
         self.assertEqual(source.count(lock), len(guarded_signatures))
 
+    def test_timeout_diagnostics_retain_live_product_logs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            logs = root / "live-logs"
+            diagnostics = root / "diagnostics"
+            logs.mkdir()
+            diagnostics.mkdir()
+            (logs / "RoR.log").write_text("engine-live\n", encoding="utf-8")
+            (logs / "Angelscript.log").write_text(
+                "script-live\n", encoding="utf-8"
+            )
+
+            GATE.capture_runtime_diagnostics(
+                {"logs": logs},
+                diagnostics,
+                ("/tmp/RoR-Combined", "-map", "simple2.terrn2"),
+                "captured-output\n",
+                None,
+                "command exceeded 900 seconds",
+            )
+
+            process = json.loads(
+                (diagnostics / "process-result.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertIsNone(process["returncode"])
+            self.assertEqual(
+                process["failure"], "command exceeded 900 seconds"
+            )
+            self.assertEqual(
+                (diagnostics / "RoR.log").read_text(encoding="utf-8"),
+                "engine-live\n",
+            )
+            self.assertEqual(
+                (diagnostics / "Angelscript.log").read_text(
+                    encoding="utf-8"
+                ),
+                "script-live\n",
+            )
+
     def test_command_and_script_stay_in_combined_game_path(self) -> None:
         command = GATE.build_command(Path("/tmp/RoR-Combined"))
         self.assertIn("-map", command)
@@ -236,18 +283,22 @@ class JBeamMultiActorTSanSoakTests(unittest.TestCase):
         for token in (
             "TARGET_SECONDS = 600.0f",
             "MINIMUM_COMPLETED_CYCLES = 10",
+            "Timer gSoakWallClock",
+            "gSoakWallClock.getMilliseconds()",
             "MSG_SIM_DELETE_ACTOR_REQUESTED",
             "trySetDeterministicImpactVelocity",
             "game.setTrucksForcedActive(true)",
             "gActorDeletes",
         ):
             self.assertIn(token, script)
+        self.assertNotIn("gSoakStartTime = game.getTime()", script)
 
     def test_scope_does_not_claim_force_parity_or_runtime_package(self) -> None:
         source = TOOL_PATH.read_text(encoding="utf-8")
         self.assertIn(
             "sanitizer-evidence-not-qualified-runtime-package", source
         )
+        self.assertIn('"duration_clock": "ogre-monotonic-timer"', source)
         self.assertIn(
             "continuous-clean-room-multi-actor-contact-and-lifetime-mutation",
             source,

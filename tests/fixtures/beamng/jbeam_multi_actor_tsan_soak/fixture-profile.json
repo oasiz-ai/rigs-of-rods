@@ -7,6 +7,7 @@
     "cabTrianglesPerActor": 5,
     "collisionCabsPerActor": 5,
     "cycleFixedSteps": 2000,
+    "durationClock": "ogre-monotonic-timer",
     "fixedStepDenominator": 2000,
     "fixedStepNumerator": 1,
     "jbeamHydrosPerActor": 1,
@@ -32,7 +33,7 @@
   "rootPart": "ror_jbeam_spawn_fixture",
   "scenarioScript": {
     "path": "resources/scripts/example_jbeam_multi_actor_tsan_soak.as",
-    "sha256": "dc1a9f5e9d631dbc1c0c592dcafae8c7331a6c64b997a283316d597c3a3f695d"
+    "sha256": "cd7b94e651cf9f0219b5f3c179a01042660e27d876203563d0a5ff5f10e308aa"
   },
   "schema": 1
 }

@@ -45,8 +45,9 @@ bool gUpperSpawned = false;
 bool gForcedActive = false;
 bool gObservedCycleResponse = false;
 uint64 gCycleStartPhysicsStep = 0;
-float gSoakStartTime = -1.0f;
 float gLastProgressTime = -1.0f;
+Timer gSoakWallClock;
+bool gSoakWallClockStarted = false;
 int gCompletedCycles = 0;
 int gCollisionResponses = 0;
 int gActorSpawns = 0;
@@ -323,10 +324,15 @@ void frameStep(float dt)
         }
         gCycleStartPhysicsStep = game.getCompletedPhysicsSteps();
         gObservedCycleResponse = false;
-        if (gSoakStartTime < 0.0f)
+        if (!gSoakWallClockStarted)
         {
-            gSoakStartTime = game.getTime();
-            gLastProgressTime = gSoakStartTime;
+            // `game.getTime()` is authoritative simulation time. This gate
+            // instead promises a continuous ten-minute wall-clock exposure,
+            // so use Ogre's monotonic Timer and retain fixed-step counters as
+            // a separate minimum-work requirement.
+            gSoakWallClock.reset();
+            gSoakWallClockStarted = true;
+            gLastProgressTime = 0.0f;
             game.log(
                 "[RoR|D0|TSanSoak] ARMED actors=2 nodes=12 beams=32 " +
                 "cab_triangles=10 collision_cabs=10 hydros=2 batch=10");
@@ -383,13 +389,14 @@ void frameStep(float dt)
             ++gCollisionResponses;
         }
 
-        const float now = game.getTime();
-        if (now - gLastProgressTime >= 60.0f)
+        const float elapsed =
+            float(gSoakWallClock.getMilliseconds()) / 1000.0f;
+        if (elapsed - gLastProgressTime >= 60.0f)
         {
-            gLastProgressTime = now;
+            gLastProgressTime = elapsed;
             game.log(
                 "[RoR|D0|TSanSoak] PROGRESS elapsed_seconds=" +
-                formatFloat(now - gSoakStartTime, "f", 0, 3) +
+                formatFloat(elapsed, "f", 0, 3) +
                 " physics_steps=" + completed +
                 " completed_cycles=" + gCompletedCycles +
                 " actor_spawns=" + gActorSpawns +
@@ -404,7 +411,6 @@ void frameStep(float dt)
             return;
         }
         ++gCompletedCycles;
-        const float elapsed = now - gSoakStartTime;
         if (elapsed >= TARGET_SECONDS)
         {
             if (gCompletedCycles < MINIMUM_COMPLETED_CYCLES ||

@@ -164,6 +164,7 @@ def read_profile(
         "cabTrianglesPerActor": 5,
         "collisionCabsPerActor": 5,
         "cycleFixedSteps": EXPECTED_CYCLE_STEPS,
+        "durationClock": "ogre-monotonic-timer",
         "fixedStepDenominator": 2000,
         "fixedStepNumerator": 1,
         "jbeamHydrosPerActor": 1,
@@ -294,6 +295,54 @@ def build_runtime_environment(isolated_home: Path) -> dict[str, str]:
     return environment
 
 
+def capture_runtime_diagnostics(
+    layout: Mapping[str, Path],
+    diagnostics: Path,
+    command: Sequence[str],
+    stdout: str,
+    returncode: int | None,
+    failure: str | None = None,
+) -> None:
+    """Retain live product logs even when the bounded command times out."""
+    (diagnostics / "stdout.log").write_text(stdout, encoding="utf-8")
+    process_result: dict[str, object] = {
+        "command": list(command),
+        "returncode": returncode,
+    }
+    if failure is not None:
+        process_result["failure"] = failure
+    (diagnostics / "process-result.json").write_text(
+        json.dumps(process_result, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    for source, destination in (
+        (layout["logs"] / "RoR.log", diagnostics / "RoR.log"),
+        (
+            layout["logs"] / "Angelscript.log",
+            diagnostics / "Angelscript.log",
+        ),
+    ):
+        if source.is_file():
+            shutil.copy2(source, destination)
+
+
+def capture_sanitizer_reports(
+    instrumentation: Mapping[str, str] | None,
+    diagnostics: Path,
+) -> tuple[Path, ...]:
+    if instrumentation is None:
+        return ()
+    log_path = Path(instrumentation["log_path"])
+    reports = tuple(
+        path
+        for path in log_path.parent.glob(log_path.name + "*")
+        if path.is_file() and path.stat().st_size > 0
+    )
+    for report_path in reports:
+        shutil.copy2(report_path, diagnostics / report_path.name)
+    return reports
+
+
 def validate_logs(
     returncode: int,
     stdout: str,
@@ -422,49 +471,44 @@ def main(argv: Sequence[str] | None = None) -> int:
             instrumentation["symbols"], encoding="utf-8"
         )
 
+    command = build_command(executable)
     try:
         completed = support.run_command(
-            build_command(executable),
+            command,
             args.timeout,
             cwd=executable.parent,
             environment=environment,
         )
     except support.SoakFailure as error:
+        cause = error.__cause__
+        captured_stdout = support.decode_output(
+            getattr(cause, "stdout", None)
+        )
+        capture_runtime_diagnostics(
+            layout,
+            diagnostics,
+            command,
+            captured_stdout,
+            None,
+            str(error),
+        )
+        capture_sanitizer_reports(instrumentation, diagnostics)
         raise TSanSoakFailure(str(error)) from error
     stdout = support.decode_output(completed.stdout)
-    (diagnostics / "stdout.log").write_text(stdout, encoding="utf-8")
-    (diagnostics / "process-result.json").write_text(
-        json.dumps(
-            {
-                "command": list(build_command(executable)),
-                "returncode": completed.returncode,
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
+    capture_runtime_diagnostics(
+        layout,
+        diagnostics,
+        command,
+        stdout,
+        completed.returncode,
     )
-    for source, destination in (
-        (layout["logs"] / "RoR.log", diagnostics / "RoR.log"),
-        (layout["logs"] / "Angelscript.log", diagnostics / "Angelscript.log"),
-    ):
-        if source.is_file():
-            shutil.copy2(source, destination)
 
-    if instrumentation is not None:
-        sanitizer_reports = tuple(
-            path
-            for path in Path(instrumentation["log_path"]).parent.glob(
-                Path(instrumentation["log_path"]).name + "*"
-            )
-            if path.is_file() and path.stat().st_size > 0
-        )
-        for report_path in sanitizer_reports:
-            shutil.copy2(report_path, diagnostics / report_path.name)
-        if sanitizer_reports:
-            names = ", ".join(str(path) for path in sanitizer_reports)
-            raise TSanSoakFailure(f"ThreadSanitizer emitted reports: {names}")
+    sanitizer_reports = capture_sanitizer_reports(
+        instrumentation, diagnostics
+    )
+    if sanitizer_reports:
+        names = ", ".join(str(path) for path in sanitizer_reports)
+        raise TSanSoakFailure(f"ThreadSanitizer emitted reports: {names}")
     if completed.returncode != 0:
         raise TSanSoakFailure(
             f"RoR-Combined exited before log validation with "
@@ -488,6 +532,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     report = {
         "artifact_claim": "sanitizer-evidence-not-qualified-runtime-package",
+        "duration_clock": "ogre-monotonic-timer",
         "executable": str(executable),
         "executable_sha256": support.sha256_file(executable),
         "fixture_id": profile["fixtureId"],

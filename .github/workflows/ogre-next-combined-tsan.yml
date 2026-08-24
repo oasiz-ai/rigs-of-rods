@@ -228,6 +228,7 @@ jobs:
               "format": "ror-d0-full-runtime-tsan-soak-v1",
               "repository_commit": sys.argv[2],
               "artifact_claim": "sanitizer-evidence-not-qualified-runtime-package",
+              "duration_clock": "ogre-monotonic-timer",
               "scope": "continuous-clean-room-multi-actor-contact-and-lifetime-mutation",
               "workers": 8,
           }
