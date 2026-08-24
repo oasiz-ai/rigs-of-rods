@@ -28,6 +28,33 @@ namespace RoR::Render {
 constexpr std::uint8_t kOgreNextPccReservedRenderQueue = 250U;
 constexpr std::uint32_t kOgreNextPccCaptureVisibilityBit = 1U << 28U;
 constexpr std::uint32_t kOgreNextPccProxyVisibilityBit = 1U << 29U;
+constexpr std::uint64_t kOgreNextPccDeferredReadbackMinimumFrames = 2U;
+
+[[nodiscard]] constexpr std::uint64_t
+ComputeOgreNextPccEarliestReadbackFrame(
+    std::uint64_t issue_frame_id) noexcept {
+  return issue_frame_id <= UINT64_MAX -
+                               kOgreNextPccDeferredReadbackMinimumFrames
+             ? issue_frame_id + kOgreNextPccDeferredReadbackMinimumFrames
+             : UINT64_MAX;
+}
+
+[[nodiscard]] constexpr bool IsOgreNextPccReadbackPollEligible(
+    std::uint64_t issue_frame_id, std::uint64_t render_frame_id) noexcept {
+  return render_frame_id >=
+         ComputeOgreNextPccEarliestReadbackFrame(issue_frame_id);
+}
+
+[[nodiscard]] constexpr std::uint32_t
+ComputeOgreNextPccReadbackLatencyFrames(
+    std::uint64_t issue_frame_id,
+    std::uint64_t publication_frame_id) noexcept {
+  const std::uint64_t latency = publication_frame_id >= issue_frame_id
+                                    ? publication_frame_id - issue_frame_id
+                                    : 0U;
+  return static_cast<std::uint32_t>(
+      latency <= UINT32_MAX ? latency : UINT32_MAX);
+}
 
 struct OgreNextReflectionProbeRuntimeConfiguration final {
   std::uintptr_t ogre_root = 0U;
@@ -40,6 +67,11 @@ struct OgreNextReflectionProbeRuntimeConfiguration final {
   /// This lets removal use resetIblSpecMipmap(0) to recompute the canonical
   /// live-texture high-water mark without clobbering caller policy.
   bool owns_automatic_ibl_mipmap_policy = false;
+  /// Production captures keep the last committed generation visible while
+  /// native GPU readback completes. The standalone byte-evidence smoke turns
+  /// this off because it intentionally requires the complete capture in the
+  /// issuing frame.
+  bool defer_capture_readback = true;
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
   bool retain_capture_evidence = false;
 #endif
@@ -90,7 +122,7 @@ struct OgreNextReflectionProbeSkyBinding final {
 };
 
 struct OgreNextReflectionProbeAudit final {
-  std::uint32_t version = 4U;
+  std::uint32_t version = 5U;
   std::uint64_t committed_state_digest = 0U;
   std::uint64_t successful_capture_count = 0U;
   std::uint64_t failed_capture_count = 0U;
@@ -113,6 +145,10 @@ struct OgreNextReflectionProbeAudit final {
   /// change, bundle reload and shutdown that took the retire path; it is the
   /// diagnostic that replaces what the reset refusal used to signal.
   std::uint64_t scene_reset_retired_probe_count = 0U;
+  std::uint64_t deferred_capture_issue_count = 0U;
+  std::uint64_t deferred_capture_completion_count = 0U;
+  std::uint64_t last_capture_publication_frame_id = 0U;
+  std::uint32_t last_capture_readback_latency_frames = 0U;
   std::uint32_t scene_reset_teardowns = 0U;
   std::uint32_t completed_face_count = 0U;
   std::uint16_t last_probe_resolution = 0U;
@@ -187,7 +223,9 @@ public:
   Initialize(OgreNextReflectionProbeRuntimeConfiguration configuration);
 
   /// Plans and captures at most one scheduler-selected probe without
-  /// publishing scheduler lineage or replacing a committed native cubemap.
+  /// replacing a committed native cubemap. In deferred mode, later calls poll
+  /// the native readback without blocking and keep preparing pass-through
+  /// reflection transactions until the complete candidate is publishable.
   /// `tracking_camera` and every item pointer are borrowed native Ogre objects
   /// owned by the calling frontend. Exactly one FinalizeFrame or AbortFrame
   /// must follow every successful PrepareFrame.
@@ -199,9 +237,10 @@ public:
                std::uintptr_t tracking_camera,
                const OgreNextReflectionProbeSkyBinding &sky = {});
 
-  /// Atomically publishes the prepared capture after the enclosing frontend
-  /// has completed all failure-prone rendering, readback, validation, and
-  /// interop publication work.
+  /// Atomically publishes a completed prepared capture after the enclosing
+  /// frontend has completed all failure-prone rendering, validation, and
+  /// interop publication work. A deferred pass-through frame finalizes
+  /// successfully without changing capture lineage or the committed cubemap.
   [[nodiscard]] RenderOperationResult
   FinalizeFrame(std::uint64_t render_frame_id);
 

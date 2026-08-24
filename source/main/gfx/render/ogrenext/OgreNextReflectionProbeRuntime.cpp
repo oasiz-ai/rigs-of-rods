@@ -25,6 +25,7 @@
 #include "Cubemaps/OgreParallaxCorrectedCubemap.h"
 #include "Math/Simple/OgreAabb.h"
 #include "OgreBitwise.h"
+#include "OgreAsyncTextureTicket.h"
 #include "OgreCamera.h"
 #include "OgreDepthBuffer.h"
 #include "OgreHlmsCompute.h"
@@ -43,6 +44,7 @@
 #include "OgreSceneManager.h"
 #include "OgreTextureBox.h"
 #include "OgreTextureGpu.h"
+#include "OgreTextureGpuManager.h"
 #include "OgreVisibilityFlags.h"
 
 #include <algorithm>
@@ -388,6 +390,179 @@ struct FilteredReadback final {
   FilteredReadback &operator=(FilteredReadback &&) = delete;
 };
 
+/// Production readback owns one ticket per filtered mip plus one raw-mip
+/// ticket. Tickets are issued without accurate tracking so the render thread
+/// can continue presenting the last committed probe generation while the GPU
+/// copies into staging memory.
+struct DeferredCaptureReadback final {
+  Ogre::TextureGpuManager *manager = nullptr;
+  Ogre::AsyncTextureTicket *raw_mip_zero = nullptr;
+  std::vector<Ogre::AsyncTextureTicket *> filtered_mips;
+  ReflectionProbeCaptureMipMetadata metadata;
+  std::uint64_t issue_frame_id = 0U;
+  std::uint64_t earliest_poll_frame_id = 0U;
+};
+
+bool DestroyDeferredCaptureReadback(DeferredCaptureReadback &readback) noexcept {
+  bool clean = true;
+  if (readback.manager == nullptr &&
+      (readback.raw_mip_zero != nullptr || !readback.filtered_mips.empty())) {
+    clean = false;
+  }
+  if (readback.manager != nullptr) {
+    for (Ogre::AsyncTextureTicket *ticket : readback.filtered_mips) {
+      if (ticket == nullptr) {
+        clean = false;
+        continue;
+      }
+      try {
+        readback.manager->destroyAsyncTextureTicket(ticket);
+      } catch (...) {
+        clean = false;
+      }
+    }
+    if (readback.raw_mip_zero != nullptr) {
+      try {
+        readback.manager->destroyAsyncTextureTicket(
+            readback.raw_mip_zero);
+      } catch (...) {
+        clean = false;
+      }
+    }
+  }
+  readback = {};
+  return clean;
+}
+
+bool DeferredCaptureReadbackReady(DeferredCaptureReadback &readback,
+                                  std::uint64_t render_frame_id) {
+  if (!IsOgreNextPccReadbackPollEligible(readback.issue_frame_id,
+                                         render_frame_id) ||
+      readback.earliest_poll_frame_id !=
+          ComputeOgreNextPccEarliestReadbackFrame(readback.issue_frame_id) ||
+      readback.manager == nullptr || readback.raw_mip_zero == nullptr ||
+      readback.filtered_mips.size() != readback.metadata.mip_count) {
+    return false;
+  }
+  if (!readback.raw_mip_zero->queryIsTransferDone()) {
+    return false;
+  }
+  return std::all_of(
+      readback.filtered_mips.begin(), readback.filtered_mips.end(),
+      [](Ogre::AsyncTextureTicket *ticket) {
+        return ticket != nullptr && ticket->queryIsTransferDone();
+      });
+}
+
+void CopyAsyncTicketCanonical(Ogre::AsyncTextureTicket &ticket,
+                              std::uint32_t width, std::uint32_t height,
+                              std::uint32_t face_count,
+                              std::vector<std::uint8_t> &bytes) {
+  if (ticket.getWidth() != width || ticket.getHeight() != height ||
+      ticket.getNumSlices() != face_count) {
+    throw std::runtime_error(
+        "deferred PCC readback ticket has an unexpected shape");
+  }
+  const std::size_t row_bytes =
+      static_cast<std::size_t>(width) * kRgba16FloatBytesPerPixel;
+  if (height != 0U && row_bytes >
+                          (std::numeric_limits<std::size_t>::max)() / height) {
+    throw std::bad_alloc();
+  }
+  const std::size_t face_bytes = row_bytes * height;
+  if (face_count != 0U && face_bytes >
+                              (std::numeric_limits<std::size_t>::max)() /
+                                  face_count) {
+    throw std::bad_alloc();
+  }
+  bytes.assign(face_bytes * face_count, 0U);
+  const auto copy_box = [&](const Ogre::TextureBox &box,
+                            std::uint32_t first_face) {
+    if (box.width != width || box.height != height ||
+        box.bytesPerPixel != kRgba16FloatBytesPerPixel ||
+        first_face > face_count || box.numSlices > face_count - first_face) {
+      throw std::runtime_error(
+          "mapped PCC readback differs from its ticket layout");
+    }
+    for (std::uint32_t slice = 0U; slice < box.numSlices; ++slice) {
+      for (std::uint32_t row = 0U; row < height; ++row) {
+        const auto *source = static_cast<const std::uint8_t *>(
+            box.at(0U, row, slice));
+        std::uint8_t *destination =
+            bytes.data() +
+            static_cast<std::size_t>(first_face + slice) * face_bytes +
+            static_cast<std::size_t>(row) * row_bytes;
+        std::memcpy(destination, source, row_bytes);
+      }
+    }
+  };
+
+  if (ticket.canMapMoreThanOneSlice()) {
+    const Ogre::TextureBox box = ticket.map(0U);
+    try {
+      if (box.numSlices != face_count) {
+        throw std::runtime_error(
+            "deferred PCC readback did not map every cubemap face");
+      }
+      copy_box(box, 0U);
+    } catch (...) {
+      ticket.unmap();
+      throw;
+    }
+    ticket.unmap();
+  } else {
+    for (std::uint32_t face = 0U; face < face_count; ++face) {
+      const Ogre::TextureBox box = ticket.map(face);
+      try {
+        if (box.numSlices != 1U) {
+          throw std::runtime_error(
+              "deferred PCC face readback mapped multiple slices");
+        }
+        copy_box(box, face);
+      } catch (...) {
+        ticket.unmap();
+        throw;
+      }
+      ticket.unmap();
+    }
+  }
+}
+
+void BuildCapturedViews(
+    const ReflectionProbeCaptureMipMetadata &metadata,
+    const std::vector<std::vector<std::uint8_t>> &storage,
+    std::vector<ReflectionProbeCapturedSubresourceView> &views) {
+  if (storage.size() != metadata.mip_count) {
+    throw std::runtime_error(
+        "deferred PCC filtered storage does not match its mip contract");
+  }
+  views.clear();
+  views.reserve(static_cast<std::size_t>(metadata.face_count) *
+                metadata.mip_count);
+  for (std::uint16_t mip = 0U; mip < metadata.mip_count; ++mip) {
+    const std::size_t row_bytes =
+        static_cast<std::size_t>(metadata.widths[mip]) *
+        kRgba16FloatBytesPerPixel;
+    const std::size_t face_bytes =
+        row_bytes * static_cast<std::size_t>(metadata.heights[mip]);
+    if (storage[mip].size() != face_bytes * metadata.face_count) {
+      throw std::runtime_error(
+          "deferred PCC filtered bytes differ from their canonical shape");
+    }
+    for (std::uint32_t face = 0U; face < metadata.face_count; ++face) {
+      ReflectionProbeCapturedSubresourceView view;
+      view.face_index = face;
+      view.mip_level = mip;
+      view.width = metadata.widths[mip];
+      view.height = metadata.heights[mip];
+      view.row_pitch_bytes = row_bytes;
+      view.bytes = storage[mip].data() + face_bytes * face;
+      view.byte_count = face_bytes;
+      views.push_back(view);
+    }
+  }
+}
+
 void ReadFilteredTexture(Ogre::TextureGpu &texture,
                          const ReflectionProbeCaptureMipMetadata &metadata,
                          FilteredReadback &result) {
@@ -578,6 +753,56 @@ std::uint64_t ComputeNativeExecutionEvidence(
   return hasher.Value();
 }
 
+std::uint64_t ComputeDeferredNativeExecutionEvidence(
+    const std::vector<std::uint8_t> &canonical_raw_bytes,
+    const ReflectionProbeUpdateRequest &request,
+    const ReflectionProbeCaptureMeasurementResult &measurement) {
+  const std::size_t row_bytes =
+      static_cast<std::size_t>(request.resolution) *
+      kRgba16FloatBytesPerPixel;
+  const std::size_t expected_bytes =
+      row_bytes * static_cast<std::size_t>(request.resolution) *
+      kReflectionProbeCubemapFaceCount;
+  if (canonical_raw_bytes.size() != expected_bytes) {
+    throw std::runtime_error(
+        "deferred raw PCC bytes differ from their receipt layout");
+  }
+
+  StableHasher hasher;
+  hasher.AddString("ror.ogre_next.native_pcc_execution.v1");
+  hasher.AddByte(static_cast<std::uint8_t>(CompiledBackend()));
+  hasher.AddU64(request.probe_id);
+  hasher.AddU64(request.candidate_generation);
+  hasher.AddU64(request.deterministic_seed);
+  hasher.AddU64(measurement.canonical_capture_digest);
+  hasher.AddU32(request.resolution);
+  hasher.AddU32(request.resolution);
+  const std::size_t face_bytes =
+      row_bytes * static_cast<std::size_t>(request.resolution);
+  for (std::uint32_t face = 0U;
+       face < kReflectionProbeCubemapFaceCount; ++face) {
+    hasher.AddU32(face);
+    hasher.AddBytes(canonical_raw_bytes.data() + face_bytes * face,
+                    face_bytes);
+  }
+  return hasher.Value();
+}
+
+bool AreReflectionProbeDescriptorSetsEquivalent(
+    const std::vector<ReflectionProbeRuntimeDescriptor> &lhs,
+    const std::vector<ReflectionProbeRuntimeDescriptor> &rhs) noexcept {
+  if (lhs.size() != rhs.size()) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < lhs.size(); ++index) {
+    if (!AreReflectionProbeRuntimeDescriptorsEquivalent(lhs[index],
+                                                        rhs[index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 } // namespace
 
 class OgreNextReflectionProbeRuntime::Impl final {
@@ -589,6 +814,7 @@ public:
 
   struct PendingFrame final {
     std::uint64_t render_frame_id = 0U;
+    std::uint64_t capture_frame_id = 0U;
     std::uint64_t plan_id = 0U;
     std::map<std::uint64_t, ProbeState> candidate_states;
     std::vector<Ogre::CubemapProbe *> retired_probes;
@@ -606,6 +832,13 @@ public:
     bool pbs_binding_changed = false;
     bool pcc_created = false;
     bool captured = false;
+    bool pass_through = false;
+  };
+
+  struct InFlightCapture final {
+    std::unique_ptr<PendingFrame> staged;
+    std::vector<ReflectionProbeRuntimeDescriptor> descriptors;
+    DeferredCaptureReadback readback;
   };
 
   explicit Impl()
@@ -956,6 +1189,245 @@ public:
     return clean;
   }
 
+  void StageProspectiveStates(
+      PendingFrame &staged,
+      const std::vector<ReflectionProbeRuntimeDescriptor> &descriptors,
+      Ogre::CubemapProbe *candidate,
+      const ReflectionProbeUpdateRequest *captured_request) {
+    staged.candidate_states = states;
+    for (const ReflectionProbeRuntimeDescriptor &descriptor : descriptors) {
+      auto [entry, inserted] =
+          staged.candidate_states.try_emplace(descriptor.probe_id);
+      if (inserted || entry->second.committed == nullptr) {
+        entry->second.descriptor = descriptor;
+      }
+    }
+    if (captured_request != nullptr) {
+      ProbeState &state =
+          staged.candidate_states.at(captured_request->probe_id);
+      state.committed = candidate;
+      state.descriptor = captured_request->descriptor;
+    }
+    for (auto iterator = staged.candidate_states.begin();
+         iterator != staged.candidate_states.end();) {
+      const auto live_descriptor = std::lower_bound(
+          descriptors.begin(), descriptors.end(), iterator->first,
+          [](const ReflectionProbeRuntimeDescriptor &descriptor,
+             std::uint64_t probe_id) {
+            return descriptor.probe_id < probe_id;
+          });
+      const bool live = live_descriptor != descriptors.end() &&
+                        live_descriptor->probe_id == iterator->first;
+      if (!live) {
+        iterator = staged.candidate_states.erase(iterator);
+      } else {
+        ++iterator;
+      }
+    }
+    staged.retired_probes.reserve(states.size());
+    for (const auto &entry : states) {
+      Ogre::CubemapProbe *committed = entry.second.committed;
+      const auto next = staged.candidate_states.find(entry.first);
+      if (committed != nullptr &&
+          (next == staged.candidate_states.end() ||
+           next->second.committed != committed)) {
+        staged.retired_probes.push_back(committed);
+      }
+    }
+    for (const auto &entry : staged.candidate_states) {
+      staged.prospective_live_probe_count +=
+          entry.second.committed != nullptr ? 1U : 0U;
+    }
+  }
+
+  void IssueDeferredReadback(Ogre::TextureGpu &raw_texture,
+                             Ogre::TextureGpu &filtered_texture,
+                             const ReflectionProbeCaptureMipMetadata &metadata,
+                             std::uint64_t render_frame_id,
+                             DeferredCaptureReadback &readback) {
+    if (!TextureShapeMatches(filtered_texture, metadata.widths[0U],
+                             metadata.mip_count) ||
+        raw_texture.getTextureType() != Ogre::TextureTypes::TypeCube ||
+        raw_texture.getPixelFormat() != Ogre::PFG_RGBA16_FLOAT ||
+        raw_texture.getWidth() != metadata.widths[0U] ||
+        raw_texture.getHeight() != metadata.heights[0U] ||
+        raw_texture.getNumSlices() != metadata.face_count) {
+      throw std::runtime_error(
+          "deferred PCC source textures differ from their receipt layout");
+    }
+    Ogre::TextureGpuManager *manager = filtered_texture.getTextureManager();
+    if (manager == nullptr || raw_texture.getTextureManager() != manager) {
+      throw std::runtime_error(
+          "raw and filtered PCC textures do not share one native manager");
+    }
+
+    DeferredCaptureReadback staged;
+    staged.manager = manager;
+    staged.metadata = metadata;
+    staged.issue_frame_id = render_frame_id;
+    staged.earliest_poll_frame_id =
+        ComputeOgreNextPccEarliestReadbackFrame(render_frame_id);
+    try {
+      staged.raw_mip_zero = manager->createAsyncTextureTicket(
+          raw_texture.getWidth(), raw_texture.getHeight(),
+          raw_texture.getNumSlices(), raw_texture.getTextureType(),
+          raw_texture.getPixelFormat());
+      staged.raw_mip_zero->download(&raw_texture, 0U, false);
+      staged.filtered_mips.reserve(metadata.mip_count);
+      for (std::uint16_t mip = 0U; mip < metadata.mip_count; ++mip) {
+        Ogre::AsyncTextureTicket *ticket =
+            manager->createAsyncTextureTicket(
+                metadata.widths[mip], metadata.heights[mip],
+                metadata.face_count, filtered_texture.getTextureType(),
+                filtered_texture.getPixelFormat());
+        staged.filtered_mips.push_back(ticket);
+        ticket->download(&filtered_texture, static_cast<Ogre::uint8>(mip),
+                         false);
+      }
+    } catch (...) {
+      static_cast<void>(DestroyDeferredCaptureReadback(staged));
+      throw;
+    }
+    readback = std::move(staged);
+  }
+
+  [[nodiscard]] bool CancelInFlightCapture() noexcept {
+    if (in_flight == nullptr || in_flight->staged == nullptr) {
+      return false;
+    }
+    PendingFrame &staged = *in_flight->staged;
+    bool clean = DestroyDeferredCaptureReadback(in_flight->readback);
+    clean = AbortLocalPlan(staged.plan_id, staged.candidate,
+                           staged.pbs_binding_changed,
+                           staged.prior_pbs_bound,
+                           staged.pcc_created) &&
+            clean;
+    staged.candidate = nullptr;
+    in_flight.reset();
+    if (!clean) {
+      faulted = true;
+    }
+    return clean;
+  }
+
+  void StagePassThroughFrame(std::uint64_t render_frame_id) {
+    auto staged = std::make_unique<PendingFrame>();
+    staged->render_frame_id = render_frame_id;
+    staged->prior_pbs_bound = audit.pbs_bound;
+    staged->pass_through = true;
+    pending = std::move(staged);
+  }
+
+  [[nodiscard]] RenderOperationResult CompleteDeferredCapture(
+      std::uint64_t render_frame_id, const Double3 &origin,
+      Ogre::Camera &camera) {
+    if (in_flight == nullptr || in_flight->staged == nullptr) {
+      return Failure(RenderOperationCode::BACKEND_FAILURE,
+                     "deferred PCC capture lost its staged transaction");
+    }
+    PendingFrame &staged = *in_flight->staged;
+    const ReflectionProbeUpdateRequest &request = staged.captured_request;
+    try {
+      std::vector<std::vector<std::uint8_t>> filtered_storage(
+          in_flight->readback.metadata.mip_count);
+      for (std::uint16_t mip = 0U;
+           mip < in_flight->readback.metadata.mip_count; ++mip) {
+        CopyAsyncTicketCanonical(
+            *in_flight->readback.filtered_mips[mip],
+            in_flight->readback.metadata.widths[mip],
+            in_flight->readback.metadata.heights[mip],
+            in_flight->readback.metadata.face_count,
+            filtered_storage[mip]);
+      }
+      std::vector<ReflectionProbeCapturedSubresourceView> views;
+      BuildCapturedViews(in_flight->readback.metadata, filtered_storage,
+                         views);
+      ReflectionProbeCaptureMeasurementResult measurement =
+          ComputeReflectionProbeCaptureMeasurement(
+              request, CompiledBackend(),
+              ReflectionProbeCapturePixelFormat::RGBA16_FLOAT, views);
+      if (!measurement) {
+        throw std::runtime_error(
+            "canonical deferred readback failed measurement: " +
+            measurement.validation.field + ": " +
+            measurement.validation.detail);
+      }
+      const FilteredContentStats filtered_stats =
+          MeasureFilteredContent(views);
+      std::vector<std::uint8_t> raw_bytes;
+      CopyAsyncTicketCanonical(
+          *in_flight->readback.raw_mip_zero, request.resolution,
+          request.resolution, kReflectionProbeCubemapFaceCount, raw_bytes);
+      const std::uint64_t native_evidence =
+          ComputeDeferredNativeExecutionEvidence(raw_bytes, request,
+                                                 measurement);
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      if (configuration.retain_capture_evidence) {
+        staged.capture_evidence.raw_mip_zero_rgba16f = raw_bytes;
+        for (const std::vector<std::uint8_t> &mip_bytes : filtered_storage) {
+          staged.capture_evidence.filtered_rgba16f.insert(
+              staged.capture_evidence.filtered_rgba16f.end(),
+              mip_bytes.begin(), mip_bytes.end());
+        }
+        staged.capture_evidence.backend = CompiledBackend();
+        staged.capture_evidence.render_system =
+            root->getRenderSystem()->getName();
+        const Ogre::RenderSystemCapabilities *capabilities =
+            root->getRenderSystem()->getCapabilities();
+        if (capabilities != nullptr) {
+          staged.capture_evidence.device_name =
+              capabilities->getDeviceName();
+          staged.capture_evidence.driver_version =
+              capabilities->getDriverVersion().toString();
+        }
+        staged.capture_evidence.render_frame_id = staged.capture_frame_id;
+        staged.capture_evidence.simulation_tick = request.simulation_tick;
+        staged.capture_evidence.probe_id = request.probe_id;
+        staged.capture_evidence.content_revision = request.content_revision;
+        staged.capture_evidence.candidate_generation =
+            request.candidate_generation;
+        staged.capture_evidence.deterministic_seed =
+            request.deterministic_seed;
+        staged.capture_evidence.capture_resolution = request.resolution;
+        staged.capture_evidence.filtered_mips = measurement.mip_metadata;
+        staged.capture_evidence.valid = true;
+      }
+#endif
+      staged.measurement = measurement;
+      staged.filtered_stats = filtered_stats;
+      staged.native_execution_evidence = native_evidence;
+      staged.receipts.push_back(
+          ReflectionProbeCaptureReceipt::IssueFromConcreteAdapter(
+              staged.plan_id, 0U, request, native_evidence, measurement));
+      staged.captured = true;
+      ApplyDescriptor(*staged.candidate, request.descriptor, origin, false);
+      staged.candidate->mMask = kCandidateProbeMask;
+      pcc->mMask = kCommittedProbeMask;
+      const Ogre::Matrix4 view = camera.getViewMatrix();
+      pcc->mTrackedPosition = view.inverseAffine().getTrans();
+      pcc->mTrackedViewProjMatrix = camera.getProjectionMatrix() * view;
+      if (!DestroyDeferredCaptureReadback(in_flight->readback)) {
+        throw std::runtime_error(
+            "deferred PCC readback tickets could not be retired");
+      }
+      staged.render_frame_id = render_frame_id;
+      pending = std::move(in_flight->staged);
+      in_flight.reset();
+      return RenderOperationResult::Success();
+    } catch (const std::bad_alloc &) {
+      static_cast<void>(CancelInFlightCapture());
+      return Failure(RenderOperationCode::OUT_OF_MEMORY,
+                     "deferred PCC readback ran out of memory");
+    } catch (const Ogre::Exception &error) {
+      static_cast<void>(CancelInFlightCapture());
+      return Failure(RenderOperationCode::BACKEND_FAILURE,
+                     error.getFullDescription());
+    } catch (const std::exception &error) {
+      static_cast<void>(CancelInFlightCapture());
+      return Failure(RenderOperationCode::BACKEND_FAILURE, error.what());
+    }
+  }
+
   [[nodiscard]] RenderOperationResult
   PrepareFrame(std::uint64_t render_frame_id, std::uint64_t simulation_tick,
                const Double3 &origin,
@@ -975,7 +1447,8 @@ public:
       return Failure(RenderOperationCode::BACKEND_FAILURE,
                      "runtime is fault-latched after native cleanup failure");
     }
-    if (pending != nullptr || scheduler.has_pending_plan()) {
+    if (pending != nullptr ||
+        (scheduler.has_pending_plan() && in_flight == nullptr)) {
       return Failure(RenderOperationCode::INVALID_ARGUMENT,
                      "a reflection frame transaction is already pending");
     }
@@ -1064,6 +1537,53 @@ public:
       }
     }
 
+    if (in_flight != nullptr) {
+      if (!scheduler.has_pending_plan() || pcc == nullptr ||
+          in_flight->staged == nullptr ||
+          in_flight->staged->candidate == nullptr) {
+        faulted = true;
+        return Failure(RenderOperationCode::BACKEND_FAILURE,
+                       "deferred PCC capture lost native or scheduler ownership");
+      }
+      try {
+        for (auto &entry : states) {
+          if (entry.second.committed != nullptr) {
+            ApplyDescriptor(*entry.second.committed, entry.second.descriptor,
+                            origin, false);
+            entry.second.committed->mMask = kCommittedProbeMask;
+          }
+        }
+        pcc->mMask = kCommittedProbeMask;
+        const Ogre::Matrix4 view = camera->getViewMatrix();
+        pcc->mTrackedPosition = view.inverseAffine().getTrans();
+        pcc->mTrackedViewProjMatrix = camera->getProjectionMatrix() * view;
+        if (!DeferredCaptureReadbackReady(in_flight->readback,
+                                          render_frame_id)) {
+          StagePassThroughFrame(render_frame_id);
+          return RenderOperationResult::Success();
+        }
+      } catch (const Ogre::Exception &error) {
+        static_cast<void>(CancelInFlightCapture());
+        return Failure(RenderOperationCode::BACKEND_FAILURE,
+                       error.getFullDescription());
+      } catch (const std::exception &error) {
+        static_cast<void>(CancelInFlightCapture());
+        return Failure(RenderOperationCode::BACKEND_FAILURE, error.what());
+      }
+
+      if (AreReflectionProbeDescriptorSetsEquivalent(
+              descriptors, in_flight->descriptors)) {
+        return CompleteDeferredCapture(render_frame_id, origin, *camera);
+      }
+      // A newer descriptor set supersedes the completed but unpublished
+      // candidate. Retire it without publishing stale pixels, then let this
+      // same frame open a fresh scheduler transaction for the new set.
+      if (!CancelInFlightCapture()) {
+        return Failure(RenderOperationCode::BACKEND_FAILURE,
+                       "superseded deferred PCC capture could not be retired");
+      }
+    }
+
     ReflectionProbePlanResult planned = scheduler.BeginFrame(
         render_frame_id, simulation_tick, origin, descriptors);
     if (!planned) {
@@ -1086,6 +1606,7 @@ public:
     try {
       auto staged = std::make_unique<PendingFrame>();
       staged->render_frame_id = render_frame_id;
+      staged->capture_frame_id = render_frame_id;
       staged->plan_id = plan.plan_id;
       staged->prior_pbs_bound = prior_pbs_bound;
       staged->receipts.reserve(plan.requests.size());
@@ -1261,6 +1782,29 @@ public:
         }
         const ReflectionProbeCaptureMipMetadata metadata =
             ComputeReflectionProbeCaptureMipMetadata(request.resolution);
+        if (configuration.defer_capture_readback) {
+          staged->candidate = candidate;
+          staged->captured_request = request;
+          StageProspectiveStates(*staged, descriptors, candidate, &request);
+          if (pcc != nullptr) {
+            pcc->mMask = kCommittedProbeMask;
+            const Ogre::Matrix4 view = camera->getViewMatrix();
+            pcc->mTrackedPosition = view.inverseAffine().getTrans();
+            pcc->mTrackedViewProjMatrix =
+                camera->getProjectionMatrix() * view;
+          }
+          staged->pbs_binding_changed = pbs_binding_changed;
+          staged->pcc_created = pcc_created;
+          auto deferred = std::make_unique<InFlightCapture>();
+          deferred->staged = std::move(staged);
+          deferred->descriptors = descriptors;
+          IssueDeferredReadback(*external[0U], *filtered, metadata,
+                                render_frame_id, deferred->readback);
+          in_flight = std::move(deferred);
+          ++audit.deferred_capture_issue_count;
+          StagePassThroughFrame(render_frame_id);
+          return RenderOperationResult::Success();
+        }
         FilteredReadback filtered_readback;
         ReadFilteredTexture(*filtered, metadata, filtered_readback);
         ReflectionProbeCaptureMeasurementResult measurement =
@@ -1351,50 +1895,9 @@ public:
         staged->captured = true;
       }
 
-      staged->candidate_states = states;
-      for (const ReflectionProbeRuntimeDescriptor &descriptor : descriptors) {
-        auto [entry, inserted] =
-            staged->candidate_states.try_emplace(descriptor.probe_id);
-        if (inserted || entry->second.committed == nullptr) {
-          entry->second.descriptor = descriptor;
-        }
-      }
-      if (!plan.requests.empty()) {
-        const ReflectionProbeUpdateRequest &request = plan.requests.front();
-        ProbeState &state = staged->candidate_states.at(request.probe_id);
-        state.committed = candidate;
-        state.descriptor = request.descriptor;
-      }
-      for (auto iterator = staged->candidate_states.begin();
-           iterator != staged->candidate_states.end();) {
-        const auto live_descriptor = std::lower_bound(
-            descriptors.begin(), descriptors.end(), iterator->first,
-            [](const ReflectionProbeRuntimeDescriptor &descriptor,
-               std::uint64_t probe_id) {
-              return descriptor.probe_id < probe_id;
-            });
-        const bool live = live_descriptor != descriptors.end() &&
-                          live_descriptor->probe_id == iterator->first;
-        if (!live) {
-          iterator = staged->candidate_states.erase(iterator);
-        } else {
-          ++iterator;
-        }
-      }
-      staged->retired_probes.reserve(states.size());
-      for (const auto &entry : states) {
-        Ogre::CubemapProbe *committed = entry.second.committed;
-        const auto next = staged->candidate_states.find(entry.first);
-        if (committed != nullptr &&
-            (next == staged->candidate_states.end() ||
-             next->second.committed != committed)) {
-          staged->retired_probes.push_back(committed);
-        }
-      }
-      for (const auto &entry : staged->candidate_states) {
-        staged->prospective_live_probe_count +=
-            entry.second.committed != nullptr ? 1U : 0U;
-      }
+      StageProspectiveStates(
+          *staged, descriptors, candidate,
+          plan.requests.empty() ? nullptr : &plan.requests.front());
 
       if (pcc != nullptr) {
         pcc->mMask = kCommittedProbeMask;
@@ -1454,6 +1957,16 @@ public:
       faulted = true;
       return Failure(RenderOperationCode::BACKEND_FAILURE,
                      "HLMS PBS ownership changed before finalization");
+    }
+    if (pending->pass_through) {
+      if (in_flight == nullptr || !scheduler.has_pending_plan()) {
+        faulted = true;
+        return Failure(
+            RenderOperationCode::BACKEND_FAILURE,
+            "deferred PCC pass-through lost its capture transaction");
+      }
+      pending.reset();
+      return RenderOperationResult::Success();
     }
     if (!deferred_probes.empty()) {
       faulted = true;
@@ -1516,7 +2029,14 @@ public:
     if (published->captured) {
       audit.native_execution_evidence =
           published->native_execution_evidence;
-      audit.last_capture_frame_id = render_frame_id;
+      audit.last_capture_frame_id = published->capture_frame_id;
+      audit.last_capture_publication_frame_id = render_frame_id;
+      audit.last_capture_readback_latency_frames =
+          ComputeOgreNextPccReadbackLatencyFrames(
+              published->capture_frame_id, render_frame_id);
+      if (configuration.defer_capture_readback) {
+        ++audit.deferred_capture_completion_count;
+      }
       audit.last_capture_simulation_tick =
           published->captured_request.simulation_tick;
       audit.last_probe_id = published->captured_request.probe_id;
@@ -1557,6 +2077,10 @@ public:
     if (!OnOwnerThread() || pending == nullptr ||
         pending->render_frame_id != render_frame_id) {
       return false;
+    }
+    if (pending->pass_through) {
+      pending.reset();
+      return CancelInFlightCapture();
     }
     bool clean = true;
     if (scheduler.has_pending_plan()) {
@@ -1694,6 +2218,8 @@ public:
     audit.committed_state_digest = scheduler.committed_state_digest();
     audit.native_execution_evidence = 0U;
     audit.last_capture_frame_id = 0U;
+    audit.last_capture_publication_frame_id = 0U;
+    audit.last_capture_readback_latency_frames = 0U;
     audit.last_capture_simulation_tick = 0U;
     audit.last_probe_id = 0U;
     audit.last_content_revision = 0U;
@@ -1744,6 +2270,8 @@ public:
     bool clean = true;
     if (pending != nullptr) {
       clean = AbortFrame(pending->render_frame_id) && clean;
+    } else if (in_flight != nullptr) {
+      clean = CancelInFlightCapture() && clean;
     } else if (scheduler.has_pending_plan()) {
       clean = false;
     }
@@ -1818,6 +2346,7 @@ public:
     states.clear();
     deferred_probes.clear();
     pending.reset();
+    in_flight.reset();
     scheduler.Reset();
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
     last_capture_evidence = {};
@@ -1841,6 +2370,7 @@ public:
   std::map<std::uint64_t, ProbeState> states;
   std::vector<Ogre::CubemapProbe *> deferred_probes;
   std::unique_ptr<PendingFrame> pending;
+  std::unique_ptr<InFlightCapture> in_flight;
   std::array<Ogre::String, kReflectionResourceLocationCount>
       resource_locations{};
   std::size_t added_resource_location_count = 0U;

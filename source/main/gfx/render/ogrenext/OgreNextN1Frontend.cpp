@@ -13047,6 +13047,8 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
       reflection_configuration.retain_capture_evidence =
           impl_->retain_reflection_capture_evidence;
+      reflection_configuration.defer_capture_readback =
+          !impl_->retain_reflection_capture_evidence;
 #endif
       const RenderOperationResult reflection_initialization =
           impl_->reflection_probe_runtime->Initialize(

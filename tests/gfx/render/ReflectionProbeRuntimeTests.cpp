@@ -9,6 +9,7 @@
 #include "ReflectionProbeCaptureReceipt.h"
 #include "ReflectionProbeCaptureTestAdapter.h"
 #include "ReflectionProbeRuntime.h"
+#include "ogrenext/OgreNextReflectionProbeRuntime.h"
 
 #include <algorithm>
 #include <cmath>
@@ -39,6 +40,36 @@ void Require(bool condition, const char *message) {
     std::cerr << "reflection-probe runtime test failed: " << message << '\n';
     std::exit(EXIT_FAILURE);
   }
+}
+
+void TestOgreNextDeferredReadbackPacing() {
+  Require(kOgreNextPccDeferredReadbackMinimumFrames == 2U,
+          "native PCC readback delay changed without a contract update");
+  Require(ComputeOgreNextPccEarliestReadbackFrame(41U) == 43U,
+          "ordinary deferred PCC poll frame drifted");
+  Require(!IsOgreNextPccReadbackPollEligible(41U, 41U) &&
+              !IsOgreNextPccReadbackPollEligible(41U, 42U) &&
+              IsOgreNextPccReadbackPollEligible(41U, 43U),
+          "deferred PCC readback admitted a same-frame GPU wait");
+  Require(ComputeOgreNextPccEarliestReadbackFrame(UINT64_MAX - 1U) ==
+              UINT64_MAX &&
+              !IsOgreNextPccReadbackPollEligible(UINT64_MAX - 1U,
+                                                 UINT64_MAX - 1U) &&
+              IsOgreNextPccReadbackPollEligible(UINT64_MAX - 1U,
+                                                UINT64_MAX),
+          "deferred PCC readback frame arithmetic did not saturate");
+  Require(ComputeOgreNextPccReadbackLatencyFrames(41U, 45U) == 4U &&
+              ComputeOgreNextPccReadbackLatencyFrames(45U, 41U) == 0U &&
+              ComputeOgreNextPccReadbackLatencyFrames(0U, UINT64_MAX) ==
+                  UINT32_MAX,
+          "deferred PCC publication latency is not bounded and monotonic");
+
+  const OgreNextReflectionProbeAudit audit;
+  Require(audit.version == 5U && audit.deferred_capture_issue_count == 0U &&
+              audit.deferred_capture_completion_count == 0U &&
+              audit.last_capture_publication_frame_id == 0U &&
+              audit.last_capture_readback_latency_frames == 0U,
+          "native PCC audit defaults do not fail closed");
 }
 
 ReflectionProbeRuntimeDescriptor Probe(
@@ -733,6 +764,7 @@ void TestFixedSeedReplayDeterminism() {
 } // namespace
 
 int main() {
+  TestOgreNextDeferredReadbackPacing();
   TestDescriptorAdmissionAndFingerprint();
   TestInitialBudgetAndStablePriorityOrder();
   TestRevisionLineageAndStaticInvalidation();

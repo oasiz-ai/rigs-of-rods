@@ -5708,7 +5708,7 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
                 sky.portable_scene_identity_absent,
             "RT4/V1 did not publish one exact native analytic-sky frame");
     result.reflection_probes = frontend.QueryReflectionProbeAudit();
-    Require(result.reflection_probes.version == 4U &&
+    Require(result.reflection_probes.version == 5U &&
                 result.reflection_probes.initialized &&
                 result.reflection_probes.compositor_defined_in_code &&
                 result.reflection_probes.exact_resources_loaded &&

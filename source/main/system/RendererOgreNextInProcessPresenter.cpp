@@ -821,6 +821,14 @@ public:
         reflection.last_capture_frame_id;
     output.reflection_last_capture_simulation_tick =
         reflection.last_capture_simulation_tick;
+    output.reflection_last_capture_publication_frame_id =
+        reflection.last_capture_publication_frame_id;
+    output.reflection_deferred_capture_issue_count =
+        reflection.deferred_capture_issue_count;
+    output.reflection_deferred_capture_completion_count =
+        reflection.deferred_capture_completion_count;
+    output.reflection_last_capture_readback_latency_frames =
+        reflection.last_capture_readback_latency_frames;
     output.reflection_scene_reset_retired_probe_count =
         reflection.scene_reset_retired_probe_count;
     output.reflection_scene_reset_teardowns =

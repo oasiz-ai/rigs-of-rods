@@ -5244,6 +5244,10 @@ int main(int argc, char *argv[])
                                     "reflection_captures={} reflection_failures={} "
                                     "reflection_capture_frame={} "
                                     "reflection_capture_tick={} "
+                                    "reflection_publication_frame={} "
+                                    "reflection_readback_latency_frames={} "
+                                    "reflection_deferred_issues={} "
+                                    "reflection_deferred_completions={} "
                                     "reflection_faces={} reflection_mips={} "
                                     "reflection_probe_resolution={} "
                                     "reflection_blend_resolution={} "
@@ -5319,6 +5323,14 @@ int main(int argc, char *argv[])
                                         .reflection_last_capture_frame_id,
                                     lighting_audit
                                         .reflection_last_capture_simulation_tick,
+                                    lighting_audit
+                                        .reflection_last_capture_publication_frame_id,
+                                    lighting_audit
+                                        .reflection_last_capture_readback_latency_frames,
+                                    lighting_audit
+                                        .reflection_deferred_capture_issue_count,
+                                    lighting_audit
+                                        .reflection_deferred_capture_completion_count,
                                     lighting_audit
                                         .reflection_completed_face_count,
                                     lighting_audit
