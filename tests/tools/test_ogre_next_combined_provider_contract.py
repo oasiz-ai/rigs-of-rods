@@ -914,6 +914,8 @@ class CombinedProviderContractTests(unittest.TestCase):
             'test ! -e "$app/Contents/MacOS/RoR"',
             'test ! -e "$app/Contents/MacOS/RoR-Ogre14"',
             "codesign --verify --deep --strict",
+            'line_number == 1 and line == f"{executable}:"',
+            "relocated RoR-Combined retains forbidden",
             "Render packaged Simple2 and semi through Ogre-Next Metal",
             "tools/run_playable_performance_scene.py",
             "ci.ogre-next-combined.macos-packaged-simple2-semi",

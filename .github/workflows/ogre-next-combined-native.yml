@@ -957,18 +957,34 @@ jobs:
             | tee "$qualification/RoR-Combined.otool-L.txt"
           otool -l "$executable" \
             | tee "$qualification/RoR-Combined.otool-l.txt"
-          if grep -Fq "$build" \
+          python - \
+              "$executable" \
+              "$build" \
+              "$CONAN_HOME" \
               "$qualification/RoR-Combined.otool-L.txt" \
-              "$qualification/RoR-Combined.otool-l.txt"; then
-            echo 'relocated RoR-Combined retains its build root' >&2
-            exit 1
-          fi
-          if grep -Fq "$CONAN_HOME" \
-              "$qualification/RoR-Combined.otool-L.txt" \
-              "$qualification/RoR-Combined.otool-l.txt"; then
-            echo 'relocated RoR-Combined retains its Conan root' >&2
-            exit 1
-          fi
+              "$qualification/RoR-Combined.otool-l.txt" <<'PY'
+          from pathlib import Path
+          import sys
+
+          executable = Path(sys.argv[1]).resolve(strict=True)
+          forbidden = tuple(sys.argv[2:4])
+          for report_name in sys.argv[4:]:
+              report = Path(report_name).resolve(strict=True)
+              for line_number, line in enumerate(
+                  report.read_text(encoding="utf-8").splitlines(),
+                  start=1,
+              ):
+                  # otool prefixes every report with the inspected subject's
+                  # absolute path. That heading is not a Mach-O load command.
+                  if line_number == 1 and line == f"{executable}:":
+                      continue
+                  for root in forbidden:
+                      if root in line:
+                          raise SystemExit(
+                              f"relocated RoR-Combined retains forbidden "
+                              f"root in {report.name}:{line_number}: {root}"
+                          )
+          PY
           cmake -E copy \
             "$build/source/main/RoR-Combined.binary-closure.json" \
             "$qualification/RoR-Combined.binary-closure.json"
