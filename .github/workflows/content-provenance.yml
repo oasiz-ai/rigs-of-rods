@@ -37,6 +37,7 @@ jobs:
           tests/tools/test_build_cityworld_local_overlay.py
           tests/tools/test_build_cityworld_next_provenance.py
           tests/tools/test_canonicalize_static_glb.py
+          tests/tools/test_cityworld_terrain_layers.py
           tests/tools/test_cityworld_infill.py
           tests/tools/test_cityworld_infill_assets.py
           tests/tools/test_cityworld_storefront_family.py
@@ -67,6 +68,7 @@ jobs:
           tests/tools/test_build_cityworld_local_overlay.py
           tests/tools/test_build_cityworld_next_provenance.py
           tests/tools/test_canonicalize_static_glb.py
+          tests/tools/test_cityworld_terrain_layers.py
           tests/tools/test_cityworld_infill.py
           tests/tools/test_cityworld_infill_assets.py
           tests/tools/test_cityworld_storefront_family.py
