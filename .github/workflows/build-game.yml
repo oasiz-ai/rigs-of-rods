@@ -15,7 +15,7 @@ jobs:
       - name: Cache conan
         uses: actions/cache@v6
         with:
-          key: conan-ubuntu-${{ hashFiles('conanfile.py') }}
+          key: conan-ubuntu-${{ hashFiles('conanfile.py', 'cmake/conan/export_pinned_dependency_recipes.py') }}
           path: ~/.conan2/
 
       - name: Install dependencies
@@ -46,6 +46,9 @@ jobs:
           echo "tools.system.package_manager:mode = install" > ~/.conan2/global.conf
           echo "tools.system.package_manager:sudo = True" >> ~/.conan2/global.conf
           conan remote add rigs-of-rods-deps https://nexus.anotherfoxguy.com/repository/rigs-of-rods/ -f
+          python cmake/conan/export_pinned_dependency_recipes.py \
+            --archive "$RUNNER_TEMP/ror-conan-recipes-d3568327.tar.gz" \
+            --extract-root "$RUNNER_TEMP/ror-conan-recipes-export"
           cmake . -GNinja -DCMAKE_BUILD_TYPE=Release -Bbuild -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake -DCMAKE_INSTALL_PREFIX=redist -DCREATE_CONTENT_FOLDER=ON
         shell: bash
 
@@ -98,7 +101,7 @@ jobs:
       - name: Cache conan packages
         uses: actions/cache@v6
         with:
-          key: conan-windows-cpp14-${{ hashFiles('conanfile.py', 'cmake/conan_provider.cmake') }}
+          key: conan-windows-cpp14-${{ hashFiles('conanfile.py', 'cmake/conan_provider.cmake', 'cmake/conan/export_pinned_dependency_recipes.py') }}
           path: ~/.conan2
 
       - name: Enable Developer Command Prompt
@@ -106,7 +109,10 @@ jobs:
 
       - name: Configure
         run: |
+          conan profile detect --force
           conan remote add rigs-of-rods-deps https://nexus.anotherfoxguy.com/repository/rigs-of-rods/ -f
+          python cmake\conan\export_pinned_dependency_recipes.py --archive "%RUNNER_TEMP%\ror-conan-recipes-d3568327.tar.gz" --extract-root "%RUNNER_TEMP%\ror-conan-recipes-export"
+          if errorlevel 1 exit /b 1
           rem Legacy OGRE 1.11 still uses std::binary_function. Keep its Conan
           rem dependency graph on the last compatible language mode while RoR
           rem itself continues to compile as required C++17.

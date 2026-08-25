@@ -14,6 +14,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = ROOT / "cmake/conan/export_pinned_dependency_recipes.py"
 WORKFLOW_PATH = ROOT / ".github/workflows/ogre14-native.yml"
+BUILD_GAME_WORKFLOW_PATH = ROOT / ".github/workflows/build-game.yml"
 
 SPEC = importlib.util.spec_from_file_location(
     "export_pinned_dependency_recipes", SCRIPT_PATH
@@ -114,6 +115,27 @@ class PinnedDependencyRecipeTests(unittest.TestCase):
         self.assertIn("pinned-conan-recipes.json", workflow)
         self.assertNotIn("nexus.anotherfoxguy.com", workflow)
         self.assertNotIn("rigs-of-rods-deps", workflow)
+
+    def test_build_game_exports_pinned_recipes_on_both_platforms(self) -> None:
+        workflow = BUILD_GAME_WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertEqual(
+            workflow.count(
+                "python cmake/conan/export_pinned_dependency_recipes.py"
+            )
+            + workflow.count(
+                "python cmake\\conan\\export_pinned_dependency_recipes.py"
+            ),
+            2,
+        )
+        self.assertEqual(workflow.count("conan profile detect --force"), 2)
+        self.assertEqual(
+            workflow.count("ror-conan-recipes-d3568327.tar.gz"),
+            2,
+        )
+        self.assertEqual(
+            workflow.count("cmake/conan/export_pinned_dependency_recipes.py')"),
+            2,
+        )
 
 
 if __name__ == "__main__":
