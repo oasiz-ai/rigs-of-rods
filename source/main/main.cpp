@@ -5461,6 +5461,10 @@ int main(int argc, char *argv[])
                             // Throttled: the first diffed frame, every frame
                             // whose diff created or destroyed native state,
                             // and a heartbeat every 300 presented frames.
+                            // Dynamic soft-body uploads are expected on every
+                            // playable frame, so treating them as an immediate
+                            // logging trigger would turn this audit into a
+                            // per-frame disk write on every moving vehicle.
                             if (retained_scene_audit.available &&
                                 retained_scene_audit.frames_diffed != 0U &&
                                 retained_scene_audit.frames_diffed !=
@@ -5469,8 +5473,6 @@ int main(int argc, char *argv[])
                                      0U ||
                                  retained_scene_audit.last_created +
                                          retained_scene_audit.last_destroyed !=
-                                     0U ||
-                                 retained_scene_audit.last_dynamic_updates !=
                                      0U ||
                                  retained_scene_audit.frames_diffed >=
                                      renderer_combined_retained_scene_logged_frame +

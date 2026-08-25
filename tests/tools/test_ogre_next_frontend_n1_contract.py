@@ -2730,7 +2730,8 @@ class RuntimeAuditPerformanceContractTests(unittest.TestCase):
             "native_render_phase_us={}",
             "post_render_phase_us={}",
             "publication_phase_us={}",
-            "retained_scene_audit.last_dynamic_updates !=",
+            "retained_scene_audit.last_created +",
+            "retained_scene_audit.last_destroyed !=",
         ):
             self.assertIn(
                 token,
@@ -2738,6 +2739,10 @@ class RuntimeAuditPerformanceContractTests(unittest.TestCase):
                 if token.endswith("microseconds =")
                 else self.main_source,
             )
+        self.assertNotIn(
+            "retained_scene_audit.last_dynamic_updates !=",
+            self.main_source,
+        )
         self.assertNotIn(
             "renderer_combined_particle_audit_signature",
             self.main_source,
