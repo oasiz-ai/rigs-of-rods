@@ -449,7 +449,7 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
                 "a0_road_tile_12m/rorng_a0_road_tile_12m.rornative",
             ),
             (
-                "6399101c63ca8d5eff25ab499db215c45d89a4ce91cba08145692d025401505d",
+                "fe37f2bb05f15bc4954c07ff83a71c2dea24b51af473056f8257a47b4cc8cc7e",
                 "a1_native_course_60m/rorng_a1_native_course_60m.rornative",
             ),
         )

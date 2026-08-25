@@ -13,7 +13,7 @@ does not silently reinterpret the A0 lighting coupon.
 | `content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.glb` | `7b0648cde63053385d9a7ec66f56da470cfe8bf3465ef5d6c52cc0c9702b7801` |
 | `content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.composition.json` | `db7cbacdf1228d9e9836b32afc1c7d587151d61b4661715bd4132373f3403980` |
 | `content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.alignment.json` | `ef6764702e6c70375b4bd8e897e83e3191bd3a52778323538f87c8a4f81a1078` |
-| `resources/nextgen/native/a1_native_course_60m/rorng_a1_native_course_60m.rornative` | `6399101c63ca8d5eff25ab499db215c45d89a4ce91cba08145692d025401505d` |
+| `resources/nextgen/native/a1_native_course_60m/rorng_a1_native_course_60m.rornative` | `fe37f2bb05f15bc4954c07ff83a71c2dea24b51af473056f8257a47b4cc8cc7e` |
 
 The checked package contains 38 assets, nine static batch instances, and 48
 records: nine meshes, eight materials, nineteen textures, and two explicit

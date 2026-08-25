@@ -1661,7 +1661,7 @@ if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
     set(_ror_native_a1_course_package_source
         "${CMAKE_SOURCE_DIR}/resources/nextgen/native/a1_native_course_60m/rorng_a1_native_course_60m.rornative")
     set(_ror_native_a1_course_package_sha256
-        "6399101c63ca8d5eff25ab499db215c45d89a4ce91cba08145692d025401505d")
+        "fe37f2bb05f15bc4954c07ff83a71c2dea24b51af473056f8257a47b4cc8cc7e")
     set(_ror_native_a1_course_alignment_source
         "${CMAKE_SOURCE_DIR}/content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.alignment.json")
     set(_ror_native_a1_course_alignment_sha256

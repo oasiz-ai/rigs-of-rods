@@ -3,7 +3,7 @@
     "dependencies": [
       {
         "path": "tools/validate_cityworld_asset.py",
-        "sha256": "9e1f433256611e4214f1532dda84ebbc2f78645214c1a4803332a01d5fa35b22"
+        "sha256": "b86a4cec305819d174706403405aa964930053d20d300c9d6987ddf2a3ee9e10"
       },
       {
         "path": "tools/validate_native_render_asset.py",
@@ -16,11 +16,11 @@
   },
   "format": "ror-native-render-compile-report-v1",
   "output": {
-    "body_sha256": "297f9824329539fd854d01fa28b23ac611a38749b8fdcda77def1ccedfff2ddb",
+    "body_sha256": "4b9e1c71aee5d5395179677e25f35c1644a3b31cd22783cdcfdd9359ef4ef68a",
     "bytes": 39758410,
     "path": "resources/nextgen/native/a1_native_course_60m/rorng_a1_native_course_60m.rornative",
     "record_count": 48,
-    "sha256": "6399101c63ca8d5eff25ab499db215c45d89a4ce91cba08145692d025401505d"
+    "sha256": "fe37f2bb05f15bc4954c07ff83a71c2dea24b51af473056f8257a47b4cc8cc7e"
   },
   "package_id": "rorng_a1_native_course_60m",
   "source": {

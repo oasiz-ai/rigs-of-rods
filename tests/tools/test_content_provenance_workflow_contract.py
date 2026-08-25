@@ -25,9 +25,14 @@ MATERIAL_FAMILY_CLASSIFIER_TEST_PATH = (
     "tests/tools/test_classify_cityworld_material_families.py"
 )
 NATIVE_RENDER_ASSET_TEST_PATH = "tests/tools/test_native_render_asset.py"
+NATIVE_A1_COURSE_TEST_PATH = "tests/tools/test_native_a1_course.py"
 NATIVE_RENDER_ASSET_SOURCE_PATH = (
     "content-source/native_render/a0_road_tile_12m/"
     "rorng_a0_road_tile_12m.native.json"
+)
+NATIVE_A1_COURSE_SOURCE_PATH = (
+    "content-source/native_render/a1_native_course_60m/"
+    "rorng_a1_native_course_60m.native.json"
 )
 
 
@@ -56,6 +61,7 @@ class ContentProvenanceWorkflowContractTests(unittest.TestCase):
             2,
         )
         self.assertEqual(workflow.count(NATIVE_RENDER_ASSET_TEST_PATH), 2)
+        self.assertEqual(workflow.count(NATIVE_A1_COURSE_TEST_PATH), 2)
         for runner in ("ubuntu-22.04", "windows-2025", "macos-15"):
             self.assertIn(f"- {runner}", workflow)
         for version in ('- "3.11"', '- "3.14"'):
@@ -69,16 +75,18 @@ class ContentProvenanceWorkflowContractTests(unittest.TestCase):
             workflow,
         )
         self.assertIn("Verify checked forward-native A0 package", workflow)
+        self.assertIn("Verify checked forward-native A1 package", workflow)
         self.assertEqual(
             workflow.count("tools/validate_native_render_asset.py"),
-            1,
+            2,
         )
         self.assertEqual(
             workflow.count("tools/compile_native_render_asset.py"),
-            1,
+            2,
         )
         self.assertEqual(workflow.count(NATIVE_RENDER_ASSET_SOURCE_PATH), 2)
-        self.assertEqual(workflow.count("--validate-checked"), 12)
+        self.assertEqual(workflow.count(NATIVE_A1_COURSE_SOURCE_PATH), 2)
+        self.assertEqual(workflow.count("--validate-checked"), 13)
 
 
 if __name__ == "__main__":
