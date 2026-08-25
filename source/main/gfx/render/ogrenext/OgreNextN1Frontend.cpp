@@ -14938,13 +14938,6 @@ RenderOperationResult OgreNextN1Frontend::Render(
     reflection_frame_prepared = false;
     return clean;
   };
-  const auto abort_particle_frame = [&]() noexcept {
-    if (particle_frame_prepared) {
-      impl_->particle_runtime.Abort(request.frame_id);
-      particle_frame_prepared = false;
-    }
-    return true;
-  };
   const auto abort_submission_commit = [&]() noexcept {
     if (submission_commit_prepared) {
       impl_->submission_state.AbortPrepared();
@@ -15007,8 +15000,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
     return released;
   };
   const auto fail_after_cleanup = [&](RenderOperationResult failure) {
-    bool clean = abort_particle_frame();
-    clean = abort_reflection_frame() && clean;
+    // Particle source state is handled after every native/GPU rollback below.
+    // A clean RETRY_NEXT_FRAME must consume that portable source delta even
+    // though it presents nothing; otherwise the producer advances while the
+    // particle runtime does not, and every later frame fails continuity.
+    bool clean = abort_reflection_frame();
     clean = abort_submission_commit() && clean;
     clean = abort_interop_commit() && clean;
     const bool hdr_prepared_rollback_verified = abort_hdr_commit();
@@ -15057,6 +15053,31 @@ RenderOperationResult OgreNextN1Frontend::Render(
       // silent: a degrade nobody can see is not a fix.
       ++impl_->degrade_audit.post_submit_recoverable_failures;
     }
+    const bool drops_this_frame =
+        clean && !impl_->faulted &&
+        (failure.recovery == RenderOperationRecovery::NONE ||
+         failure.recovery == RenderOperationRecovery::RETRY_NEXT_FRAME);
+    if (drops_this_frame && !particle_frame_prepared &&
+        request.continuous_particles != nullptr && impl_->registry != nullptr) {
+      const ValidationResult particle_validation =
+          impl_->particle_runtime.Prepare(
+              request.frame_id, request.continuous_particles,
+              *impl_->registry, request.scene_snapshot->simulation_tick(),
+              request.scene_snapshot->absolute_world_origin_meters());
+      particle_frame_prepared = particle_validation.ok();
+      clean = particle_validation.ok() && clean;
+    }
+    if (particle_frame_prepared) {
+      if (drops_this_frame && clean &&
+          request.continuous_particles != nullptr) {
+        clean = impl_->particle_runtime.AdvanceDroppedFrame(
+                    request.frame_id) &&
+                clean;
+      } else {
+        impl_->particle_runtime.Abort(request.frame_id);
+      }
+      particle_frame_prepared = false;
+    }
     if (!clean) {
       impl_->faulted = true;
       return FrameCleanupFailure();
@@ -15069,10 +15090,10 @@ RenderOperationResult OgreNextN1Frontend::Render(
     // able from unrecoverable ones.
     //
     // This is deliberately NOT a new judgement: both terms are already
-    // decided above, and both must hold. The dispatcher currently only counts
-    // this recovery -- see RenderOperationRecovery::RETRY_NEXT_FRAME -- and
-    // still poisons, because a misclassified partial commit would become
-    // silent corruption, which is worse than the crash it replaces.
+    // decided above, and both must hold. The dispatcher drops this exact
+    // frame, while AdvanceDroppedFrame above consumes only the portable
+    // particle delta so the next full renderer transaction remains
+    // contiguous. It does not count a native batch or a presentation.
     if (failure.recovery == RenderOperationRecovery::NONE &&
         !impl_->faulted) {
       failure.recovery = RenderOperationRecovery::RETRY_NEXT_FRAME;

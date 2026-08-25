@@ -5052,6 +5052,7 @@ int main(int argc, char *argv[])
                             const std::string audit_state_signature =
                                 fmt::format(
                                 "available={} live_systems={} "
+                                "dropped_source_frames={} "
                                 "lifetime_max_live_systems={} "
                                 "lifetime_max_live_particles={} "
                                 "distinct_source_textures={} "
@@ -5061,6 +5062,7 @@ int main(int argc, char *argv[])
                                 "gpu_readbacks={}",
                                 audit.available,
                                 audit.live_systems,
+                                audit.dropped_source_frames,
                                 audit.lifetime_max_live_systems,
                                 audit.lifetime_max_live_particles,
                                 audit.source_backed_textures,
@@ -5082,6 +5084,7 @@ int main(int argc, char *argv[])
                             {
                                 const std::string audit_snapshot = fmt::format(
                                 "available={} committed_source_sequence={} "
+                                "dropped_source_frames={} "
                                 "create_commands={} update_commands={} "
                                 "stop_commands={} destroy_commands={} "
                                 "live_systems={} live_particles={} "
@@ -5099,6 +5102,7 @@ int main(int argc, char *argv[])
                                 "native_state_verifications={}",
                                 audit.available,
                                 audit.committed_source_sequence,
+                                audit.dropped_source_frames,
                                 audit.create_commands,
                                 audit.update_commands,
                                 audit.stop_commands,

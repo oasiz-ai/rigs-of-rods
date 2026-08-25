@@ -276,6 +276,61 @@ void TestLifecycleDistinctTextureAndRollback() {
           "final tombstone did not retain lifetime evidence");
 }
 
+void TestDroppedFrameAdvancesOnlyPortableSourceLineage() {
+  const std::unique_ptr<RenderAssetRegistry> catalog = Catalog();
+  OgreNextN1ParticleRuntime runtime;
+  const Double3 origin{100.0, 0.0, -50.0};
+
+  ValidationResult result = runtime.Prepare(
+      1U,
+      Frame(1U, {{1U, 10U, Ogre14ParticleLifecycleOperation::CREATE,
+                  System(10U)}}),
+      *catalog, 9U, origin);
+  Require(result.ok() && runtime.Commit(1U),
+          "dropped-frame recovery seed failed");
+
+  result = runtime.Prepare(
+      2U,
+      Frame(2U, {{2U, 10U, Ogre14ParticleLifecycleOperation::UPDATE,
+                  System(10U, true, 0.5F)}}),
+      *catalog, 9U, origin);
+  Require(result.ok() && runtime.AdvanceDroppedFrame(2U) &&
+              !runtime.CanCommit(2U),
+          "cleanly dropped frame did not consume portable particle state");
+  OgreNextN1ParticleRuntimeAudit audit = runtime.audit();
+  Require(audit.version == 2U && audit.committed_source_sequence == 2U &&
+              audit.dropped_source_frames == 1U &&
+              audit.create_commands == 1U && audit.update_commands == 1U &&
+              audit.live_systems == 1U &&
+              audit.native_batch_creates == 0U &&
+              audit.native_batch_destroys == 0U &&
+              audit.native_particles_submitted == 0U &&
+              audit.native_state_readbacks == 0U &&
+              audit.native_state_verifications == 0U,
+          "dropped frame claimed native work or lost its source-lineage receipt");
+
+  // The frontend frame identity remains 2 because the failed renderer frame
+  // did not present. The source sequence still advances to 3, and must be
+  // accepted rather than wedging every subsequent frame on a gap.
+  result = runtime.Prepare(
+      2U,
+      Frame(3U, {{3U, 10U, Ogre14ParticleLifecycleOperation::UPDATE,
+                  System(10U, true, 0.75F)}}),
+      *catalog, 9U, origin);
+  Require(result.ok() && runtime.Commit(2U),
+          "frame after a clean drop did not resume contiguous publication");
+  audit = runtime.audit();
+  Require(audit.committed_source_sequence == 3U &&
+              audit.dropped_source_frames == 1U &&
+              audit.update_commands == 2U,
+          "post-drop recovery changed the dropped count or source lineage");
+
+  result = runtime.Prepare(3U, nullptr, *catalog, 9U, origin);
+  Require(result.ok() && !runtime.AdvanceDroppedFrame(3U),
+          "a frame with no particle source delta was counted as dropped");
+  runtime.Abort(3U);
+}
+
 void TestFinalDestroySurvivesPriorAssetRetirement() {
   const Double3 origin{100.0, 0.0, -50.0};
   const std::unique_ptr<RenderAssetRegistry> live_catalog = Catalog();
@@ -564,6 +619,7 @@ void TestPermanentSystemTombstonesAndTransitionKinds() {
 int main() {
   TestPinnedTextureCoordinateRotation();
   TestLifecycleDistinctTextureAndRollback();
+  TestDroppedFrameAdvancesOnlyPortableSourceLineage();
   TestFinalDestroySurvivesPriorAssetRetirement();
   TestGenerationCloseReconcilesRejectedFrameGap();
   TestRetainedClosureRevalidatesEveryCurrentCatalog();

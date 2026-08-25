@@ -646,6 +646,7 @@ public:
     const OgreNextN1ParticleRuntimeAudit audit =
         native_frontend->QueryParticleRuntimeAudit();
     output.committed_source_sequence = audit.committed_source_sequence;
+    output.dropped_source_frames = audit.dropped_source_frames;
     output.create_commands = audit.create_commands;
     output.update_commands = audit.update_commands;
     output.stop_commands = audit.stop_commands;

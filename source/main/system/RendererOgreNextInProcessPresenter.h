@@ -127,6 +127,7 @@ enum class RendererOgreNextInProcessPresenterStatus : std::uint8_t {
 /// read-only datablock/ownership checks performed after native construction.
 struct RendererContinuousParticleAudit final {
   std::uint64_t committed_source_sequence = 0U;
+  std::uint64_t dropped_source_frames = 0U;
   std::uint64_t create_commands = 0U;
   std::uint64_t update_commands = 0U;
   std::uint64_t stop_commands = 0U;

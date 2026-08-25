@@ -519,6 +519,19 @@ bool OgreNextN1ParticleRuntime::Commit(std::uint64_t frame_id) noexcept {
   return true;
 }
 
+bool OgreNextN1ParticleRuntime::AdvanceDroppedFrame(
+    std::uint64_t frame_id) noexcept {
+  if (!has_prepared_ || frame_id != prepared_frame_id_ ||
+      prepared_audit_.prepared_source_sequence ==
+          audit_.committed_source_sequence ||
+      prepared_audit_.dropped_source_frames ==
+          (std::numeric_limits<std::uint64_t>::max)()) {
+    return false;
+  }
+  ++prepared_audit_.dropped_source_frames;
+  return Commit(frame_id);
+}
+
 void OgreNextN1ParticleRuntime::Abort(std::uint64_t frame_id) noexcept {
   if (!has_prepared_ || frame_id != prepared_frame_id_) {
     return;

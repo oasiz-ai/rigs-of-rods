@@ -29,9 +29,13 @@ namespace RoR::Render {
 BuildOgre14ParticleTextureCoordinateQuad(float rotation_radians) noexcept;
 
 struct OgreNextN1ParticleRuntimeAudit final {
-  std::uint32_t version = 1U;
+  std::uint32_t version = 2U;
   std::uint64_t prepared_source_sequence = 0U;
   std::uint64_t committed_source_sequence = 0U;
+  /// Source frames deliberately consumed after the rest of a recoverable
+  /// render transaction rolled back. Advancing this CPU-only lineage keeps
+  /// the next delta contiguous; it does not claim a native batch or present.
+  std::uint64_t dropped_source_frames = 0U;
   std::uint64_t create_commands = 0U;
   std::uint64_t update_commands = 0U;
   std::uint64_t stop_commands = 0U;
@@ -66,6 +70,11 @@ public:
   prepared_systems() const noexcept;
   [[nodiscard]] bool CanCommit(std::uint64_t frame_id) const noexcept;
   [[nodiscard]] bool Commit(std::uint64_t frame_id) noexcept;
+  /// Commits only the prepared portable particle/source state for a frame
+  /// whose native rendering transaction was cleanly rolled back. The next
+  /// source delta is then contiguous even though the frontend frame identity
+  /// remains available for retry.
+  [[nodiscard]] bool AdvanceDroppedFrame(std::uint64_t frame_id) noexcept;
   void Abort(std::uint64_t frame_id) noexcept;
   void Reset() noexcept;
   [[nodiscard]] OgreNextN1ParticleRuntimeAudit audit() const noexcept;
