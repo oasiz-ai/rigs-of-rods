@@ -572,7 +572,7 @@
     },
     {
       "path": "regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m.compile.json",
-      "sha256": "36c8b2a1d2068836000d7348de08b0a688fb3278bc0076b5d106fd5eb245ec6a",
+      "sha256": "1424b65d3cee97c535a1069ec10220a0413feaa25521c450181717a9f651f4d3",
       "size": 4339,
       "type": "file"
     },
@@ -614,7 +614,7 @@
     },
     {
       "path": "regional_infill/rorng_city_infill_arroyo_oasis_19m/rorng_city_infill_arroyo_oasis_19m.asset.json",
-      "sha256": "42785dd09808cec488fc4da94735482ea57b3417f3dfebb7f5e7f6bc783db89c",
+      "sha256": "37d45e878ba27adac3fdf8d83399fad4f85e8f47bc90e5e0717001ac22154fe8",
       "size": 10024,
       "type": "file"
     },
@@ -626,14 +626,14 @@
     },
     {
       "path": "regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86.compile.json",
-      "sha256": "4097b546f388fc0817ea2da9bf9b5683664c8ba2fab7e4bda1cbc31ed5137c62",
-      "size": 4320,
+      "sha256": "ab5441db238634530b354bf30b00c47a012bae18a6f1862d1811eb0f66df321b",
+      "size": 4529,
       "type": "file"
     },
     {
       "path": "regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86.material",
-      "sha256": "183e32d7786726205d2056fc7e92a01b1bdee337092a64ddc0b503b64a27dac4",
-      "size": 2162,
+      "sha256": "3f6e7470b3b0407b11d9c4bf82ba391055e4819e01a1a95883899ba9a053b531",
+      "size": 2964,
       "type": "file"
     },
     {
@@ -650,37 +650,37 @@
     },
     {
       "path": "regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_lod0.mesh",
-      "sha256": "1526e7dc658cc4ea64a3494e67ea932cab9f4cf82415152fdea71a25233fcb45",
-      "size": 531552,
+      "sha256": "8535bf3aceb31fcb3f6e1d4bb548d332636a1889fb0762ca41c946d4abc66aab",
+      "size": 1375566,
       "type": "file"
     },
     {
       "path": "regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_lod1.mesh",
-      "sha256": "d2e6544f4b3bc90d147b81d7dbeb7049aab82dc2c90f7d838e2c60f0e9f8ccf9",
-      "size": 31936,
+      "sha256": "3413c488c332cb8da7f505e706c389d2ed5d5eb18a116cc495a8fa675026c93b",
+      "size": 61822,
       "type": "file"
     },
     {
       "path": "regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_lod2.mesh",
-      "sha256": "18e13ccb5cc4d0dd699b45fd45d8177a8201aba1f59d59ec89cfd62eda97c0cb",
-      "size": 14624,
+      "sha256": "0ba8dac1044abca179bd7cfb03148677655116693e0ac18ba6ac36ca88cc96c8",
+      "size": 14614,
       "type": "file"
     },
     {
       "path": "regional_infill/rorng_city_infill_farmstead_98x86/rorng_city_infill_farmstead_98x86.asset.json",
-      "sha256": "24c51d6602a5143d088c8696dfc332e32b8992a86b5fdcd59441472b319f7565",
-      "size": 10672,
+      "sha256": "015e4ad5bc39cbe638aa80b7ae707f2307510b741194654a94a1b3e210512145",
+      "size": 12091,
       "type": "file"
     },
     {
       "path": "regional_infill/rorng_city_infill_farmstead_98x86/rorng_city_infill_farmstead_98x86.glb",
-      "sha256": "5ee4700900e53274019b77117e8c71b040479b66c1ccae05ec435e2358f3c77b",
-      "size": 598236,
+      "sha256": "79fa8fc9e453da63b3ef8a88849d0b3e16d230333d82a090ceb1dfe818d10966",
+      "size": 1479860,
       "type": "file"
     },
     {
       "path": "regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m.compile.json",
-      "sha256": "91e95f0c8f65f63baa01b1f5dd2dbf3832f4086efa786bfccbbd166c6e6a9375",
+      "sha256": "b16a88fd6034451e291865c01592ffd18a9001bae7129e88fbe34cc513002cac",
       "size": 4261,
       "type": "file"
     },
@@ -722,7 +722,7 @@
     },
     {
       "path": "regional_infill/rorng_city_infill_red_mesa_19m/rorng_city_infill_red_mesa_19m.asset.json",
-      "sha256": "fb0ca3256bce4e0bc4759f66e53676318c9a5155833295a15a73c6eb329f4ffd",
+      "sha256": "d05500c1b59933481b2d679e201ca04176e64785b217a72672ab84c81275796c",
       "size": 9071,
       "type": "file"
     },
@@ -734,7 +734,7 @@
     },
     {
       "path": "regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65.compile.json",
-      "sha256": "73e0edcfc67c5acc5c4c57da480a68f54aedb146a68edf1a9013054ee5a0509f",
+      "sha256": "210e1895193dea32d91ea33a0ba4189bac3fc422545373c3c106b4ad0c27ae9f",
       "size": 5988,
       "type": "file"
     },
@@ -758,7 +758,7 @@
     },
     {
       "path": "regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65_lod0.mesh",
-      "sha256": "c1a6d39d77c205343363aff7819c57af2381742189bf1ab93ba45fa8f6cc94f2",
+      "sha256": "4599282903605d632a1a05d5692d12dabdf36b34fd9680b36a7cfc1835bedd9f",
       "size": 538361,
       "type": "file"
     },
@@ -776,26 +776,26 @@
     },
     {
       "path": "regional_infill/rorng_city_infill_service_station_90x65/rorng_city_infill_service_station_90x65.asset.json",
-      "sha256": "a95ef9be5b25749e1d59442fc3072b877419846a1b3884417eca048e7bbaaa1f",
+      "sha256": "a9f1a90cd9ab6caaa742c7433851021b29b4a42c1c4941e9fd6e6cb02b297f54",
       "size": 17263,
       "type": "file"
     },
     {
       "path": "regional_infill/rorng_city_infill_service_station_90x65/rorng_city_infill_service_station_90x65.glb",
-      "sha256": "ed1f1e41b382ce6b4f4316f17ff03904806dc977373a72a4314136de42709160",
+      "sha256": "daa9045d5238abccc2bacd73df26af350fbc8f780e8f84bd8d02f5ca335f25f1",
       "size": 616204,
       "type": "file"
     },
     {
       "path": "regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88.compile.json",
-      "sha256": "64640d0193f17e97f09d40a29907bd0b807e9b4c22ea574e95d376228167f28b",
-      "size": 4379,
+      "sha256": "aa37549bf21f5953b5c1231f04a6155ab9e5ff1c7c1c60496b910e671ed1b113",
+      "size": 4591,
       "type": "file"
     },
     {
       "path": "regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88.material",
-      "sha256": "e8921497a4027fd6b05c8b69cd969f2f3169b29e7090e8a78ecaa279a9d039c2",
-      "size": 2362,
+      "sha256": "88441fbf77f184079ca8a55f1d787dd1924e9c10fa987daf829ee93fd1a24427",
+      "size": 2575,
       "type": "file"
     },
     {
@@ -812,32 +812,32 @@
     },
     {
       "path": "regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_lod0.mesh",
-      "sha256": "ccf05e30b3ecbb8a210fe316ee092ad9052c9d30d0a82bf0c2ff423b5db5d259",
-      "size": 1223243,
+      "sha256": "2cded0ab733115ecfb80f85c40291ff6b8f8b7169acf4121c0264390d7d1f461",
+      "size": 3235739,
       "type": "file"
     },
     {
       "path": "regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_lod1.mesh",
-      "sha256": "5fbc8cda7cf75d4e65650c5e04208821e327af28a43298029e532d9850b07b36",
-      "size": 59529,
+      "sha256": "3892efc9a161277870fb5d29101865442ebe4a32c840d0b0e640e3c099fd73ff",
+      "size": 154065,
       "type": "file"
     },
     {
       "path": "regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_lod2.mesh",
-      "sha256": "4bbfc8ee172ac07c1fec0b40f71ec43d887a586a0d08c534dbf383eac2d6a3d5",
-      "size": 30882,
+      "sha256": "a8f5f54e9b8e5b1d294fa20e8c86193418422200b446f7295e45fa87446e4f11",
+      "size": 32021,
       "type": "file"
     },
     {
       "path": "regional_infill/rorng_city_infill_suburb_block_96x88/rorng_city_infill_suburb_block_96x88.asset.json",
-      "sha256": "14f67f81a6fd8c31f38825dcab40fe1dc6307ea5e4245a741ca51a70b362ff84",
-      "size": 13055,
+      "sha256": "6ea74ca7a981b4cbf93b1db9d56f3a66281b2132e2dc6ce96df4047d547a8064",
+      "size": 13672,
       "type": "file"
     },
     {
       "path": "regional_infill/rorng_city_infill_suburb_block_96x88/rorng_city_infill_suburb_block_96x88.glb",
-      "sha256": "4e38a90dfa32e59db7d2435217b579d2955917fd09db0383d3a31831234b7bea",
-      "size": 1344440,
+      "sha256": "d5c009902cf4a3d35e0bfa0453528a1c93c119126afaeffa8c07431a9f5c80e8",
+      "size": 3456752,
       "type": "file"
     },
     {
