@@ -12,8 +12,11 @@ on:
       - cmake/linux/**
       - cmake/macos/**
       - cmake/ogre_next_embedded/**
+      - content-source/native_render/**
+      - doc/nextgen/FORWARD_NATIVE_ASSET_LEDGER.md
       - resources/scripts/example_deterministic_input_resume_checkpoint.as
       - resources/scripts/example_deterministic_input_save_checkpoint.as
+      - resources/nextgen/native/**
       - source/main/**
       - tools/linux/RunRoR-combined
       - tools/ogre_next_probe/**
@@ -42,8 +45,11 @@ on:
       - cmake/linux/**
       - cmake/macos/**
       - cmake/ogre_next_embedded/**
+      - content-source/native_render/**
+      - doc/nextgen/FORWARD_NATIVE_ASSET_LEDGER.md
       - resources/scripts/example_deterministic_input_resume_checkpoint.as
       - resources/scripts/example_deterministic_input_save_checkpoint.as
+      - resources/nextgen/native/**
       - source/main/**
       - tools/linux/RunRoR-combined
       - tools/ogre_next_probe/**

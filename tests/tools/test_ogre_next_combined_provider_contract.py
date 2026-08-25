@@ -64,6 +64,15 @@ def block(source: str, start: str, end: str) -> str:
 
 
 class CombinedProviderContractTests(unittest.TestCase):
+    def test_combined_workflow_rebuilds_for_forward_native_content(self) -> None:
+        for trigger in (
+            "content-source/native_render/**",
+            "doc/nextgen/FORWARD_NATIVE_ASSET_LEDGER.md",
+            "resources/nextgen/native/**",
+        ):
+            with self.subTest(trigger=trigger):
+                self.assertEqual(COMBINED_WORKFLOW.count(f"- {trigger}"), 2)
+
     def test_namespace_audit_contract_tracks_the_complete_base_patch_set(self) -> None:
         for token in (
             '"path": "@ROR_OGRE_NEXT_VULKAN_SKY_PATCH_PATH@"',
