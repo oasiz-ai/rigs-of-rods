@@ -36,7 +36,7 @@ namespace {
 using namespace RoR::Render;
 
 constexpr char kCheckedPackageSha256[] =
-    "99df00d857a8139f3d13c89be3af29d28ea0372f03fac327e4598b74daaf7a8e";
+    "5f91c134231d5b86cd0c291d30018aa2f8aa4958c8e9267ec1c9068a0ea9bc05";
 
 void Require(bool condition, const char *message) {
   if (!condition) {

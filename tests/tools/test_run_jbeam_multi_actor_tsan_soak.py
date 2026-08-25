@@ -381,6 +381,19 @@ class JBeamMultiActorTSanSoakTests(unittest.TestCase):
         self.assertNotIn("suppressions=", workflow)
         self.assertNotIn("ror_ogre_next_combined_verified", workflow)
 
+        for trigger in (
+            "content-source/native_render/**",
+            "doc/nextgen/FORWARD_NATIVE_ASSET_LEDGER.md",
+            "resources/nextgen/native/**",
+            "source/main/CMakeLists.txt",
+            "source/main/gfx/render/NativeRenderAssetPackage.cpp",
+            "source/main/gfx/render/NativeRenderAssetPackage.h",
+            "source/main/gfx/render/NativeVisualShowcaseSceneSource.cpp",
+            "source/main/gfx/render/NativeVisualShowcaseSceneSource.h",
+        ):
+            with self.subTest(trigger=trigger):
+                self.assertIn(f"- {trigger}", workflow)
+
         source = TOOL_PATH.read_text(encoding="utf-8")
         process_receipt = source.index('diagnostics / "process-result.json"')
         required_script_log = source.index(

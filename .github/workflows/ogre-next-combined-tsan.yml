@@ -5,7 +5,15 @@ on:
     branches: [nextgen/playable-performance-gate]
     paths:
       - .github/workflows/ogre-next-combined-tsan.yml
+      - content-source/native_render/**
+      - doc/nextgen/FORWARD_NATIVE_ASSET_LEDGER.md
+      - resources/nextgen/native/**
       - resources/scripts/example_jbeam_multi_actor_tsan_soak.as
+      - source/main/CMakeLists.txt
+      - source/main/gfx/render/NativeRenderAssetPackage.cpp
+      - source/main/gfx/render/NativeRenderAssetPackage.h
+      - source/main/gfx/render/NativeVisualShowcaseSceneSource.cpp
+      - source/main/gfx/render/NativeVisualShowcaseSceneSource.h
       - tests/CMakeLists.txt
       - tests/fixtures/beamng/jbeam_multi_actor_tsan_soak/**
       - tests/tools/test_run_jbeam_multi_actor_tsan_soak.py
