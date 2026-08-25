@@ -1227,6 +1227,7 @@ void ActorSpawner::ProcessWing(RigDef::Wing & def)
                 }
                 left_green_prop.pp_beacon_scene_node[0]->setVisible(false);
                 left_green_prop.pp_beacon_bbs[0]->setDefaultDimensions(0.5, 0.5);
+                left_green_prop.pp_id = static_cast<PropID_t>(m_actor->m_gfx_actor->m_props.size());
                 m_actor->m_gfx_actor->m_props.push_back(left_green_prop);
                 
                 //Left flash
@@ -1261,6 +1262,7 @@ void ActorSpawner::ProcessWing(RigDef::Wing & def)
                 }
                 left_flash_prop.pp_beacon_scene_node[0]->setVisible(false);
                 left_flash_prop.pp_beacon_bbs[0]->setDefaultDimensions(1.0, 1.0);
+                left_flash_prop.pp_id = static_cast<PropID_t>(m_actor->m_gfx_actor->m_props.size());
                 m_actor->m_gfx_actor->m_props.push_back(left_flash_prop);
                 
                 //Right red
@@ -1290,6 +1292,7 @@ void ActorSpawner::ProcessWing(RigDef::Wing & def)
                 }
                 right_red_prop.pp_beacon_scene_node[0]->setVisible(false);
                 right_red_prop.pp_beacon_bbs[0]->setDefaultDimensions(0.5, 0.5);
+                right_red_prop.pp_id = static_cast<PropID_t>(m_actor->m_gfx_actor->m_props.size());
                 m_actor->m_gfx_actor->m_props.push_back(right_red_prop);
                 
                 //Right flash
@@ -1324,6 +1327,7 @@ void ActorSpawner::ProcessWing(RigDef::Wing & def)
                 }
                 right_flash_prop.pp_beacon_scene_node[0]->setVisible(false);
                 right_flash_prop.pp_beacon_bbs[0]->setDefaultDimensions(1.0, 1.0);
+                right_flash_prop.pp_id = static_cast<PropID_t>(m_actor->m_gfx_actor->m_props.size());
                 m_actor->m_gfx_actor->m_props.push_back(right_flash_prop);
                 
                 m_generate_wing_position_lights = false; // Already done

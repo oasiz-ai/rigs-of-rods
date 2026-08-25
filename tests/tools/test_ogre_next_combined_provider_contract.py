@@ -56,6 +56,9 @@ COMBINED_WORKFLOW = (
 LINUX_COMBINED_LAUNCHER = (ROOT / "tools/linux/RunRoR-combined").read_text(
     encoding="utf-8"
 )
+ACTOR_SPAWNER = (ROOT / "source/main/physics/ActorSpawner.cpp").read_text(
+    encoding="utf-8"
+)
 
 
 def block(source: str, start: str, end: str) -> str:
@@ -64,6 +67,33 @@ def block(source: str, start: str, end: str) -> str:
 
 
 class CombinedProviderContractTests(unittest.TestCase):
+    def test_generated_wing_light_props_keep_vector_creation_identity(self) -> None:
+        process_wing = block(
+            ACTOR_SPAWNER,
+            "void ActorSpawner::ProcessWing(RigDef::Wing & def)",
+            "void ActorSpawner::ProcessSoundSource2",
+        )
+        for prop_name in (
+            "left_green_prop",
+            "left_flash_prop",
+            "right_red_prop",
+            "right_flash_prop",
+        ):
+            with self.subTest(prop_name=prop_name):
+                assignment = (
+                    f"{prop_name}.pp_id = static_cast<PropID_t>("
+                    "m_actor->m_gfx_actor->m_props.size());"
+                )
+                insertion = (
+                    "m_actor->m_gfx_actor->m_props.push_back("
+                    f"{prop_name});"
+                )
+                self.assertEqual(process_wing.count(assignment), 1)
+                self.assertEqual(process_wing.count(insertion), 1)
+                self.assertLess(
+                    process_wing.index(assignment), process_wing.index(insertion)
+                )
+
     def test_combined_workflow_rebuilds_for_forward_native_content(self) -> None:
         for trigger in (
             "content-source/native_render/**",
