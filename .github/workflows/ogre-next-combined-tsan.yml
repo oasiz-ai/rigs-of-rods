@@ -222,6 +222,7 @@ jobs:
           tsan_log="$RUNNER_TEMP/ror-combined-packaged-tsan-report"
           test ! -e "$evidence"
           export TSAN_OPTIONS="halt_on_error=1:exitcode=66:history_size=7:second_deadlock_stack=1:log_path=$tsan_log"
+          scene_status=0
           LD_LIBRARY_PATH="$ROR_TSAN_BUILD_DIR/bin${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
           xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
           python tools/run_playable_performance_scene.py \
@@ -240,12 +241,20 @@ jobs:
             --percentile 99 \
             --percentile-ms 1000 \
             --measure-only \
-            --timeout 600
+            --timeout 600 || scene_status=$?
+          tsan_reports=0
           if compgen -G "$tsan_log*" > /dev/null; then
+            tsan_reports=1
             echo 'ThreadSanitizer emitted a packaged-scene diagnostic report' >&2
             find "$RUNNER_TEMP" -maxdepth 1 \
               -name 'ror-combined-packaged-tsan-report*' \
               -type f -exec cp {} "$ROR_TSAN_ARTIFACTS_DIR/" \;
+          fi
+          if (( scene_status != 0 )); then
+            echo "Packaged TSan scene exited with status $scene_status" >&2
+            exit "$scene_status"
+          fi
+          if (( tsan_reports != 0 )); then
             exit 1
           fi
           python - "$evidence/performance-run.json" <<'PY'

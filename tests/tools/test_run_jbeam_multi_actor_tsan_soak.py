@@ -411,6 +411,34 @@ class JBeamMultiActorTSanSoakTests(unittest.TestCase):
         self.assertLess(process_receipt, required_script_log)
         self.assertIn("shutil.copy2(report_path", source)
 
+    def test_workflow_preserves_packaged_tsan_report_before_failure(
+        self,
+    ) -> None:
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        step = workflow.index(
+            "Render packaged Simple2 and semi through four Ogre-Next "
+            "workers under ThreadSanitizer"
+        )
+        command = workflow.index(
+            "python tools/run_playable_performance_scene.py", step
+        )
+        status_capture = workflow.index(
+            "--timeout 600 || scene_status=$?", command
+        )
+        report_copy = workflow.index(
+            "-name 'ror-combined-packaged-tsan-report*'", status_capture
+        )
+        status_failure = workflow.index(
+            'exit "$scene_status"', report_copy
+        )
+        report_failure = workflow.index("exit 1", status_failure)
+
+        self.assertIn("scene_status=0", workflow[step:command])
+        self.assertIn("tsan_reports=1", workflow[status_capture:report_copy])
+        self.assertLess(status_capture, report_copy)
+        self.assertLess(report_copy, status_failure)
+        self.assertLess(status_failure, report_failure)
+
 
 if __name__ == "__main__":
     unittest.main()
