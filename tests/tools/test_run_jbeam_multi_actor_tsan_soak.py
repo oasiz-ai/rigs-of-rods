@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import tempfile
 import time
 from unittest import mock
@@ -176,6 +176,7 @@ class JBeamMultiActorTSanSoakTests(unittest.TestCase):
         symbols = "                 U __tsan_init\n"
         with (
             mock.patch.object(GATE.sys, "platform", "linux"),
+            mock.patch.object(GATE, "Path", PurePosixPath),
             mock.patch.object(GATE.shutil, "which", side_effect=("/usr/bin/readelf", "/usr/bin/nm")),
             mock.patch.object(
                 GATE,
@@ -201,9 +202,12 @@ class JBeamMultiActorTSanSoakTests(unittest.TestCase):
             {"LP_NUM_THREADS": "12", "SNAP_USER_COMMON": "/tmp/snap"},
             clear=True,
         ):
-            environment = GATE.build_runtime_environment(Path("/tmp/ror-home"))
+            isolated_home = Path("/tmp/ror-home")
+            environment = GATE.build_runtime_environment(isolated_home)
         self.assertEqual(environment["LP_NUM_THREADS"], "0")
-        self.assertEqual(environment["ROR_D0_SCENE_HOME"], "/tmp/ror-home")
+        self.assertEqual(
+            environment["ROR_D0_SCENE_HOME"], str(isolated_home)
+        )
         self.assertNotIn("SNAP_USER_COMMON", environment)
 
         environment["TSAN_OPTIONS"] = (
