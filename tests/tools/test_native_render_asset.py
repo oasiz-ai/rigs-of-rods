@@ -42,6 +42,12 @@ def canonical_pretty(value: dict[str, Any]) -> str:
     return json.dumps(value, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
 
 
+def write_canonical_pretty(path: Path, value: dict[str, Any]) -> None:
+    """Write exact LF-delimited fixture bytes on every host platform."""
+
+    path.write_bytes(canonical_pretty(value).encode("ascii"))
+
+
 def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -168,7 +174,7 @@ class NativeRenderAssetToolTests(unittest.TestCase):
     def rewrite_manifest(path: Path, mutate: Callable[[dict[str, Any]], None]) -> None:
         value = json.loads(path.read_text(encoding="utf-8"))
         mutate(value)
-        path.write_text(canonical_pretty(value), encoding="ascii")
+        write_canonical_pretty(path, value)
 
     @staticmethod
     def codes(report: dict[str, Any]) -> set[str]:
@@ -178,7 +184,7 @@ class NativeRenderAssetToolTests(unittest.TestCase):
         value = json.loads(manifest_path.read_text(encoding="utf-8"))
         glb_path = manifest_path.parents[3] / value["source"]["glb"]["path"]
         value["source"]["glb"]["sha256"] = sha256_file(glb_path)
-        manifest_path.write_text(canonical_pretty(value), encoding="ascii")
+        write_canonical_pretty(manifest_path, value)
 
     def refresh_composition_hash(self, manifest_path: Path) -> None:
         value = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -186,7 +192,7 @@ class NativeRenderAssetToolTests(unittest.TestCase):
             manifest_path.parents[3] / value["source"]["composition"]["path"]
         )
         value["source"]["composition"]["sha256"] = sha256_file(composition_path)
-        manifest_path.write_text(canonical_pretty(value), encoding="ascii")
+        write_canonical_pretty(manifest_path, value)
 
     def test_checked_source_and_package_pass_normal_and_optimized_gates(self) -> None:
         for optimized in (False, True):
@@ -857,7 +863,7 @@ class NativeRenderAssetToolTests(unittest.TestCase):
             data[17] = 0
             path.write_bytes(data)
             mip["sha256"] = sha256_file(path)
-            manifest.write_text(canonical_pretty(value), encoding="ascii")
+            write_canonical_pretty(manifest, value)
             result, report = self.run_validator(root, manifest)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("TEXTURE_SOURCE_INVALID", self.codes(report))
@@ -966,7 +972,7 @@ class NativeRenderAssetToolTests(unittest.TestCase):
                     )[0]["buffers"][0]["byteLength"]
                 write_glb(glb, document, binary, canonical=canonical)
                 value["source"]["glb"]["sha256"] = sha256_file(glb)
-                manifest.write_text(canonical_pretty(value), encoding="ascii")
+                write_canonical_pretty(manifest, value)
                 result, report = self.run_validator(root, manifest)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(code, self.codes(report))
@@ -1004,7 +1010,7 @@ class NativeRenderAssetToolTests(unittest.TestCase):
             struct.pack_into("<4f", binary, offset, *mutation(authored))
             write_glb(glb_path, document, binary)
             value["source"]["glb"]["sha256"] = sha256_file(glb_path)
-            manifest.write_text(canonical_pretty(value), encoding="ascii")
+            write_canonical_pretty(manifest, value)
 
         cases = (
             (
@@ -1058,7 +1064,7 @@ class NativeRenderAssetToolTests(unittest.TestCase):
             )
             write_glb(glb_path, document, binary)
             value["source"]["glb"]["sha256"] = sha256_file(glb_path)
-            manifest.write_text(canonical_pretty(value), encoding="ascii")
+            write_canonical_pretty(manifest, value)
 
             for optimized in (False, True):
                 with self.subTest(optimized=optimized):
@@ -1241,7 +1247,7 @@ class NativeRenderAssetToolTests(unittest.TestCase):
                 }
                 for mip_width, mip_height in dimensions
             ]
-            manifest.write_text(canonical_pretty(value), encoding="ascii")
+            write_canonical_pretty(manifest, value)
             result, report = self.run_validator(root, manifest)
             self.assertNotEqual(result.returncode, 0)
             codes = self.codes(report)
@@ -1374,7 +1380,7 @@ for value in (-0.0, 1e300, 10**3999):
             composition_path = root / manifest["source"]["composition"]["path"]
             composition = json.loads(composition_path.read_text(encoding="utf-8"))
             mutate(composition, root)
-            composition_path.write_text(canonical_pretty(composition), encoding="ascii")
+            write_canonical_pretty(composition_path, composition)
             self.refresh_composition_hash(manifest_path)
 
         def corrupt_preview(composition: dict[str, Any], root: Path) -> None:

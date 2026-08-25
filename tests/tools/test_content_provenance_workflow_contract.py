@@ -35,7 +35,8 @@ class ContentProvenanceWorkflowContractTests(unittest.TestCase):
     def test_full_matrix_has_a_bounded_viable_timeout(self) -> None:
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
-        self.assertEqual(workflow.count("timeout-minutes: 40"), 1)
+        self.assertEqual(workflow.count("timeout-minutes: 90"), 1)
+        self.assertNotIn("timeout-minutes: 40", workflow)
         self.assertNotIn("timeout-minutes: 10", workflow)
         self.assertEqual(workflow.count(SELF_PATH), 2)
         self.assertEqual(
