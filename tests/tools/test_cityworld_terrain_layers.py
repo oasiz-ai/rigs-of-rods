@@ -6,6 +6,7 @@ import importlib.util
 from pathlib import Path
 import struct
 import sys
+import tempfile
 import unittest
 import zlib
 
@@ -196,6 +197,37 @@ class PngEncodingTests(unittest.TestCase):
         with self.assertRaises(layers.TerrainLayerError):
             layers.encode_png_rgba(4, bytearray(16), bytearray(15),
                                    bytearray(16))
+
+    def test_local_derived_coverage_is_explicit_regular_and_exact_size(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "coverage.png"
+            size = 8
+            expected = (
+                bytearray([1] * (size * size)),
+                bytearray([2] * (size * size)),
+                bytearray([3] * (size * size)),
+            )
+            path.write_bytes(layers.encode_png_rgba(size, *expected))
+            self.assertEqual(
+                layers.load_derived_coverage(path, size=size),
+                expected,
+            )
+            with self.assertRaisesRegex(
+                layers.TerrainLayerError,
+                "is 8 px but the blend map is 16 px",
+            ):
+                layers.load_derived_coverage(path, size=16)
+
+            symlink = root / "coverage-link.png"
+            symlink.symlink_to(path)
+            with self.assertRaisesRegex(
+                layers.TerrainLayerError,
+                "not a regular file",
+            ):
+                layers.load_derived_coverage(symlink, size=size)
 
 
 class OtcCompositionTests(unittest.TestCase):

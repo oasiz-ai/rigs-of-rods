@@ -8,7 +8,9 @@ changed. This tool rewrites only the terrain configuration and blend map,
 copying every other member through untouched, and it reproduces exactly what the
 full builder would have written: the blend map comes from the same
 `cityworld_terrain_layers.rasterize_blend_channels` call, fed with the routes
-and sites read back out of the manifest the archive already ships.
+and sites read back out of the manifest the archive already ships. An optional
+archive-derived coverage PNG must be supplied explicitly and kept outside the
+repository.
 
 The archive is deterministic ZIP_STORED with a fixed timestamp and mode, so
 rewriting it from its own members is byte-exact and re-running this tool on its
@@ -42,6 +44,7 @@ GLOBAL_OTC = "CityWorldNextEnhanced.otc"
 PAGE_OTC = "CityWorldNextEnhanced-page-0-0.otc"
 BLEND_MAP = "cityworld_next_terrain_blend.png"
 INFILL_MANIFEST = "cityworld_next_infill_manifest.v2.json"
+REPORT = "cityworld_next_local_overlay.report.json"
 
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 ZIP_MODE = 0o100644
@@ -49,6 +52,22 @@ ZIP_MODE = 0o100644
 
 class RestageError(RuntimeError):
     pass
+
+
+def sha256_bytes(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
+
+def canonical_json_bytes(value: dict) -> bytes:
+    return (
+        json.dumps(
+            value,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    ).encode("utf-8")
 
 
 def read_members(path: Path) -> dict[str, bytes]:
@@ -104,16 +123,64 @@ def main(argv=None) -> int:
     ap.add_argument("--overlay", required=True, type=Path)
     ap.add_argument("--repo-root", required=True, type=Path)
     ap.add_argument("--output", required=True, type=Path)
+    ap.add_argument("--derived-coverage", type=Path)
     args = ap.parse_args(argv)
 
+    repository = args.repo_root.resolve()
+    derived_coverage = None
+    if args.derived_coverage is not None:
+        if args.derived_coverage.is_symlink():
+            raise RestageError(
+                "derived coverage input cannot be a symbolic link")
+        derived_coverage = args.derived_coverage.resolve()
+        if not derived_coverage.is_file():
+            raise RestageError(
+                "derived coverage input does not exist or is not a regular file")
+        try:
+            derived_coverage.relative_to(repository)
+        except ValueError:
+            pass
+        else:
+            raise RestageError(
+                "derived coverage input must stay outside the repository")
+
     members = read_members(args.overlay)
-    if INFILL_MANIFEST not in members:
-        raise RestageError(f"the archive has no {INFILL_MANIFEST}")
+    for required in (INFILL_MANIFEST, REPORT):
+        if required not in members:
+            raise RestageError(f"the archive has no {required}")
 
     manifest = json.loads(members[INFILL_MANIFEST])
+    report = json.loads(members[REPORT])
     routes, sites = terrain_inputs(manifest)
-    derived = terrain_layers.load_derived_coverage(args.repo_root)
-    channels = terrain_layers.rasterize_blend_channels(routes, sites, derived=derived)
+    derived_record = None
+    if derived_coverage is not None:
+        derived_payload = derived_coverage.read_bytes()
+        derived_record = {
+            "bytes": len(derived_payload),
+            "name": derived_coverage.name,
+            "sha256": sha256_bytes(derived_payload),
+        }
+    derived = (
+        terrain_layers.load_derived_coverage(
+            derived_coverage,
+            size=terrain_layers.BLEND_MAP_SIZE,
+        )
+        if derived_coverage is not None
+        else None
+    )
+    channels = terrain_layers.rasterize_blend_channels(
+        routes,
+        sites,
+        size=terrain_layers.BLEND_MAP_SIZE,
+        derived=derived,
+    )
+    if (
+        derived_coverage is not None
+        and derived_record is not None
+        and sha256_bytes(derived_coverage.read_bytes())
+        != derived_record["sha256"]
+    ):
+        raise RestageError("derived coverage input changed while it was read")
 
     staged = {
         GLOBAL_OTC: terrain_layers.build_global_otc(PAGE_OTC).encode("utf-8"),
@@ -121,6 +188,41 @@ def main(argv=None) -> int:
         BLEND_MAP: terrain_layers.encode_png_rgba(
             terrain_layers.BLEND_MAP_SIZE, *channels),
     }
+    package = report.get("package")
+    records = package.get("files") if isinstance(package, dict) else None
+    if not isinstance(records, list):
+        raise RestageError("the archive report has no package file inventory")
+    by_path = {
+        record.get("path"): record
+        for record in records
+        if isinstance(record, dict)
+    }
+    for name, payload in staged.items():
+        record = by_path.get(name)
+        if not isinstance(record, dict):
+            raise RestageError(
+                f"the archive report has no package record for {name}")
+        record["sha256"] = sha256_bytes(payload)
+        record["size"] = len(payload)
+    source = report.get("source")
+    archive = source.get("archive") if isinstance(source, dict) else None
+    source_archive_sha256 = (
+        archive.get("expected_sha256") if isinstance(archive, dict) else None
+    )
+    if not isinstance(source_archive_sha256, str):
+        raise RestageError("the archive report has no source archive digest")
+    report["terrain_coverage"] = {
+        "cityworld_archive_derived_input": derived_record,
+        "local_only": True,
+        "mode": (
+            "explicit-local-cityworld-derived-plus-project-authored"
+            if derived_record is not None
+            else "project-authored-routes-and-sites-only"
+        ),
+        "redistribution_allowed": False,
+        "source_archive_sha256": source_archive_sha256,
+    }
+    staged[REPORT] = canonical_json_bytes(report)
 
     added = [n for n in staged if n not in members]
     changed = [n for n in staged if n in members and members[n] != staged[n]]

@@ -3,7 +3,7 @@
     "dependencies": [
       {
         "path": "tools/validate_cityworld_asset.py",
-        "sha256": "9e1f433256611e4214f1532dda84ebbc2f78645214c1a4803332a01d5fa35b22"
+        "sha256": "b86a4cec305819d174706403405aa964930053d20d300c9d6987ddf2a3ee9e10"
       },
       {
         "path": "tools/validate_native_render_asset.py",
@@ -16,11 +16,11 @@
   },
   "format": "ror-native-render-compile-report-v1",
   "output": {
-    "body_sha256": "9b1dc79a256178d1a5b171c6853245a7e602e31d184ed2179febfade28afe300",
+    "body_sha256": "c9d0d7950d75d3c03d49cbf816be871b522dcfcd7b9ec56b58cbda967e17ffdf",
     "bytes": 8407715,
     "path": "resources/nextgen/native/a0_road_tile_12m/rorng_a0_road_tile_12m.rornative",
     "record_count": 27,
-    "sha256": "99df00d857a8139f3d13c89be3af29d28ea0372f03fac327e4598b74daaf7a8e"
+    "sha256": "5f91c134231d5b86cd0c291d30018aa2f8aa4958c8e9267ec1c9068a0ea9bc05"
   },
   "package_id": "rorng_a0_road_tile_12m",
   "source": {

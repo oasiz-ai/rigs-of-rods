@@ -23,8 +23,10 @@ This tool recovers the missing coverage rather than inventing it:
 The result is a blend map that lines up with the geometry it was derived from,
 which a hand-painted mask cannot do.
 
-Requires numpy and the pinned OgreXMLConverter; run offline, then commit the
-PNG it writes. `cityworld_terrain_layers.py` consumes that PNG.
+Requires numpy and the pinned OgreXMLConverter. Run it offline and keep the PNG
+outside this repository. Pass that local file to the overlay builder with
+``--derived-coverage``. The generated PNG is derived from the user's archive,
+is not project-owned release content, and must never be committed or shipped.
 """
 from __future__ import annotations
 

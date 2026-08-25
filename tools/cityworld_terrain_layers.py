@@ -11,12 +11,10 @@ the extra layers from separate channels.
 
 No geometry, texture, or byte is copied from the source archive here. The
 layers name textures that the mounted read-only archive already provides. The
-blend coverage combines project-authored route and site geometry with the
-committed coverage mask that ``tools/derive_cityworld_ground_coverage.py``
-derives offline from where CityWorld's own placed objects put their streets,
-plazas and parkland - a mask of surface classes, carrying none of the archive's
-texture or mesh data. Like the rest of this overlay it is local-only and not
-redistributable.
+checked-in blend coverage is computed only from project-authored route and site
+geometry. A user may explicitly add a local-only coverage mask generated from
+their own CityWorld archive with ``tools/derive_cityworld_ground_coverage.py``;
+that input must stay outside the repository and is never release content.
 """
 
 from __future__ import annotations
@@ -41,15 +39,6 @@ WORLD_SIZE_M = 12000.0
 #: downscale skips source texels beyond 2:1, so 8192 would alias thin roads
 #: away again.
 BLEND_MAP_SIZE = 4096
-
-#: Coverage derived from CityWorld's own placed geometry by
-#: ``tools/derive_cityworld_ground_coverage.py``. It supplies where the city's
-#: streets, plazas and parkland actually are; the routes and sites stamped
-#: below are the overlay's own additions and lap over it.
-DERIVED_COVERAGE_ASSET = (
-    "resources/nextgen/cityworld/terrain/"
-    "cityworld_next_ground_coverage.v1.png"
-)
 
 #: Layer 0 is the base and takes no blend map. Every later layer reads one
 #: channel of the shared map, which keeps a single image serving all of them.
@@ -261,19 +250,19 @@ def decode_png_rgba(data: bytes) -> tuple[int, bytearray, bytearray, bytearray]:
 
 
 def load_derived_coverage(
-    repository: "os.PathLike[str] | str",
+    path: "os.PathLike[str] | str",
     size: int = BLEND_MAP_SIZE,
 ) -> tuple[bytearray, bytearray, bytearray]:
-    """Read the committed derived-coverage asset, checked against `size`."""
+    """Read an explicit local derived-coverage PNG, checked against `size`."""
 
-    path = pathlib.Path(repository) / DERIVED_COVERAGE_ASSET
-    if not path.is_file():
+    coverage_path = pathlib.Path(path)
+    if coverage_path.is_symlink() or not coverage_path.is_file():
         raise TerrainLayerError(
-            f"the derived coverage asset is missing: {DERIVED_COVERAGE_ASSET}")
-    width, red, green, blue = decode_png_rgba(path.read_bytes())
+            f"the derived coverage input is not a regular file: {coverage_path}")
+    width, red, green, blue = decode_png_rgba(coverage_path.read_bytes())
     if width != size:
         raise TerrainLayerError(
-            f"the derived coverage asset is {width} px but the blend map is "
+            f"the derived coverage input is {width} px but the blend map is "
             f"{size} px; regenerate it with "
             f"tools/derive_cityworld_ground_coverage.py --size {size}")
     return red, green, blue

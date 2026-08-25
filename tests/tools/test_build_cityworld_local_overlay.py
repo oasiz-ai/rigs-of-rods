@@ -33,6 +33,17 @@ BUILDER = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = BUILDER
 SPEC.loader.exec_module(BUILDER)
 
+RESTAGER_PATH = REPOSITORY_ROOT / "tools/restage_cityworld_overlay_terrain.py"
+RESTAGER_SPEC = importlib.util.spec_from_file_location(
+    "restage_cityworld_overlay_terrain",
+    RESTAGER_PATH,
+)
+if RESTAGER_SPEC is None or RESTAGER_SPEC.loader is None:
+    raise RuntimeError("could not load CityWorld terrain restager")
+RESTAGER = importlib.util.module_from_spec(RESTAGER_SPEC)
+sys.modules[RESTAGER_SPEC.name] = RESTAGER
+RESTAGER_SPEC.loader.exec_module(RESTAGER)
+
 SOURCE_MARKERS = {
     "CityWorld.terrn2": b"SOURCE_TERRAIN_PAYLOAD_MUST_NOT_LEAK",
     "CityWorld.otc": b"SOURCE_GEOMETRY_PAYLOAD_MUST_NOT_LEAK",
@@ -687,6 +698,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
         *,
         terrain: str = TERRAIN,
         output_name: str = "CityWorldNextLocalOverlay.zip",
+        derived_coverage_path: Path | None = None,
     ) -> tuple[Path, Path, dict[str, object]]:
         archive, digest = self.make_archive(root, terrain=terrain)
         output = root / output_name
@@ -723,6 +735,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 repository_path=REPOSITORY_ROOT,
                 output_path=output,
                 surface_offset_m=0.08,
+                derived_coverage_path=derived_coverage_path,
             )
         return archive, output, result
 
@@ -2092,7 +2105,12 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             )
             self.assertEqual(
                 material_names,
-                [BUILDER.MERGED_MATERIAL_NAME],
+                sorted(
+                    (
+                        BUILDER.MERGED_MATERIAL_NAME,
+                        BUILDER.PARCEL_SURFACES_MATERIAL_NAME,
+                    )
+                ),
             )
             merged_material = payloads[BUILDER.MERGED_MATERIAL_NAME].decode()
             self.assertEqual(
@@ -2152,6 +2170,102 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                     "replacement_textures_independently_authored": True,
                 },
             )
+            self.assertEqual(
+                report["terrain_coverage"],
+                {
+                    "cityworld_archive_derived_input": None,
+                    "local_only": True,
+                    "mode": "project-authored-routes-and-sites-only",
+                    "redistribution_allowed": False,
+                    "source_archive_sha256":
+                        report["source"]["archive"]["expected_sha256"],
+                },
+            )
+
+    def test_archive_derived_coverage_is_external_explicit_and_reported(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            size = 64
+            coverage = root / "local-cityworld-coverage.png"
+            channels = (
+                bytearray([11] * (size * size)),
+                bytearray([22] * (size * size)),
+                bytearray([33] * (size * size)),
+            )
+            coverage.write_bytes(
+                BUILDER.terrain_layers.encode_png_rgba(size, *channels)
+            )
+            with mock.patch.object(
+                BUILDER.terrain_layers,
+                "BLEND_MAP_SIZE",
+                size,
+            ):
+                _, output, _ = self.build_fixture(
+                    root,
+                    derived_coverage_path=coverage,
+                )
+            report = self.read_report(output)
+            self.assertEqual(
+                report["terrain_coverage"],
+                {
+                    "cityworld_archive_derived_input": {
+                        "bytes": coverage.stat().st_size,
+                        "name": coverage.name,
+                        "sha256": hashlib.sha256(
+                            coverage.read_bytes()
+                        ).hexdigest(),
+                    },
+                    "local_only": True,
+                    "mode":
+                        "explicit-local-cityworld-derived-plus-project-authored",
+                    "redistribution_allowed": False,
+                    "source_archive_sha256":
+                        report["source"]["archive"]["expected_sha256"],
+                },
+            )
+
+            restaged = root / "restaged-local-overlay.zip"
+            with mock.patch.object(
+                RESTAGER.terrain_layers,
+                "BLEND_MAP_SIZE",
+                size,
+            ):
+                result = RESTAGER.main(
+                    [
+                        "--overlay",
+                        str(output),
+                        "--repo-root",
+                        str(REPOSITORY_ROOT),
+                        "--output",
+                        str(restaged),
+                        "--derived-coverage",
+                        str(coverage),
+                    ]
+                )
+            self.assertEqual(result, 0)
+            self.assertEqual(restaged.read_bytes(), output.read_bytes())
+
+            with self.assertRaisesRegex(
+                BUILDER.OverlayFailure,
+                "must stay outside the repository",
+            ):
+                BUILDER.validate_local_derived_coverage_path(
+                    REPOSITORY_ROOT,
+                    REPOSITORY_ROOT / "README.md",
+                )
+
+            symlink = root / "coverage-link.png"
+            symlink.symlink_to(coverage)
+            with self.assertRaisesRegex(
+                BUILDER.OverlayFailure,
+                "cannot be a symbolic link",
+            ):
+                BUILDER.validate_local_derived_coverage_path(
+                    REPOSITORY_ROOT,
+                    symlink,
+                )
 
     def test_wrong_hash_name_and_member_path_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

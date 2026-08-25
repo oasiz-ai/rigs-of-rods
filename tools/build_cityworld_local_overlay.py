@@ -656,6 +656,32 @@ def validate_output_path(repository: Path, path: Path) -> Path:
     return output
 
 
+def validate_local_derived_coverage_path(
+    repository: Path,
+    path: Path | None,
+) -> Path | None:
+    """Resolve an optional local-only coverage input outside the checkout."""
+
+    if path is None:
+        return None
+    if path.is_symlink():
+        raise OverlayFailure("derived coverage input cannot be a symbolic link")
+    coverage = path.resolve()
+    if not coverage.is_file():
+        raise OverlayFailure(
+            "derived coverage input does not exist or is not a regular file"
+        )
+    try:
+        coverage.relative_to(repository)
+    except ValueError:
+        pass
+    else:
+        raise OverlayFailure(
+            "derived coverage input must stay outside the repository"
+        )
+    return coverage
+
+
 def finite_vector3(value: Any, label: str) -> tuple[float, float, float]:
     if not isinstance(value, list) or len(value) != 3:
         raise OverlayFailure(f"{label} must contain three finite coordinates")
@@ -3998,10 +4024,27 @@ def build_local_overlay(
     repository_path: Path,
     output_path: Path,
     surface_offset_m: float,
+    derived_coverage_path: Path | None = None,
 ) -> dict[str, Any]:
     repository = validate_repository(repository_path)
     source_archive = validate_archive_path(repository, archive_path)
     output = validate_output_path(repository, output_path)
+    derived_coverage = validate_local_derived_coverage_path(
+        repository,
+        derived_coverage_path,
+    )
+    derived_coverage_record = (
+        {
+            "bytes": derived_coverage.stat().st_size,
+            "name": derived_coverage.name,
+            "sha256": sha256_regular_file(
+                derived_coverage,
+                max_bytes=64 * 1024 * 1024,
+            ),
+        }
+        if derived_coverage is not None
+        else None
+    )
 
     audit = audit_archive(
         source_archive,
@@ -4217,10 +4260,28 @@ def build_local_overlay(
         }
         for site in infill_plan.sites
     ]
+    local_coverage_channels = (
+        terrain_layers.load_derived_coverage(
+            derived_coverage,
+            size=terrain_layers.BLEND_MAP_SIZE,
+        )
+        if derived_coverage is not None
+        else None
+    )
+    if (
+        derived_coverage is not None
+        and derived_coverage_record is not None
+        and sha256_regular_file(
+            derived_coverage,
+            max_bytes=64 * 1024 * 1024,
+        ) != derived_coverage_record["sha256"]
+    ):
+        raise OverlayFailure("derived coverage input changed while it was read")
     blend_channels = terrain_layers.rasterize_blend_channels(
         terrain_routes,
         terrain_sites,
-        derived=terrain_layers.load_derived_coverage(repository),
+        size=terrain_layers.BLEND_MAP_SIZE,
+        derived=local_coverage_channels,
     )
     blend_png = terrain_layers.encode_png_rgba(
         terrain_layers.BLEND_MAP_SIZE, *blend_channels)
@@ -4448,6 +4509,17 @@ def build_local_overlay(
             "source_authentication": infill_source_authentication,
             "summary": infill_audit["summary"],
         },
+        "terrain_coverage": {
+            "cityworld_archive_derived_input": derived_coverage_record,
+            "local_only": True,
+            "mode": (
+                "explicit-local-cityworld-derived-plus-project-authored"
+                if derived_coverage is not None
+                else "project-authored-routes-and-sites-only"
+            ),
+            "redistribution_allowed": False,
+            "source_archive_sha256": PINNED_ARCHIVE_SHA256,
+        },
         "replacement_textures": {
             "format": replacement_textures.REPLACEMENT_TEXTURES_FORMAT,
             "independently_authored": True,
@@ -4564,6 +4636,15 @@ def build_local_overlay(
     post_build_archive_hash = archive_sha256(source_archive)
     if post_build_archive_hash != PINNED_ARCHIVE_SHA256:
         raise OverlayFailure("source CityWorld.zip changed during the build")
+    if (
+        derived_coverage is not None
+        and derived_coverage_record is not None
+        and sha256_regular_file(
+            derived_coverage,
+            max_bytes=64 * 1024 * 1024,
+        ) != derived_coverage_record["sha256"]
+    ):
+        raise OverlayFailure("derived coverage input changed during the build")
 
     descriptor_record = payload_record(
         TERRAIN_NAME,
@@ -4626,6 +4707,14 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--repo-root", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--surface-offset-m", required=True, type=float)
+    parser.add_argument(
+        "--derived-coverage",
+        type=Path,
+        help=(
+            "optional local-only coverage PNG generated from the user's "
+            "CityWorld archive; the file must be outside the repository"
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -4637,6 +4726,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             repository_path=args.repo_root,
             output_path=args.output,
             surface_offset_m=args.surface_offset_m,
+            derived_coverage_path=args.derived_coverage,
         )
     except (
         AuditFailure,
