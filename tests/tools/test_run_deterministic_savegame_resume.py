@@ -158,6 +158,50 @@ class SavegameResumeGateTests(unittest.TestCase):
         with self.assertRaises(gate.ResumeFailure):
             gate.validate_inspection(invalid)
 
+    def test_autosave_projection_reports_first_physics_difference(self) -> None:
+        record = {
+            "completed_physics_steps": gate.FINAL_STEP,
+            "physics_paused": True,
+            "player_position": [1.0, 2.0, 3.0],
+            "actors": [
+                {
+                    "filename": "agora.zip:" + gate.VEHICLE,
+                    "physics_step": gate.FINAL_STEP,
+                    "nodes": [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]],
+                    "beams": [[0.0, 0.0, 0.0, 1.0, 2.0]],
+                    "lights": 0,
+                }
+            ],
+        }
+        resume = copy.deepcopy(record)
+        resume["player_position"] = [9.0, 9.0, 9.0]
+        self.assertIsNone(
+            gate.first_json_difference(
+                gate.autosave_physics_projection(record),
+                gate.autosave_physics_projection(resume),
+            )
+        )
+        resume["actors"][0]["nodes"][0][4] = 5.5
+        self.assertEqual(
+            gate.first_json_difference(
+                gate.autosave_physics_projection(record),
+                gate.autosave_physics_projection(resume),
+            ),
+            {
+                "path": "$.actors[0].nodes[0][4]",
+                "kind": "value",
+                "left": 5.0,
+                "right": 5.5,
+            },
+        )
+
+    def test_github_error_escapes_workflow_commands(self) -> None:
+        self.assertEqual(
+            gate.format_github_error("bad%line\nnext\rline"),
+            "::error title=Deterministic save-resume gate::"
+            "bad%25line%0Anext%0Dline",
+        )
+
     def test_runtime_log_contract_is_phase_specific_and_fail_closed(self) -> None:
         save_script = "\n".join(gate.SAVE_SCRIPT_MARKERS)
         save_engine = "\n".join(gate.SAVE_ENGINE_MARKERS)

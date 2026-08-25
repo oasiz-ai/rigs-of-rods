@@ -336,6 +336,104 @@ def read_required(path: Path, label: str) -> str:
         raise ResumeFailure(f"{label} was not created: {path}") from exc
 
 
+def read_json_object(path: Path, label: str) -> dict[str, object]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ResumeFailure(f"{label} is not strict JSON: {path}") from exc
+    if not isinstance(payload, dict):
+        raise ResumeFailure(f"{label} is not an object: {path}")
+    return payload
+
+
+def autosave_physics_projection(payload: Mapping[str, object]) -> dict[str, object]:
+    actors = payload.get("actors")
+    if not isinstance(actors, list):
+        raise ResumeFailure("autosave actors are not an array")
+    projected_actors = []
+    exact_actor_fields = (
+        "filename",
+        "sim_state",
+        "physics_paused",
+        "deterministic_seed",
+        "physics_step",
+        "engine_update_step",
+        "physics_origin",
+        "deterministic_runtime_flags_v1",
+        "nodes",
+        "beams",
+        "calibrated_beam_state_v1",
+        "jbeam_hydro_state_v1",
+    )
+    for actor in actors:
+        if not isinstance(actor, dict):
+            raise ResumeFailure("autosave actor is not an object")
+        projected_actors.append(
+            {field: actor[field] for field in exact_actor_fields if field in actor}
+        )
+    return {
+        "completed_physics_steps": payload.get("completed_physics_steps"),
+        "physics_paused": payload.get("physics_paused"),
+        "actors": projected_actors,
+    }
+
+
+def first_json_difference(
+    left: object,
+    right: object,
+    path: str = "$",
+) -> dict[str, object] | None:
+    if isinstance(left, dict) and isinstance(right, dict):
+        left_keys = set(left)
+        right_keys = set(right)
+        if left_keys != right_keys:
+            return {
+                "path": path,
+                "kind": "object_keys",
+                "left_only": sorted(left_keys - right_keys),
+                "right_only": sorted(right_keys - left_keys),
+            }
+        for key in sorted(left_keys):
+            difference = first_json_difference(
+                left[key], right[key], f"{path}.{key}"
+            )
+            if difference is not None:
+                return difference
+        return None
+    if isinstance(left, list) and isinstance(right, list):
+        if len(left) != len(right):
+            return {
+                "path": path,
+                "kind": "array_length",
+                "left": len(left),
+                "right": len(right),
+            }
+        for index, (left_item, right_item) in enumerate(zip(left, right)):
+            difference = first_json_difference(
+                left_item, right_item, f"{path}[{index}]"
+            )
+            if difference is not None:
+                return difference
+        return None
+    if left != right or type(left) is not type(right):
+        return {
+            "path": path,
+            "kind": "value",
+            "left": left,
+            "right": right,
+        }
+    return None
+
+
+def format_github_error(message: str) -> str:
+    escaped = (
+        message.replace("%", "%25")
+        .replace("\r", "%0D")
+        .replace("\n", "%0A")
+    )
+    return f"::error title=Deterministic save-resume gate::{escaped}"
+
+
 def find_single(log_directory: Path, pattern: str, label: str) -> Path:
     matches = sorted(log_directory.glob(pattern))
     if len(matches) != 1:
@@ -682,6 +780,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     ):
         write_runtime_config(user_directory, args.workers, initial)
         engine_path, script_path = prepare_logs(log_directory)
+        autosave_path = save_directory / "autosave.sav"
+        try:
+            autosave_path.unlink()
+        except FileNotFoundError:
+            pass
         completed = run_command(
             build_command(executable, script, initial),
             args.timeout,
@@ -707,8 +810,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         validate_trace_span(inspection, resumed=not initial)
         copied_trace = artifacts / f"{label}.rortrace"
         copied_input = artifacts / f"{label}.rorinput"
+        copied_autosave = artifacts / f"{label}.autosave.sav"
         shutil.copy2(trace, copied_trace)
         shutil.copy2(input_trace, copied_input)
+        autosave = read_json_object(autosave_path, f"{label} autosave")
+        shutil.copy2(autosave_path, copied_autosave)
         (diagnostics / f"{label}.stdout").write_text(stdout, encoding="utf-8")
         (diagnostics / f"{label}.RoR.log").write_text(
             engine_log, encoding="utf-8"
@@ -722,6 +828,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "inspection": inspection,
             "trace": str(copied_trace.relative_to(artifact_dir)),
             "trace_sha256": sha256_file(copied_trace),
+            "autosave": str(copied_autosave.relative_to(artifact_dir)),
+            "autosave_sha256": sha256_file(copied_autosave),
         }
 
         if initial:
@@ -736,10 +844,28 @@ def main(argv: Sequence[str] | None = None) -> int:
                 copied_checkpoint
             )
 
-    validate_final_equivalence(
-        observations["record"]["inspection"],
-        observations["resume"]["inspection"],
-    )
+    try:
+        validate_final_equivalence(
+            observations["record"]["inspection"],
+            observations["resume"]["inspection"],
+        )
+    except ResumeFailure as exc:
+        record_autosave = read_json_object(
+            artifact_dir / str(observations["record"]["autosave"]),
+            "record autosave artifact",
+        )
+        resume_autosave = read_json_object(
+            artifact_dir / str(observations["resume"]["autosave"]),
+            "resume autosave artifact",
+        )
+        difference = first_json_difference(
+            autosave_physics_projection(record_autosave),
+            autosave_physics_projection(resume_autosave),
+        )
+        raise ResumeFailure(
+            f"{exc}; autosave physics difference="
+            f"{json.dumps(difference, sort_keys=True)}"
+        ) from exc
     if observations["record"]["input_sha256"] != observations["resume"][
         "input_sha256"
     ]:
@@ -787,5 +913,8 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except ResumeFailure as exc:
-        print(f"deterministic save/resume gate failed: {exc}", file=sys.stderr)
+        message = f"deterministic save/resume gate failed: {exc}"
+        print(message, file=sys.stderr)
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            print(format_github_error(message), file=sys.stderr)
         raise SystemExit(1)
