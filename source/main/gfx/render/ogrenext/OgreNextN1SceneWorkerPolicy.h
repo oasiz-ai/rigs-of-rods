@@ -12,7 +12,7 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kOgreNextDefaultMaximumSceneWorkers = 4U;
+constexpr std::uint32_t kOgreNextQualifiedDefaultSceneWorkers = 1U;
 constexpr std::uint32_t kOgreNextOverrideMaximumSceneWorkers = 8U;
 
 struct OgreNextSceneWorkerSelection {
@@ -24,22 +24,18 @@ struct OgreNextSceneWorkerSelection {
 
 /// Resolves the Ogre-Next scene-worker count without consulting global state.
 ///
-/// The normal policy uses at most four workers so clustered-light collection,
-/// culling, LOD, and scene updates can use Ogre-Next's reviewed partitions
-/// without creating an unbounded thread count. ROR_OGRE_NEXT_SCENE_WORKERS is
+/// The normal policy keeps Ogre-Next on the one-worker path that has completed
+/// the packaged cross-platform renderer smoke. Multi-worker rendering remains
+/// available only through the explicit sanitizer/A-B override until its native
+/// lifetime path is separately qualified. ROR_OGRE_NEXT_SCENE_WORKERS is
 /// deliberately strict: only one ASCII digit in [1, 8] is accepted. Invalid
-/// values fall back to the hardware-bounded default and remain observable in
-/// the startup receipt.
+/// values fall back to the qualified default and remain observable in the
+/// startup receipt.
 inline OgreNextSceneWorkerSelection ResolveOgreNextSceneWorkerSelection(
     std::uint32_t hardware_threads, const char *override_value) noexcept {
   OgreNextSceneWorkerSelection selection;
   selection.hardware_threads = hardware_threads;
-  const std::uint32_t available_threads =
-      hardware_threads == 0U ? 1U : hardware_threads;
-  selection.requested_worker_threads =
-      available_threads < kOgreNextDefaultMaximumSceneWorkers
-          ? available_threads
-          : kOgreNextDefaultMaximumSceneWorkers;
+  selection.requested_worker_threads = kOgreNextQualifiedDefaultSceneWorkers;
 
   selection.override_present = override_value != nullptr;
   if (override_value != nullptr && override_value[0] >= '1' &&

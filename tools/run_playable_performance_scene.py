@@ -534,7 +534,7 @@ def verify_ogrenext_scene_workers(text: str) -> dict[str, object]:
     This consumes the executable's startup receipt, not the policy selector in
     isolation. It therefore proves that Ogre-Next accepted the requested
     worker count used by the measured run and records whether the count came
-    from the hardware-bounded default or an intentional A/B override.
+    from the qualified default or an intentional sanitizer/A-B override.
     """
 
     matches = list(OGRE_NEXT_SCENE_WORKER_PATTERN.finditer(text))
@@ -558,7 +558,7 @@ def verify_ogrenext_scene_workers(text: str) -> dict[str, object]:
         raise PerformanceSceneFailure(
             "the performance run inherited an invalid scene-worker override"
         )
-    expected_default = min(4, max(1, hardware))
+    expected_default = 1
     if not override_present and requested != expected_default:
         raise PerformanceSceneFailure(
             "the runtime scene-worker default does not match its hardware "

@@ -47,13 +47,13 @@ void TestSceneWorkerPolicy() {
     Require(selection.hardware_threads == hardware &&
                 selection.requested_worker_threads == expected &&
                 !selection.override_present && !selection.override_valid,
-            "hardware-bounded scene-worker default changed");
+            "qualified scene-worker default changed");
   };
   expect_default(0U, 1U);
   expect_default(1U, 1U);
-  expect_default(2U, 2U);
-  expect_default(4U, 4U);
-  expect_default(64U, 4U);
+  expect_default(2U, 1U);
+  expect_default(4U, 1U);
+  expect_default(64U, 1U);
 
   const char *const valid_overrides[] = {"1", "4", "8"};
   const std::uint32_t valid_counts[] = {1U, 4U, 8U};
@@ -70,7 +70,7 @@ void TestSceneWorkerPolicy() {
   for (const char *const invalid : invalid_overrides) {
     const OgreNextSceneWorkerSelection selection =
         ResolveOgreNextSceneWorkerSelection(6U, invalid);
-    Require(selection.requested_worker_threads == 4U &&
+    Require(selection.requested_worker_threads == 1U &&
                 selection.override_present && !selection.override_valid,
             "invalid scene-worker override did not fall back exactly");
   }

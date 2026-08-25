@@ -45,6 +45,7 @@ jobs:
       CXX: g++-11
       CMAKE_BUILD_PARALLEL_LEVEL: "3"
       PYTHONDONTWRITEBYTECODE: "1"
+      ROR_OGRE_NEXT_SCENE_WORKERS: "4"
 
     steps:
       - uses: actions/checkout@v7
