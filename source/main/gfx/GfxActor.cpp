@@ -583,7 +583,7 @@ void RoR::GfxActor::UpdateParticles(float dt)
 
     for (NodeGfx& nfx: m_gfx_nodes)
     {
-        const node_t& n = m_actor->ar_nodes[nfx.nx_node_idx];
+        const NodeSB& n = m_simbuf.simbuf_nodes[nfx.nx_node_idx];
 
         // 'Wet' effects - water dripping and vapour
         if (nfx.nx_may_get_wet && !nfx.nx_no_particles)
@@ -633,21 +633,21 @@ void RoR::GfxActor::UpdateParticles(float dt)
         }
 
         // Ground collision (dust, sparks, tyre smoke, clumps...)
-        if (!nfx.nx_no_particles && n.nd_has_ground_contact && n.nd_last_collision_gm != nullptr)
+        if (!nfx.nx_no_particles && n.nd_has_ground_contact && n.nd_collision_fx_valid)
         {
-            switch (n.nd_last_collision_gm->fx_type)
+            switch (n.nd_collision_fx_type)
             {
             case Collisions::FX_DUSTY:
                 if (m_particles_dust != nullptr)
                 {
-                    m_particles_dust->malloc(n.AbsPosition, n.Velocity / 2.0, n.nd_last_collision_gm->fx_colour);
+                    m_particles_dust->malloc(n.AbsPosition, n.Velocity / 2.0, n.nd_collision_fx_colour);
                 }
                 break;
 
             case Collisions::FX_CLUMPY:
                 if (m_particles_clump != nullptr && n.Velocity.squaredLength() > 1.f)
                 {
-                    m_particles_clump->allocClump(n.AbsPosition, n.Velocity / 2.0, n.nd_last_collision_gm->fx_colour);
+                    m_particles_clump->allocClump(n.AbsPosition, n.Velocity / 2.0, n.nd_collision_fx_colour);
                 }
                 break;
 
@@ -1773,8 +1773,22 @@ void RoR::GfxActor::UpdateSimDataBuffer()
     for (int i = 0; i < m_actor->ar_num_nodes; ++i)
     {
         auto node = m_actor->ar_nodes[i];
-        m_simbuf.simbuf_nodes[i].AbsPosition = node.AbsPosition;
-        m_simbuf.simbuf_nodes[i].nd_has_contact = node.nd_has_ground_contact || node.nd_has_mesh_contact;
+        NodeSB& snapshot = m_simbuf.simbuf_nodes[i];
+        snapshot.AbsPosition = node.AbsPosition;
+        snapshot.Velocity = node.Velocity;
+        snapshot.nd_last_collision_slip = node.nd_last_collision_slip;
+        snapshot.nd_avg_collision_slip = node.nd_avg_collision_slip;
+        snapshot.nd_has_contact = node.nd_has_ground_contact || node.nd_has_mesh_contact;
+        snapshot.nd_has_ground_contact = node.nd_has_ground_contact;
+        snapshot.nd_under_water = node.nd_under_water;
+        snapshot.nd_tyre_node = node.nd_tyre_node;
+        snapshot.nd_collision_fx_valid = node.nd_last_collision_gm != nullptr;
+        snapshot.nd_collision_fx_type = snapshot.nd_collision_fx_valid
+            ? node.nd_last_collision_gm->fx_type
+            : 0;
+        snapshot.nd_collision_fx_colour = snapshot.nd_collision_fx_valid
+            ? node.nd_last_collision_gm->fx_colour
+            : Ogre::ColourValue::Black;
     }
 
     for (NodeGfx& nx: m_gfx_nodes)

@@ -10,6 +10,9 @@ on:
       - resources/nextgen/native/**
       - resources/scripts/example_jbeam_multi_actor_tsan_soak.as
       - source/main/CMakeLists.txt
+      - source/main/gfx/GfxActor.cpp
+      - source/main/gfx/GfxActor.h
+      - source/main/gfx/SimBuffers.h
       - source/main/gfx/render/NativeRenderAssetPackage.cpp
       - source/main/gfx/render/NativeRenderAssetPackage.h
       - source/main/gfx/render/NativeVisualShowcaseSceneSource.cpp
@@ -24,6 +27,9 @@ on:
       - source/main/gfx/render/Ogre14ParticleCaptureSource.h
       - source/main/gfx/render/ogrenext/OgreNextN1ParticleRuntime.cpp
       - source/main/gfx/render/ogrenext/OgreNextN1ParticleRuntime.h
+      - source/main/physics/ActorSpawner.cpp
+      - tests/tools/test_ogre_next_combined_provider_contract.py
+      - tests/tools/test_renderer_combined_game_wiring_contract.py
       - tools/ogre_next_probe/cmake/PinnedOgreNext.cmake
       - tools/ogre_next_probe/ogre-next.lock.json
       - tools/ogre_next_probe/patches/**

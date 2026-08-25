@@ -66,9 +66,18 @@ namespace RoR {
 
 struct NodeSB
 {
-    Ogre::Vector3     AbsPosition; // classic name
-    bool              nd_has_contact:1;
-    bool              nd_is_wet:1;
+    Ogre::Vector3     AbsPosition = Ogre::Vector3::ZERO; // classic name
+    Ogre::Vector3     Velocity = Ogre::Vector3::ZERO;
+    Ogre::Vector3     nd_last_collision_slip = Ogre::Vector3::ZERO;
+    Ogre::ColourValue nd_collision_fx_colour = Ogre::ColourValue::Black;
+    Ogre::Real        nd_avg_collision_slip = 0.f;
+    int               nd_collision_fx_type = 0;
+    bool              nd_has_contact = false;
+    bool              nd_has_ground_contact = false;
+    bool              nd_under_water = false;
+    bool              nd_tyre_node = false;
+    bool              nd_collision_fx_valid = false;
+    bool              nd_is_wet = false;
 };
 
 struct ScrewpropSB

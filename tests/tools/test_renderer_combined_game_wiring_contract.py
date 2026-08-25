@@ -51,6 +51,75 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         cls.ogre14_recipe = (
             ROOT / "cmake/conan/recipes/ogre3d/conanfile.py"
         ).read_text(encoding="utf-8")
+        cls.gfx_actor = (
+            ROOT / "source/main/gfx/GfxActor.cpp"
+        ).read_text(encoding="utf-8")
+        cls.sim_buffers = (
+            ROOT / "source/main/gfx/SimBuffers.h"
+        ).read_text(encoding="utf-8")
+
+    def test_particle_updates_consume_the_joined_node_snapshot(self) -> None:
+        update_particles_start = self.gfx_actor.index(
+            "void RoR::GfxActor::UpdateParticles(float dt)"
+        )
+        update_particles_end = self.gfx_actor.index(
+            "const ImU32 BEAM_COLOR", update_particles_start
+        )
+        update_particles = self.gfx_actor[
+            update_particles_start:update_particles_end
+        ]
+        self.assertIn(
+            "const NodeSB& n = m_simbuf.simbuf_nodes[nfx.nx_node_idx];",
+            update_particles,
+        )
+        self.assertNotIn("m_actor->ar_nodes", update_particles)
+        self.assertNotIn("nd_last_collision_gm", update_particles)
+        for field in (
+            "Ogre::Vector3     Velocity",
+            "Ogre::Vector3     nd_last_collision_slip",
+            "Ogre::ColourValue nd_collision_fx_colour",
+            "Ogre::Real        nd_avg_collision_slip",
+            "int               nd_collision_fx_type",
+            "bool              nd_has_ground_contact",
+            "bool              nd_under_water",
+            "bool              nd_tyre_node",
+            "bool              nd_collision_fx_valid",
+        ):
+            with self.subTest(field=field):
+                self.assertIn(field, self.sim_buffers)
+
+        buffer_start = self.gfx_actor.index(
+            "void RoR::GfxActor::UpdateSimDataBuffer()"
+        )
+        buffer_end = self.gfx_actor.index(
+            "void RoR::GfxActor::UpdateAirbrakes", buffer_start
+        )
+        buffer = self.gfx_actor[buffer_start:buffer_end]
+        for assignment in (
+            "snapshot.Velocity = node.Velocity;",
+            "snapshot.nd_last_collision_slip = node.nd_last_collision_slip;",
+            "snapshot.nd_avg_collision_slip = node.nd_avg_collision_slip;",
+            "snapshot.nd_has_ground_contact = node.nd_has_ground_contact;",
+            "snapshot.nd_under_water = node.nd_under_water;",
+            "snapshot.nd_tyre_node = node.nd_tyre_node;",
+            "snapshot.nd_collision_fx_valid = node.nd_last_collision_gm != nullptr;",
+            "? node.nd_last_collision_gm->fx_type",
+            "? node.nd_last_collision_gm->fx_colour",
+        ):
+            with self.subTest(assignment=assignment):
+                self.assertIn(assignment, buffer)
+
+        join = self.main.index(
+            "App::GetGameContext()->GetActorManager()->SyncWithSimThread();"
+        )
+        snapshot = self.main.index(
+            "App::GetGfxScene()->BufferSimulationData();", join
+        )
+        resume = self.main.index(
+            "App::GetGameContext()->UpdateActors();", snapshot
+        )
+        self.assertLess(join, snapshot)
+        self.assertLess(snapshot, resume)
 
     def test_bare_launch_uses_the_packaged_simple2_semi_scene(self) -> None:
         start = self.main.index(
