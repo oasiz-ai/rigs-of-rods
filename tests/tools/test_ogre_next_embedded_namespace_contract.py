@@ -171,6 +171,16 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
                 '"implementation_patched_sha256": '
                 '"@ROR_OGRE_NEXT_BARRIER_IMPLEMENTATION_PATCHED_SHA256@"'
             ),
+            '"path": "@ROR_OGRE_NEXT_FORWARD_CLUSTERED_PATCH_PATH@"',
+            '"sha256": "@ROR_OGRE_NEXT_FORWARD_CLUSTERED_PATCH_SHA256@"',
+            (
+                '"header_patched_sha256": '
+                '"@ROR_OGRE_NEXT_FORWARD_CLUSTERED_HEADER_PATCHED_SHA256@"'
+            ),
+            (
+                '"implementation_patched_sha256": '
+                '"@ROR_OGRE_NEXT_FORWARD_CLUSTERED_IMPLEMENTATION_PATCHED_SHA256@"'
+            ),
             '"full_n1_link_evidence": "not_evaluated"',
         ):
             with self.subTest(token=token):
@@ -273,6 +283,27 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
                 "implementation_source_sha256"
             ],
             "ROR_OGRE_NEXT_BARRIER_IMPLEMENTATION_PATCHED_SHA256": patches[5][
+                "implementation_patched_sha256"
+            ],
+            "ROR_OGRE_NEXT_FORWARD_CLUSTERED_PATCH_PATH": patches[6]["path"],
+            "ROR_OGRE_NEXT_FORWARD_CLUSTERED_PATCH_SHA256": patches[6]["sha256"],
+            "ROR_OGRE_NEXT_FORWARD_CLUSTERED_PATCH_REASON": patches[6]["reason"],
+            "ROR_OGRE_NEXT_FORWARD_CLUSTERED_HEADER_PATH": patches[6][
+                "header_source_path"
+            ],
+            "ROR_OGRE_NEXT_FORWARD_CLUSTERED_HEADER_SOURCE_SHA256": patches[6][
+                "header_source_sha256"
+            ],
+            "ROR_OGRE_NEXT_FORWARD_CLUSTERED_HEADER_PATCHED_SHA256": patches[6][
+                "header_patched_sha256"
+            ],
+            "ROR_OGRE_NEXT_FORWARD_CLUSTERED_IMPLEMENTATION_PATH": patches[6][
+                "implementation_source_path"
+            ],
+            "ROR_OGRE_NEXT_FORWARD_CLUSTERED_IMPLEMENTATION_SOURCE_SHA256": patches[6][
+                "implementation_source_sha256"
+            ],
+            "ROR_OGRE_NEXT_FORWARD_CLUSTERED_IMPLEMENTATION_PATCHED_SHA256": patches[6][
                 "implementation_patched_sha256"
             ],
         }

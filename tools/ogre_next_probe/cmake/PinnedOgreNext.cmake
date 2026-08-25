@@ -227,6 +227,24 @@ string(JSON ROR_OGRE_NEXT_BARRIER_IMPLEMENTATION_SOURCE_SHA256 GET
     "${_ror_lock_json}" patches 5 implementation_source_sha256)
 string(JSON ROR_OGRE_NEXT_BARRIER_IMPLEMENTATION_PATCHED_SHA256 GET
     "${_ror_lock_json}" patches 5 implementation_patched_sha256)
+string(JSON ROR_OGRE_NEXT_FORWARD_CLUSTERED_PATCH_PATH GET
+    "${_ror_lock_json}" patches 6 path)
+string(JSON ROR_OGRE_NEXT_FORWARD_CLUSTERED_PATCH_SHA256 GET
+    "${_ror_lock_json}" patches 6 sha256)
+string(JSON ROR_OGRE_NEXT_FORWARD_CLUSTERED_PATCH_REASON GET
+    "${_ror_lock_json}" patches 6 reason)
+string(JSON ROR_OGRE_NEXT_FORWARD_CLUSTERED_HEADER_PATH GET
+    "${_ror_lock_json}" patches 6 header_source_path)
+string(JSON ROR_OGRE_NEXT_FORWARD_CLUSTERED_HEADER_SOURCE_SHA256 GET
+    "${_ror_lock_json}" patches 6 header_source_sha256)
+string(JSON ROR_OGRE_NEXT_FORWARD_CLUSTERED_HEADER_PATCHED_SHA256 GET
+    "${_ror_lock_json}" patches 6 header_patched_sha256)
+string(JSON ROR_OGRE_NEXT_FORWARD_CLUSTERED_IMPLEMENTATION_PATH GET
+    "${_ror_lock_json}" patches 6 implementation_source_path)
+string(JSON ROR_OGRE_NEXT_FORWARD_CLUSTERED_IMPLEMENTATION_SOURCE_SHA256 GET
+    "${_ror_lock_json}" patches 6 implementation_source_sha256)
+string(JSON ROR_OGRE_NEXT_FORWARD_CLUSTERED_IMPLEMENTATION_PATCHED_SHA256 GET
+    "${_ror_lock_json}" patches 6 implementation_patched_sha256)
 string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_NAME GET
     "${_ror_lock_json}" embedded_namespace namespace)
 string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_CMAKE_OPTION GET
@@ -654,7 +672,7 @@ endif ()
 file(SHA256
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_IBL_PATCH_PATH}"
     _ror_ibl_patch_sha256)
-if (NOT ROR_OGRE_NEXT_PATCH_COUNT EQUAL 6 OR
+if (NOT ROR_OGRE_NEXT_PATCH_COUNT EQUAL 7 OR
         NOT ROR_OGRE_NEXT_IBL_PATCH_PATH STREQUAL
         "patches/0005-metal-typed-ibl-uav-conversions.patch" OR
         NOT ROR_OGRE_NEXT_IBL_PATCH_SHA256 STREQUAL
@@ -751,6 +769,30 @@ if (NOT ROR_OGRE_NEXT_BARRIER_PATCH_PATH STREQUAL
         "edd2f66b8e831bf6ec918fb38efdab457ee83f1c2bf0ea095f8d482b5b476f4d")
     message(FATAL_ERROR
         "The pinned OGRE-Next reusable pthread barrier adaptation changed")
+endif ()
+file(SHA256
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_FORWARD_CLUSTERED_PATCH_PATH}"
+    _ror_forward_clustered_patch_sha256)
+if (NOT ROR_OGRE_NEXT_FORWARD_CLUSTERED_PATCH_PATH STREQUAL
+        "patches/0012-forward-clustered-worker-memory-isolation.patch" OR
+        NOT ROR_OGRE_NEXT_FORWARD_CLUSTERED_PATCH_SHA256 STREQUAL
+        "2bb9f7edbbf3c8618820174dd71007815078c0b795b261115c0b7db7524259a5" OR
+        NOT _ror_forward_clustered_patch_sha256 STREQUAL
+        ROR_OGRE_NEXT_FORWARD_CLUSTERED_PATCH_SHA256 OR
+        NOT ROR_OGRE_NEXT_FORWARD_CLUSTERED_HEADER_PATH STREQUAL
+        "OgreMain/include/OgreForwardClustered.h" OR
+        NOT ROR_OGRE_NEXT_FORWARD_CLUSTERED_HEADER_SOURCE_SHA256 STREQUAL
+        "e308281b0f3371410874b2735fdf4e54b69a6a0e2cf682b02e8c050b2d7ef622" OR
+        NOT ROR_OGRE_NEXT_FORWARD_CLUSTERED_HEADER_PATCHED_SHA256 STREQUAL
+        "0de7f8611919b36e02fd49748bd43d52d13386792faad65ff7cfbb32a8b79403" OR
+        NOT ROR_OGRE_NEXT_FORWARD_CLUSTERED_IMPLEMENTATION_PATH STREQUAL
+        "OgreMain/src/OgreForwardClustered.cpp" OR
+        NOT ROR_OGRE_NEXT_FORWARD_CLUSTERED_IMPLEMENTATION_SOURCE_SHA256 STREQUAL
+        "dd0bdd43af63c3d203e506d127060f6150b3bd2d2944e97a35a24cc7799e77db" OR
+        NOT ROR_OGRE_NEXT_FORWARD_CLUSTERED_IMPLEMENTATION_PATCHED_SHA256 STREQUAL
+        "cca3f8c0f5d621311fa40cd60d383c5ec1c7801ea9bf9fc48372767aa40a3708")
+    message(FATAL_ERROR
+        "The pinned OGRE-Next ForwardClustered worker-memory isolation changed")
 endif ()
 set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_PATH}")
@@ -1448,7 +1490,8 @@ set(_ror_ogre_next_patch_paths
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCH_PATH}"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_VULKAN_SKY_PATCH_PATH}"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_PATCH_PATH}"
-    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_BARRIER_PATCH_PATH}")
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_BARRIER_PATCH_PATH}"
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_FORWARD_CLUSTERED_PATCH_PATH}")
 if (ROR_OGRE_NEXT_EMBEDDED_NAMESPACE)
     list(APPEND _ror_ogre_next_patch_paths
         "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH}")
@@ -1712,6 +1755,20 @@ if (NOT _ror_extracted_barrier_header_sha256 STREQUAL
         ROR_OGRE_NEXT_BARRIER_IMPLEMENTATION_PATCHED_SHA256)
     message(FATAL_ERROR
         "The pinned OGRE-Next reusable pthread barrier patch did not produce reviewed bytes")
+endif ()
+
+file(SHA256
+    "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_FORWARD_CLUSTERED_HEADER_PATH}"
+    _ror_extracted_forward_clustered_header_sha256)
+file(SHA256
+    "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_FORWARD_CLUSTERED_IMPLEMENTATION_PATH}"
+    _ror_extracted_forward_clustered_implementation_sha256)
+if (NOT _ror_extracted_forward_clustered_header_sha256 STREQUAL
+        ROR_OGRE_NEXT_FORWARD_CLUSTERED_HEADER_PATCHED_SHA256 OR
+        NOT _ror_extracted_forward_clustered_implementation_sha256 STREQUAL
+        ROR_OGRE_NEXT_FORWARD_CLUSTERED_IMPLEMENTATION_PATCHED_SHA256)
+    message(FATAL_ERROR
+        "The pinned OGRE-Next ForwardClustered worker-memory patch did not produce reviewed bytes")
 endif ()
 
 foreach (_ror_normal_map_source_index RANGE 0

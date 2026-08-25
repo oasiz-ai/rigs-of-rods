@@ -1,0 +1,75 @@
+diff --git a/OgreMain/include/OgreForwardClustered.h b/OgreMain/include/OgreForwardClustered.h
+--- a/OgreMain/include/OgreForwardClustered.h
++++ b/OgreMain/include/OgreForwardClustered.h
+@@ -79,9 +79,9 @@ namespace Ogre
+         float mExponentK;
+         float mInvExponentK;
+ 
+-        ObjectMemoryManager   *mObjectMemoryManager;
+-        NodeMemoryManager     *mNodeMemoryManager;
+-        vector<Camera *>::type mThreadCameras;
++        vector<ObjectMemoryManager *>::type mThreadObjectMemoryManagers;
++        vector<NodeMemoryManager *>::type   mThreadNodeMemoryManagers;
++        vector<Camera *>::type              mThreadCameras;
+ 
+         bool                     mDebugWireAabbFrozen;
+         vector<WireAabb *>::type mDebugWireAabb;
+diff --git a/OgreMain/src/OgreForwardClustered.cpp b/OgreMain/src/OgreForwardClustered.cpp
+--- a/OgreMain/src/OgreForwardClustered.cpp
++++ b/OgreMain/src/OgreForwardClustered.cpp
+@@ -72,8 +72,6 @@ namespace Ogre
+         mCurrentCamera( 0 ),
+         mMinDistance( minDistance ),
+         mMaxDistance( maxDistance ),
+-        mObjectMemoryManager( 0 ),
+-        mNodeMemoryManager( 0 ),
+         mDebugWireAabbFrozen( false )
+     {
+         // SIMD optimization restriction.
+@@ -88,15 +86,22 @@ namespace Ogre
+         mFrustumRegions = RawSimdUniquePtr<FrustumRegion, MEMCATEGORY_SCENE_CONTROL>(
+             ( mWidth / ARRAY_PACKED_REALS ) * mHeight * mNumSlices );
+ 
+-        mObjectMemoryManager = new ObjectMemoryManager();
+-        mNodeMemoryManager = new NodeMemoryManager();
+-
++        // Each worker mutates its scratch camera and parent node concurrently. A shared
++        // NodeMemoryManager packs several nodes into one SIMD transform, so updating one
++        // lane writes the neighbouring workers' derived lanes. Keep both scratch-memory
++        // managers private to each worker to avoid cross-thread packed-array writes.
++        mThreadObjectMemoryManagers.reserve( mSceneManager->getNumWorkerThreads() );
++        mThreadNodeMemoryManagers.reserve( mSceneManager->getNumWorkerThreads() );
+         mThreadCameras.reserve( mSceneManager->getNumWorkerThreads() );
+         for( size_t i = 0; i < mSceneManager->getNumWorkerThreads(); ++i )
+         {
+-            SceneNode *sceneNode = OGRE_NEW SceneNode( (IdType)i, 0, mNodeMemoryManager, 0 );
+-            Camera *newCamera = OGRE_NEW Camera( (IdType)i, mObjectMemoryManager, 0 );
++            ObjectMemoryManager *objectMemoryManager = new ObjectMemoryManager();
++            NodeMemoryManager *nodeMemoryManager = new NodeMemoryManager();
++            SceneNode *sceneNode = OGRE_NEW SceneNode( (IdType)i, 0, nodeMemoryManager, 0 );
++            Camera *newCamera = OGRE_NEW Camera( (IdType)i, objectMemoryManager, 0 );
+             sceneNode->attachObject( newCamera );
++            mThreadObjectMemoryManagers.push_back( objectMemoryManager );
++            mThreadNodeMemoryManagers.push_back( nodeMemoryManager );
+             mThreadCameras.push_back( newCamera );
+         }
+     }
+@@ -111,14 +116,12 @@ namespace Ogre
+             sceneNode->detachAllObjects();
+             OGRE_DELETE sceneNode;
+             OGRE_DELETE mThreadCameras[i];
++            delete mThreadObjectMemoryManagers[i];
++            delete mThreadNodeMemoryManagers[i];
+         }
+         mThreadCameras.clear();
+-
+-        delete mObjectMemoryManager;
+-        delete mNodeMemoryManager;
+-
+-        mObjectMemoryManager = 0;
+-        mNodeMemoryManager = 0;
++        mThreadObjectMemoryManagers.clear();
++        mThreadNodeMemoryManagers.clear();
+     }
+     //-----------------------------------------------------------------------------------
+     inline float ForwardClustered::getDepthAtSlice( uint32 uSlice ) const

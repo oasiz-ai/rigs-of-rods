@@ -894,6 +894,9 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
     expected_barrier_patch_sha256 = (
         "9785e7f3e77337f9e24368ed21cadd968d91d3de5848948bbe328078637dabd7"
     )
+    expected_forward_clustered_patch_sha256 = (
+        "2bb9f7edbbf3c8618820174dd71007815078c0b795b261115c0b7db7524259a5"
+    )
     if type(lock.get("schema_version")) is not int or lock.get("schema_version") != 6:
         raise ProbeError("unsupported OGRE-Next lock schema")
     if lock.get("repository") != "https://github.com/OGRECave/ogre-next":
@@ -1150,6 +1153,31 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
             ),
             "implementation_patched_sha256": (
                 "edd2f66b8e831bf6ec918fb38efdab457ee83f1c2bf0ea095f8d482b5b476f4d"
+            ),
+        },
+        {
+            "path": (
+                "patches/0012-forward-clustered-worker-memory-isolation.patch"
+            ),
+            "sha256": expected_forward_clustered_patch_sha256,
+            "reason": (
+                "Isolate each ForwardClustered worker camera in private SIMD "
+                "object and node memory managers so parallel frustum updates "
+                "cannot write another worker's packed transform lanes"
+            ),
+            "header_source_path": "OgreMain/include/OgreForwardClustered.h",
+            "header_source_sha256": (
+                "e308281b0f3371410874b2735fdf4e54b69a6a0e2cf682b02e8c050b2d7ef622"
+            ),
+            "header_patched_sha256": (
+                "0de7f8611919b36e02fd49748bd43d52d13386792faad65ff7cfbb32a8b79403"
+            ),
+            "implementation_source_path": "OgreMain/src/OgreForwardClustered.cpp",
+            "implementation_source_sha256": (
+                "dd0bdd43af63c3d203e506d127060f6150b3bd2d2944e97a35a24cc7799e77db"
+            ),
+            "implementation_patched_sha256": (
+                "cca3f8c0f5d621311fa40cd60d383c5ec1c7801ea9bf9fc48372767aa40a3708"
             ),
         },
     ]

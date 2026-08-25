@@ -432,6 +432,40 @@ class OgreNextProbeContractTests(unittest.TestCase):
             "+            pthread_cond_wait( &barrier->cond", source
         )
 
+    def test_forward_clustered_worker_memory_patch_is_isolated_and_exact(
+        self,
+    ) -> None:
+        patch = self.lock["patches"][6]
+        self.assertEqual(
+            patch["path"],
+            "patches/0012-forward-clustered-worker-memory-isolation.patch",
+        )
+        self.assertEqual(
+            patch["header_source_sha256"],
+            "e308281b0f3371410874b2735fdf4e54b69a6a0e2cf682b02e8c050b2d7ef622",
+        )
+        self.assertEqual(
+            patch["header_patched_sha256"],
+            "0de7f8611919b36e02fd49748bd43d52d13386792faad65ff7cfbb32a8b79403",
+        )
+        self.assertEqual(
+            patch["implementation_source_sha256"],
+            "dd0bdd43af63c3d203e506d127060f6150b3bd2d2944e97a35a24cc7799e77db",
+        )
+        self.assertEqual(
+            patch["implementation_patched_sha256"],
+            "cca3f8c0f5d621311fa40cd60d383c5ec1c7801ea9bf9fc48372767aa40a3708",
+        )
+        source = (PROBE_DIR / patch["path"]).read_text(encoding="utf-8")
+        self.assertIn("mThreadObjectMemoryManagers", source)
+        self.assertIn("mThreadNodeMemoryManagers", source)
+        self.assertIn("new ObjectMemoryManager()", source)
+        self.assertIn("new NodeMemoryManager()", source)
+        self.assertIn("avoid cross-thread packed-array writes", source)
+        self.assertNotIn(
+            "+        mObjectMemoryManager = new ObjectMemoryManager()", source
+        )
+
     def test_ibl_notice_and_patched_shader_are_fail_closed_in_cmake(self) -> None:
         cmake = PINNED_CMAKE_PATH.read_text(encoding="utf-8")
         reflection_media = self.lock["reflection_shader_media"]
@@ -444,7 +478,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
             ]
         )
         for token in (
-            "ROR_OGRE_NEXT_PATCH_COUNT EQUAL 6",
+            "ROR_OGRE_NEXT_PATCH_COUNT EQUAL 7",
             "ROR_OGRE_NEXT_IBL_PATCHED_SHA256",
             "ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCHED_SHA256",
             "ROR_OGRE_NEXT_VULKAN_SKY_PATCHED_SHA256",
@@ -452,6 +486,8 @@ class OgreNextProbeContractTests(unittest.TestCase):
             "ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_IMPLEMENTATION_PATCHED_SHA256",
             "ROR_OGRE_NEXT_BARRIER_HEADER_PATCHED_SHA256",
             "ROR_OGRE_NEXT_BARRIER_IMPLEMENTATION_PATCHED_SHA256",
+            "ROR_OGRE_NEXT_FORWARD_CLUSTERED_HEADER_PATCHED_SHA256",
+            "ROR_OGRE_NEXT_FORWARD_CLUSTERED_IMPLEMENTATION_PATCHED_SHA256",
             "_ror_extracted_ibl_shader_sha256",
             "_ror_extracted_iblbaker_license_sha256",
             "ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE",
