@@ -184,6 +184,12 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
             '"path": "@ROR_OGRE_NEXT_LOD_TAIL_PATCH_PATH@"',
             '"sha256": "@ROR_OGRE_NEXT_LOD_TAIL_PATCH_SHA256@"',
             '"sources": @ROR_OGRE_NEXT_LOD_TAIL_SOURCES_JSON@',
+            '"path": "@ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCH_PATH@"',
+            '"sha256": "@ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCH_SHA256@"',
+            (
+                '"patched_sha256": '
+                '"@ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCHED_SHA256@"'
+            ),
             '"full_n1_link_evidence": "not_evaluated"',
         ):
             with self.subTest(token=token):
@@ -312,6 +318,14 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
             "ROR_OGRE_NEXT_LOD_TAIL_PATCH_PATH": patches[7]["path"],
             "ROR_OGRE_NEXT_LOD_TAIL_PATCH_SHA256": patches[7]["sha256"],
             "ROR_OGRE_NEXT_LOD_TAIL_PATCH_REASON": patches[7]["reason"],
+            "ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCH_PATH": patches[8]["path"],
+            "ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCH_SHA256": patches[8]["sha256"],
+            "ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCH_REASON": patches[8]["reason"],
+            "ROR_OGRE_NEXT_LIGHT_LIST_TAIL_SOURCE_PATH": patches[8]["source_path"],
+            "ROR_OGRE_NEXT_LIGHT_LIST_TAIL_SOURCE_SHA256": patches[8]["source_sha256"],
+            "ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCHED_SHA256": patches[8][
+                "patched_sha256"
+            ],
         }
         rendered = rendered.replace(
             "@ROR_OGRE_NEXT_LOD_TAIL_SOURCES_JSON@",

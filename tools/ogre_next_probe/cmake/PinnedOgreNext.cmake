@@ -255,6 +255,18 @@ string(JSON ROR_OGRE_NEXT_LOD_TAIL_SOURCES_JSON GET
     "${_ror_lock_json}" patches 7 sources)
 string(JSON ROR_OGRE_NEXT_LOD_TAIL_SOURCE_COUNT LENGTH
     "${ROR_OGRE_NEXT_LOD_TAIL_SOURCES_JSON}")
+string(JSON ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCH_PATH GET
+    "${_ror_lock_json}" patches 8 path)
+string(JSON ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCH_SHA256 GET
+    "${_ror_lock_json}" patches 8 sha256)
+string(JSON ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCH_REASON GET
+    "${_ror_lock_json}" patches 8 reason)
+string(JSON ROR_OGRE_NEXT_LIGHT_LIST_TAIL_SOURCE_PATH GET
+    "${_ror_lock_json}" patches 8 source_path)
+string(JSON ROR_OGRE_NEXT_LIGHT_LIST_TAIL_SOURCE_SHA256 GET
+    "${_ror_lock_json}" patches 8 source_sha256)
+string(JSON ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCHED_SHA256 GET
+    "${_ror_lock_json}" patches 8 patched_sha256)
 string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_NAME GET
     "${_ror_lock_json}" embedded_namespace namespace)
 string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_CMAKE_OPTION GET
@@ -682,7 +694,7 @@ endif ()
 file(SHA256
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_IBL_PATCH_PATH}"
     _ror_ibl_patch_sha256)
-if (NOT ROR_OGRE_NEXT_PATCH_COUNT EQUAL 8 OR
+if (NOT ROR_OGRE_NEXT_PATCH_COUNT EQUAL 9 OR
         NOT ROR_OGRE_NEXT_IBL_PATCH_PATH STREQUAL
         "patches/0005-metal-typed-ibl-uav-conversions.patch" OR
         NOT ROR_OGRE_NEXT_IBL_PATCH_SHA256 STREQUAL
@@ -865,6 +877,24 @@ foreach (_ror_lod_tail_source_index RANGE 0 5)
             "${_ror_lod_tail_source_index}")
     endif ()
 endforeach ()
+file(SHA256
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCH_PATH}"
+    _ror_light_list_tail_patch_sha256)
+if (NOT ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCH_PATH STREQUAL
+        "patches/0014-light-list-tail-lane-isolation.patch" OR
+        NOT ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCH_SHA256 STREQUAL
+        "9d8dd2290d405880665a2de8323770e7de165481548546d76dd8c97b050bbc46" OR
+        NOT _ror_light_list_tail_patch_sha256 STREQUAL
+        ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCH_SHA256 OR
+        NOT ROR_OGRE_NEXT_LIGHT_LIST_TAIL_SOURCE_PATH STREQUAL
+        "OgreMain/src/OgreMovableObject.cpp" OR
+        NOT ROR_OGRE_NEXT_LIGHT_LIST_TAIL_SOURCE_SHA256 STREQUAL
+        "b1de6a98f71c82e4c7e659305082dfa5d97f71c2fc1f2b2c4e84ac1de118336c" OR
+        NOT ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCHED_SHA256 STREQUAL
+        "567e5f1fb2f629cac9c1d18335c8fb85c09850ebfaea328761cecca48d1a3e31")
+    message(FATAL_ERROR
+        "The pinned OGRE-Next light-list tail-lane isolation changed")
+endif ()
 set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_PATH}")
 set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP
@@ -1563,7 +1593,8 @@ set(_ror_ogre_next_patch_paths
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_PATCH_PATH}"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_BARRIER_PATCH_PATH}"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_FORWARD_CLUSTERED_PATCH_PATH}"
-    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_LOD_TAIL_PATCH_PATH}")
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_LOD_TAIL_PATCH_PATH}"
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCH_PATH}")
 if (ROR_OGRE_NEXT_EMBEDDED_NAMESPACE)
     list(APPEND _ror_ogre_next_patch_paths
         "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH}")
@@ -1857,6 +1888,15 @@ foreach (_ror_lod_tail_source_index RANGE 0 5)
             "${_ror_lod_tail_source_path}")
     endif ()
 endforeach ()
+
+file(SHA256
+    "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_LIGHT_LIST_TAIL_SOURCE_PATH}"
+    _ror_extracted_light_list_tail_sha256)
+if (NOT _ror_extracted_light_list_tail_sha256 STREQUAL
+        ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCHED_SHA256)
+    message(FATAL_ERROR
+        "The pinned OGRE-Next light-list tail-lane patch did not produce reviewed bytes")
+endif ()
 
 foreach (_ror_normal_map_source_index RANGE 0
         ${_ror_normal_map_source_last})

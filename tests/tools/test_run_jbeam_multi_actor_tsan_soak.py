@@ -375,6 +375,15 @@ class JBeamMultiActorTSanSoakTests(unittest.TestCase):
             "sanitizer-evidence-not-qualified-runtime-package",
             "include-hidden-files: true",
             '"lp_num_threads": 0',
+            (
+                "Render packaged Simple2 and semi through four Ogre-Next "
+                "workers under ThreadSanitizer"
+            ),
+            "tools/run_playable_performance_scene.py",
+            "ci.ogre-next-combined.tsan-packaged-simple2-semi",
+            "ror-combined-packaged-tsan-report",
+            'workers.get("requested") != 4',
+            'ownership.get("visible_render_system") != "ogre-next-vulkan"',
         ):
             self.assertIn(token, workflow)
         self.assertNotIn("--native-visual-showcase", workflow)

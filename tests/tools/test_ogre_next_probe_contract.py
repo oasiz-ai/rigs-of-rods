@@ -493,6 +493,42 @@ class OgreNextProbeContractTests(unittest.TestCase):
             source,
         )
 
+    def test_light_list_tail_patch_skips_shared_dummy_lanes_and_is_exact(
+        self,
+    ) -> None:
+        patch = self.lock["patches"][8]
+        self.assertEqual(
+            patch["path"],
+            "patches/0014-light-list-tail-lane-isolation.patch",
+        )
+        self.assertEqual(
+            patch["source_path"], "OgreMain/src/OgreMovableObject.cpp"
+        )
+        self.assertEqual(
+            patch["source_sha256"],
+            "b1de6a98f71c82e4c7e659305082dfa5d97f71c2fc1f2b2c4e84ac1de118336c",
+        )
+        self.assertEqual(
+            patch["patched_sha256"],
+            "567e5f1fb2f629cac9c1d18335c8fb85c09850ebfaea328761cecca48d1a3e31",
+        )
+        source = (PROBE_DIR / patch["path"]).read_text(encoding="utf-8")
+        self.assertIn("const size_t numValidLanes", source)
+        self.assertEqual(source.count("j < numValidLanes"), 2)
+        self.assertEqual(source.count("k < numValidLanes"), 1)
+        self.assertEqual(source.count("mObjectMemoryManager != 0"), 4)
+        self.assertIn("Tail padding and fragmented slots", source)
+        self.assertIn("shared dummy lanes", source)
+        self.assertIn(
+            "assert( !IS_BIT_SET( k, r ) || "
+            "owner->mObjectMemoryManager != 0 )",
+            source,
+        )
+        self.assertNotIn(
+            "+            for( size_t j = 0; j < ARRAY_PACKED_REALS; ++j )",
+            source,
+        )
+
     def test_ibl_notice_and_patched_shader_are_fail_closed_in_cmake(self) -> None:
         cmake = PINNED_CMAKE_PATH.read_text(encoding="utf-8")
         reflection_media = self.lock["reflection_shader_media"]
@@ -505,7 +541,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
             ]
         )
         for token in (
-            "ROR_OGRE_NEXT_PATCH_COUNT EQUAL 8",
+            "ROR_OGRE_NEXT_PATCH_COUNT EQUAL 9",
             "ROR_OGRE_NEXT_IBL_PATCHED_SHA256",
             "ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCHED_SHA256",
             "ROR_OGRE_NEXT_VULKAN_SKY_PATCHED_SHA256",
@@ -517,6 +553,8 @@ class OgreNextProbeContractTests(unittest.TestCase):
             "ROR_OGRE_NEXT_FORWARD_CLUSTERED_IMPLEMENTATION_PATCHED_SHA256",
             "ROR_OGRE_NEXT_LOD_TAIL_SOURCE_COUNT EQUAL 6",
             "_ror_extracted_lod_tail_sha256",
+            "ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCHED_SHA256",
+            "_ror_extracted_light_list_tail_sha256",
             "_ror_extracted_ibl_shader_sha256",
             "_ror_extracted_iblbaker_license_sha256",
             "ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE",

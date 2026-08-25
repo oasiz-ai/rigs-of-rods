@@ -17,7 +17,9 @@ on:
       - tests/CMakeLists.txt
       - tests/fixtures/beamng/jbeam_multi_actor_tsan_soak/**
       - tests/tools/test_run_jbeam_multi_actor_tsan_soak.py
+      - tests/tools/test_run_playable_performance_scene.py
       - tools/run_jbeam_multi_actor_tsan_soak.py
+      - tools/run_playable_performance_scene.py
       - source/main/gfx/render/Ogre14ParticleCaptureSource.cpp
       - source/main/gfx/render/Ogre14ParticleCaptureSource.h
       - source/main/gfx/render/ogrenext/OgreNextN1ParticleRuntime.cpp
@@ -156,6 +158,8 @@ jobs:
           python tests/tools/test_ogre_next_combined_provider_contract.py
           python tests/tools/test_ogre_next_embedded_namespace_contract.py
           python tests/tools/test_renderer_combined_game_wiring_contract.py
+          python tests/tools/test_run_playable_performance_scene.py
+          python -O tests/tools/test_run_playable_performance_scene.py
 
       - name: Verify the locked native Conan graph
         shell: bash
@@ -201,6 +205,7 @@ jobs:
           test -x "$binary"
           test -d "$ROR_TSAN_BUILD_DIR/bin/resources/ogrenext/ShaderMedia"
           test -f "$ROR_TSAN_BUILD_DIR/bin/content/simple2-terrain.zip"
+          test -f "$ROR_TSAN_BUILD_DIR/bin/content/dafsemi.zip"
           readelf --dynamic "$binary" \
             | tee "$ROR_TSAN_ARTIFACTS_DIR/RoR-Combined.readelf-dynamic.txt"
           nm --dynamic "$binary" \
@@ -209,6 +214,86 @@ jobs:
             "$ROR_TSAN_ARTIFACTS_DIR/RoR-Combined.readelf-dynamic.txt"
           grep -Eq '[[:space:]]U[[:space:]]+__tsan_init(@|$)' \
             "$ROR_TSAN_ARTIFACTS_DIR/RoR-Combined.nm-dynamic.txt"
+
+      - name: Render packaged Simple2 and semi through four Ogre-Next workers under ThreadSanitizer
+        shell: bash
+        run: |
+          evidence="$ROR_TSAN_ARTIFACTS_DIR/packaged-simple2-semi"
+          tsan_log="$RUNNER_TEMP/ror-combined-packaged-tsan-report"
+          test ! -e "$evidence"
+          export TSAN_OPTIONS="halt_on_error=1:exitcode=66:history_size=7:second_deadlock_stack=1:log_path=$tsan_log"
+          LD_LIBRARY_PATH="$ROR_TSAN_BUILD_DIR/bin${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
+          python tools/run_playable_performance_scene.py \
+            --executable "$ROR_TSAN_BUILD_DIR/bin/RoR-Combined" \
+            --artifact-dir "$evidence" \
+            --scenario-id ci.ogre-next-combined.tsan-packaged-simple2-semi \
+            --terrain simple2_a.terrn2 \
+            --actor b6b0UID-semi.truck \
+            --graphics-preset high \
+            --width 1280 \
+            --height 720 \
+            --warmup-frames 2 \
+            --minimum-frames 24 \
+            --frames 24 \
+            --sustained-ms 1000 \
+            --percentile 99 \
+            --percentile-ms 1000 \
+            --measure-only \
+            --timeout 600
+          if compgen -G "$tsan_log*" > /dev/null; then
+            echo 'ThreadSanitizer emitted a packaged-scene diagnostic report' >&2
+            find "$RUNNER_TEMP" -maxdepth 1 \
+              -name 'ror-combined-packaged-tsan-report*' \
+              -type f -exec cp {} "$ROR_TSAN_ARTIFACTS_DIR/" \;
+            exit 1
+          fi
+          python - "$evidence/performance-run.json" <<'PY'
+          import json
+          import sys
+
+          document = json.load(open(sys.argv[1], encoding="utf-8"))
+          receipt = document.get("receipt", {})
+          renderer = document.get("renderer", {})
+          expected = {
+              "scenario_id": "ci.ogre-next-combined.tsan-packaged-simple2-semi",
+              "terrain": "simple2_a.terrn2",
+              "actor": "b6b0UID-semi.truck",
+              "renderer": "ogre-next-combined",
+              "presents_frames": True,
+              "accepted_frames": 24,
+              "rejected_frames": 0,
+              "native_scene_draw_exact_samples": 24,
+              "native_scene_draw_rejected_samples": 0,
+          }
+          for field, value in expected.items():
+              if receipt.get(field) != value:
+                  raise SystemExit(
+                      f"packaged TSan scene receipt changed: "
+                      f"{field}={receipt.get(field)!r}"
+                  )
+          workers = renderer.get("scene_workers", {})
+          if (
+              workers.get("requested") != 4
+              or workers.get("native") != 4
+              or not isinstance(workers.get("hardware"), int)
+              or workers["hardware"] < 4
+              or workers.get("override_present") is not True
+              or workers.get("override_valid") is not True
+          ):
+              raise SystemExit("packaged TSan scene did not use four native workers")
+          ownership = renderer.get("presentation_ownership", {})
+          if (
+              ownership.get("visible_render_system") != "ogre-next-vulkan"
+              or ownership.get("visible_window") is not True
+              or ownership.get("presentation_owner") != "ogre-next"
+              or ownership.get("legacy_visible_fallback") is not False
+              or ownership.get("resource_host") != "ogre14"
+              or ownership.get("resource_host_visible") is not False
+              or ownership.get("resource_host_protected") is not True
+          ):
+              raise SystemExit("packaged TSan scene lost Ogre-Next presentation ownership")
+          PY
 
       - name: Run continuous ten-minute multi-actor collision and mutation soak
         shell: bash

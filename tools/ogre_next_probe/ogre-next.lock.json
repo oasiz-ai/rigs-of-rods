@@ -136,6 +136,14 @@
           "patched_sha256": "ea27e7d101749346e3fa35e373235694d8ad1eb5bf99111f60c23fd6cb0a8c24"
         }
       ]
+    },
+    {
+      "path": "patches/0014-light-list-tail-lane-isolation.patch",
+      "sha256": "9d8dd2290d405880665a2de8323770e7de165481548546d76dd8c97b050bbc46",
+      "reason": "Exclude padded and fragmented NullEntity lanes from parallel light-list mutation so render queues never race a shared ObjectMemoryManager dummy object's vector storage",
+      "source_path": "OgreMain/src/OgreMovableObject.cpp",
+      "source_sha256": "b1de6a98f71c82e4c7e659305082dfa5d97f71c2fc1f2b2c4e84ac1de118336c",
+      "patched_sha256": "567e5f1fb2f629cac9c1d18335c8fb85c09850ebfaea328761cecca48d1a3e31"
     }
   ],
   "embedded_namespace": {

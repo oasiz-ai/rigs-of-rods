@@ -1,0 +1,71 @@
+diff --git a/OgreMain/src/OgreMovableObject.cpp b/OgreMain/src/OgreMovableObject.cpp
+--- a/OgreMain/src/OgreMovableObject.cpp
++++ b/OgreMain/src/OgreMovableObject.cpp
+@@ -792,8 +792,17 @@ namespace Ogre
+             const ArrayInt *RESTRICT_ALIAS objLightMask =
+                 reinterpret_cast<ArrayInt * RESTRICT_ALIAS>( objData.mLightMask );
+ 
+-            for( size_t j = 0; j < ARRAY_PACKED_REALS; ++j )
+-                objData.mOwner[j]->mLightList.clear();
++            // Tail padding and fragmented slots reuse this ObjectMemoryManager's
++            // NullEntity across render queues. Different queues can assign those
++            // shared dummy lanes to different workers, so never mutate their vector
++            // storage from the parallel light-list pass.
++            const size_t numValidLanes = std::min<size_t>( ARRAY_PACKED_REALS, numNodes - i );
++            for( size_t j = 0; j < numValidLanes; ++j )
++            {
++                MovableObject *owner = objData.mOwner[j];
++                if( owner->mObjectMemoryManager != 0 )
++                    owner->mLightList.clear();
++            }
+ 
+             ArrayMaskI isVisible =
+                 Mathlib::TestFlags4( *objVisibilityMask, Mathlib::SetAll( LAYER_VISIBILITY ) );
+@@ -822,16 +831,18 @@ namespace Ogre
+                 // Convert rMask into something smaller we can work with.
+                 uint32 r = BooleanMask4::getScalarMask( rMask );
+ 
+-                for( size_t k = 0; k < ARRAY_PACKED_REALS; ++k )
++                for( size_t k = 0; k < numValidLanes; ++k )
+                 {
+                     // Decompose the result for analyzing each MovableObject's
+                     // There's no need to check objData.mOwner[k] is null because
+                     // we set lightMask to 0 on slot removals
++                    MovableObject *owner = objData.mOwner[k];
++                    assert( !IS_BIT_SET( k, r ) || owner->mObjectMemoryManager != 0 );
+-                    if( IS_BIT_SET( k, r ) )
++                    if( IS_BIT_SET( k, r ) && owner->mObjectMemoryManager != 0 )
+                     {
+-                        LightList &lightList = objData.mOwner[k]->mLightList;
++                        LightList &lightList = owner->mLightList;
+                         lightList.dirtyHash();  // Don't calculate hash incrementally
+                         lightList.push_back( LightClosest( *lightsIt, lightList.size(), distance[k] ) );
+                     }
+                 }
+ 
+@@ -840,8 +851,9 @@ namespace Ogre
+                 ++boundingSphere;
+             }
+ 
+-            for( size_t j = 0; j < ARRAY_PACKED_REALS; ++j )
++            for( size_t j = 0; j < numValidLanes; ++j )
+             {
++                MovableObject *owner = objData.mOwner[j];
+                 // Trying to sort an empty container will cause two things:
+                 //  * (Only debug layers?) Wreaks havoc during multithreading
+                 //    due to the dummy NullEntity pointer on some stl
+@@ -848,11 +860,10 @@ namespace Ogre
+                 //    implementations.
+                 //  * False cache sharing when trying to recalculate the hash.
+                 //    of the dummy NullEntity pointer
+-                if( !objData.mOwner[j]->mLightList.empty() )
++                if( owner->mObjectMemoryManager != 0 && !owner->mLightList.empty() )
+                 {
+-                    std::stable_sort( objData.mOwner[j]->mLightList.begin(),
+-                                      objData.mOwner[j]->mLightList.end() );
+-                    objData.mOwner[j]->mLightList.getHash();
++                    std::stable_sort( owner->mLightList.begin(), owner->mLightList.end() );
++                    owner->mLightList.getHash();
+                 }
+             }
+ 

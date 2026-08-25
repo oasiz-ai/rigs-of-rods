@@ -900,6 +900,9 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
     expected_lod_tail_patch_sha256 = (
         "328b9960f922b0910c97d8874e48e873f50a646f7311dc0bad12068ddea1837d"
     )
+    expected_light_list_tail_patch_sha256 = (
+        "9d8dd2290d405880665a2de8323770e7de165481548546d76dd8c97b050bbc46"
+    )
     if type(lock.get("schema_version")) is not int or lock.get("schema_version") != 6:
         raise ProbeError("unsupported OGRE-Next lock schema")
     if lock.get("repository") != "https://github.com/OGRECave/ogre-next":
@@ -1247,6 +1250,22 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
                     ),
                 },
             ],
+        },
+        {
+            "path": "patches/0014-light-list-tail-lane-isolation.patch",
+            "sha256": expected_light_list_tail_patch_sha256,
+            "reason": (
+                "Exclude padded and fragmented NullEntity lanes from "
+                "parallel light-list mutation so render queues never race "
+                "a shared ObjectMemoryManager dummy object's vector storage"
+            ),
+            "source_path": "OgreMain/src/OgreMovableObject.cpp",
+            "source_sha256": (
+                "b1de6a98f71c82e4c7e659305082dfa5d97f71c2fc1f2b2c4e84ac1de118336c"
+            ),
+            "patched_sha256": (
+                "567e5f1fb2f629cac9c1d18335c8fb85c09850ebfaea328761cecca48d1a3e31"
+            ),
         },
     ]
     patches = lock.get("patches")
