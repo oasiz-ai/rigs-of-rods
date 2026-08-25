@@ -22,10 +22,10 @@ jobs:
       - name: Download immutable failed-run diagnostics
         uses: actions/download-artifact@v7
         with:
-          artifact-ids: "9542869408"
+          artifact-ids: "9544072190"
           github-token: ${{ github.token }}
           repository: oasiz-ai/rigs-of-rods
-          run-id: "32786978090"
+          run-id: "32791998324"
           path: ${{ runner.temp }}/linux-diagnostics
 
       - name: Download last qualified Linux runtime baseline
@@ -222,11 +222,75 @@ jobs:
                   "first_divergence": first_divergence,
               }
 
+          def observe_savegame(filename: str) -> dict[str, object]:
+              matches = [
+                  path
+                  for path in focused
+                  if path.name == filename and
+                  "/artifacts/" in "/" + path.relative_to(root).as_posix()
+              ]
+              if len(matches) != 1:
+                  return {"status": "unavailable", "matches": len(matches)}
+              path = matches[0]
+              payload = json.loads(path.read_text(encoding="utf-8"))
+              actors = payload.get("actors")
+              if not isinstance(actors, list) or len(actors) != 1 or not isinstance(actors[0], dict):
+                  return {"status": "invalid-actor-shape"}
+              actor = actors[0]
+              scalar_fields = (
+                  "physics_step",
+                  "engine_update_step",
+                  "hydro_dir_state",
+                  "hydro_aileron_state",
+                  "hydro_rudder_state",
+                  "hydro_elevator_state",
+                  "avg_wheel_speed",
+                  "wheel_speed",
+                  "wheel_spin",
+                  "engine_gear",
+                  "engine_rpm",
+                  "engine_auto_mode",
+                  "engine_auto_select",
+                  "engine_is_running",
+                  "engine_has_contact",
+              )
+              observation = {
+                  "status": "observed",
+                  "path": path.relative_to(root).as_posix(),
+                  "sha256": sha256_file(path),
+                  "completed_physics_steps": payload.get("completed_physics_steps"),
+                  "actor": {field: actor.get(field) for field in scalar_fields},
+              }
+              beams = actor.get("beams")
+              if isinstance(beams, list):
+                  observation["hydro_beams_858_861"] = {
+                      str(index): beams[index]
+                      for index in range(858, 862)
+                      if index < len(beams)
+                  }
+              nodes = actor.get("nodes")
+              if isinstance(nodes, list):
+                  observation["hydro_endpoint_nodes"] = {
+                      str(index): nodes[index]
+                      for index in (17, 19, 74, 75, 76, 77)
+                      if index < len(nodes)
+                  }
+              solver = actor.get("deterministic_solver_state_v1")
+              if isinstance(solver, dict):
+                  observation["deterministic_solver_state_v1"] = solver
+              return observation
+
+          savegame_analysis = {
+              "checkpoint": observe_savegame("d0_input_checkpoint.sav"),
+              "record_terminal": observe_savegame("record.autosave.sav"),
+              "resume_terminal": observe_savegame("resume.autosave.sav"),
+          }
+
           summary = {
               "format": "ror-linux-save-resume-diagnostic-summary-v1",
-              "source_run_id": 32786978090,
-              "source_artifact_id": 9542869408,
-              "source_commit": "6d88c0f957e5e394f606e4a6784c490badec2399",
+              "source_run_id": 32791998324,
+              "source_artifact_id": 9544072190,
+              "source_commit": "85cc0764a78f5134e995d1df169b3182c53437f1",
               "focused_file_count": len(focused),
               "focused_inventory": inventory,
               "terminal_report_present": report is not None,
@@ -235,6 +299,7 @@ jobs:
               "fatal_marker_lines": fatal_lines,
               "runtime_tails": runtime_tails,
               "trace_analysis": trace_analysis,
+              "savegame_analysis": savegame_analysis,
           }
           rendered = json.dumps(summary, indent=2, sort_keys=True)
           print(rendered)
@@ -267,6 +332,7 @@ jobs:
           emit("Linux save-resume D0 markers", d0_lines[-40:])
           emit("Linux save-resume fatal markers", fatal_lines[-40:])
           emit("Linux save-resume trace analysis", trace_analysis)
+          emit("Linux save-resume savegame state", savegame_analysis)
           for runtime_tail in runtime_tails:
               emit("Linux save-resume runtime tail", runtime_tail)
           PY
