@@ -108,12 +108,14 @@ bool ValidateDeterministicRuntimeFlags(const rapidjson::Value& flags)
 
 bool ValidateDeterministicSolverState(const rapidjson::Value& state)
 {
-    if (!state.IsObject() || state.MemberCount() != 6U ||
+    if (!state.IsObject() || state.MemberCount() != 7U ||
         !state.HasMember("wheels") || !state["wheels"].IsArray() ||
         !state.HasMember("wheel_differentials") ||
             !state["wheel_differentials"].IsArray() ||
         !state.HasMember("axle_differentials") ||
             !state["axle_differentials"].IsArray() ||
+        !state.HasMember("hydro_reference_lengths") ||
+            !state["hydro_reference_lengths"].IsArray() ||
         !state.HasMember("intra_collision_cadence") ||
             !state["intra_collision_cadence"].IsArray() ||
         !state.HasMember("inter_collision_cadence") ||
@@ -133,6 +135,19 @@ bool ValidateDeterministicSolverState(const rapidjson::Value& state)
         {
             if (!IsFiniteJsonNumber(delta))
                 return false;
+        }
+    }
+    for (const rapidjson::Value& hydro :
+        state["hydro_reference_lengths"].GetArray())
+    {
+        if (!hydro.IsArray() || hydro.Size() != 2U ||
+            !hydro[0U].IsUint() ||
+            !IsFiniteJsonNumber(hydro[1U]) ||
+            !(hydro[1U].GetDouble() > 0.0) ||
+            hydro[1U].GetDouble() >
+                static_cast<double>(std::numeric_limits<float>::max()))
+        {
+            return false;
         }
     }
     for (const char* member : {"intra_collision_cadence", "inter_collision_cadence"})
@@ -1695,6 +1710,27 @@ bool ActorManager::SaveScene(Ogre::String filename)
                 j_solver_axle_diffs,
                 j_doc.GetAllocator());
 
+            // Legacy hydro reference lengths are calculated from translated
+            // binary32 node coordinates at spawn. A reconstructed actor can
+            // therefore receive different low bits even when its saved nodes
+            // are restored exactly. Preserve the reference that CalcHydros()
+            // will use on the first resumed fixed step, together with its
+            // beam identity, instead of silently returning to respawn state.
+            rapidjson::Value j_hydro_reference_lengths(
+                rapidjson::kArrayType);
+            for (const hydrobeam_t& hydro : actor->ar_hydros)
+            {
+                rapidjson::Value row(rapidjson::kArrayType);
+                row.PushBack(hydro.hb_beam_index, j_doc.GetAllocator());
+                row.PushBack(hydro.hb_ref_length, j_doc.GetAllocator());
+                j_hydro_reference_lengths.PushBack(
+                    row, j_doc.GetAllocator());
+            }
+            j_solver_state.AddMember(
+                "hydro_reference_lengths",
+                j_hydro_reference_lengths,
+                j_doc.GetAllocator());
+
             rapidjson::Value j_intra_cadence(rapidjson::kArrayType);
             rapidjson::Value j_inter_cadence(rapidjson::kArrayType);
             for (int i = 0; i < actor->ar_num_collcabs; ++i)
@@ -2045,6 +2081,8 @@ bool ActorManager::RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_e
                 static_cast<rapidjson::SizeType>(actor->m_num_wheel_diffs) ||
             solver["axle_differentials"].Size() !=
                 static_cast<rapidjson::SizeType>(actor->m_num_axle_diffs) ||
+            solver["hydro_reference_lengths"].Size() !=
+                static_cast<rapidjson::SizeType>(actor->ar_hydros.size()) ||
             solver["intra_collision_cadence"].Size() !=
                 static_cast<rapidjson::SizeType>(actor->ar_num_collcabs) ||
             solver["inter_collision_cadence"].Size() !=
@@ -2053,6 +2091,18 @@ bool ActorManager::RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_e
             this->FailPendingDeterministicActorInputSavegame(
                 "restored Actor solver state shape rejected");
             return false;
+        }
+        for (rapidjson::SizeType index = 0U;
+             index < solver["hydro_reference_lengths"].Size();
+             ++index)
+        {
+            if (solver["hydro_reference_lengths"][index][0U].GetUint() !=
+                actor->ar_hydros[index].hb_beam_index)
+            {
+                this->FailPendingDeterministicActorInputSavegame(
+                    "restored Actor hydro solver identity rejected");
+                return false;
+            }
         }
     }
 
@@ -2288,6 +2338,8 @@ bool ActorManager::RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_e
                 static_cast<rapidjson::SizeType>(actor->m_num_wheel_diffs) ||
             solver["axle_differentials"].Size() !=
                 static_cast<rapidjson::SizeType>(actor->m_num_axle_diffs) ||
+            solver["hydro_reference_lengths"].Size() !=
+                static_cast<rapidjson::SizeType>(actor->ar_hydros.size()) ||
             solver["intra_collision_cadence"].Size() !=
                 static_cast<rapidjson::SizeType>(actor->ar_num_collcabs) ||
             solver["inter_collision_cadence"].Size() !=
@@ -2299,6 +2351,24 @@ bool ActorManager::RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_e
                     "restored Actor solver state shape rejected");
             }
             return false;
+        }
+
+        for (rapidjson::SizeType index = 0U;
+             index < solver["hydro_reference_lengths"].Size();
+             ++index)
+        {
+            const rapidjson::Value& row =
+                solver["hydro_reference_lengths"][index];
+            if (row[0U].GetUint() !=
+                actor->ar_hydros[index].hb_beam_index)
+            {
+                if (m_deterministic_actor_input_pending_savegame != nullptr)
+                {
+                    this->FailPendingDeterministicActorInputSavegame(
+                        "restored Actor hydro solver identity rejected");
+                }
+                return false;
+            }
         }
 
         for (int i = 0; i < actor->ar_num_wheels; ++i)
@@ -2326,6 +2396,12 @@ bool ActorManager::RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_e
             actor->m_axle_diffs[i]->di_delta_rotation =
                 solver["axle_differentials"][
                     static_cast<rapidjson::SizeType>(i)].GetFloat();
+        }
+        for (std::size_t i = 0U; i < actor->ar_hydros.size(); ++i)
+        {
+            actor->ar_hydros[i].hb_ref_length =
+                solver["hydro_reference_lengths"][
+                    static_cast<rapidjson::SizeType>(i)][1U].GetFloat();
         }
         for (int i = 0; i < actor->ar_num_collcabs; ++i)
         {

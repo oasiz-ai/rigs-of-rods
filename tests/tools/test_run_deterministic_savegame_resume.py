@@ -38,6 +38,7 @@ def valid_checkpoint() -> dict[str, object]:
                     "wheels": [[0.0] * 8],
                     "wheel_differentials": [],
                     "axle_differentials": [],
+                    "hydro_reference_lengths": [[0, 1.0]],
                     "intra_collision_cadence": [],
                     "inter_collision_cadence": [],
                     "actor": {
@@ -131,6 +132,9 @@ class SavegameResumeGateTests(unittest.TestCase):
             wrong_solver = valid_checkpoint()
             wrong_solver["actors"][0]["deterministic_solver_state_v1"]["wheels"][0][4] = float("inf")
             mutations.append(wrong_solver)
+            wrong_hydro_reference = valid_checkpoint()
+            wrong_hydro_reference["actors"][0]["deterministic_solver_state_v1"]["hydro_reference_lengths"][0][1] = float("inf")
+            mutations.append(wrong_hydro_reference)
             wrong_stress = valid_checkpoint()
             wrong_stress["actors"][0]["beams"][0][9] = float("inf")
             mutations.append(wrong_stress)

@@ -530,6 +530,7 @@ def validate_checkpoint(path: Path) -> dict[str, object]:
         "wheels",
         "wheel_differentials",
         "axle_differentials",
+        "hydro_reference_lengths",
         "intra_collision_cadence",
         "inter_collision_cadence",
         "actor",
@@ -561,6 +562,18 @@ def validate_checkpoint(path: Path) -> dict[str, object]:
             not finite_number(value) for value in values
         ):
             raise ResumeFailure("checkpoint differential state is invalid")
+    hydro_references = solver.get("hydro_reference_lengths")
+    if not isinstance(hydro_references, list) or any(
+        not isinstance(row, list)
+        or len(row) != 2
+        or isinstance(row[0], bool)
+        or not isinstance(row[0], int)
+        or row[0] < 0
+        or not finite_number(row[1])
+        or row[1] <= 0.0
+        for row in hydro_references
+    ):
+        raise ResumeFailure("checkpoint hydro reference state is invalid")
     for field in ("intra_collision_cadence", "inter_collision_cadence"):
         values = solver.get(field)
         if not isinstance(values, list) or any(
