@@ -14,7 +14,7 @@ diff --git a/OgreMain/include/OgreLodStrategy.h b/OgreMain/include/OgreLodStrate
 diff --git a/OgreMain/include/OgreLodStrategyPrivate.inl b/OgreMain/include/OgreLodStrategyPrivate.inl
 --- a/OgreMain/include/OgreLodStrategyPrivate.inl
 +++ b/OgreMain/include/OgreLodStrategyPrivate.inl
-@@ -28,9 +28,11 @@ THE SOFTWARE.
+@@ -28,9 +28,15 @@ THE SOFTWARE.
  
  namespace Ogre
  {
@@ -27,6 +27,11 @@ diff --git a/OgreMain/include/OgreLodStrategyPrivate.inl b/OgreMain/include/Ogre
 +        for( size_t j = 0; j < numValidLanes; ++j )
          {
              MovableObject *owner = objData.mOwner[j];
++            // Fragmented slots can remain inside numValidLanes and reuse this
++            // ObjectMemoryManager's NullEntity across parallel render queues.
++            if( owner->mObjectMemoryManager == 0 )
++                continue;
+ 
  
 diff --git a/OgreMain/include/OgreMovableObject.h b/OgreMain/include/OgreMovableObject.h
 --- a/OgreMain/include/OgreMovableObject.h

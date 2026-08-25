@@ -102,8 +102,8 @@
     },
     {
       "path": "patches/0013-lod-tail-lane-isolation.patch",
-      "sha256": "328b9960f922b0910c97d8874e48e873f50a646f7311dc0bad12068ddea1837d",
-      "reason": "Restrict parallel LOD writes to valid SIMD lanes so render-queue tail padding never mutates a shared ObjectMemoryManager dummy object",
+      "sha256": "9ad553e923aa20c12aa46381d568f7423ee2b792f104fdf06f062e74523d1848",
+      "reason": "Restrict parallel LOD writes to valid SIMD lanes and real objects so render-queue tail padding and fragmented slots never mutate a shared ObjectMemoryManager dummy object",
       "sources": [
         {
           "path": "OgreMain/include/OgreLodStrategy.h",
@@ -113,7 +113,7 @@
         {
           "path": "OgreMain/include/OgreLodStrategyPrivate.inl",
           "source_sha256": "7cd14b7656a2553d1a74eb83482c01681fb86392770e3df42d0147fd70f295bb",
-          "patched_sha256": "fcd310622777dd63167114cdade3afb62aab1ed4f24943a8d88aba92c6996de1"
+          "patched_sha256": "b2467b439235e58f319cd50909758b33a39b8081981283d3bbd241b3a03a2204"
         },
         {
           "path": "OgreMain/include/OgreMovableObject.h",
@@ -139,11 +139,19 @@
     },
     {
       "path": "patches/0014-light-list-tail-lane-isolation.patch",
-      "sha256": "9d8dd2290d405880665a2de8323770e7de165481548546d76dd8c97b050bbc46",
-      "reason": "Exclude padded and fragmented NullEntity lanes from parallel light-list mutation so render queues never race a shared ObjectMemoryManager dummy object's vector storage",
+      "sha256": "cc5c411a6af01eb83017147b4146d33561f936e135abf283bcd02b17a07b27ff",
+      "reason": "Bound phase-one light-cull writes to each worker's reserved live lanes and exclude padded and fragmented NullEntity lanes from parallel legacy light-list mutation",
       "source_path": "OgreMain/src/OgreMovableObject.cpp",
       "source_sha256": "b1de6a98f71c82e4c7e659305082dfa5d97f71c2fc1f2b2c4e84ac1de118336c",
-      "patched_sha256": "567e5f1fb2f629cac9c1d18335c8fb85c09850ebfaea328761cecca48d1a3e31"
+      "patched_sha256": "3633f1db70fad4b97ad53c0152fa2ffff49c3c76660772dfa3d031abdabbe603"
+    },
+    {
+      "path": "patches/0015-global-light-list-packed-capacity.patch",
+      "sha256": "5f267f1b16351646c622cf6217c7aa7315f0dbbba317bad9b527b954962ce1f7",
+      "reason": "Recompute fragmented packed-light capacity after light type and render-queue staging so parallel light culling cannot address beyond global list storage",
+      "source_path": "OgreMain/src/OgreSceneManager.cpp",
+      "source_sha256": "6cf2e3556321588dfcd4b21501c9eb5882b0fc2ccbd81266903c9d9c9521e31f",
+      "patched_sha256": "a011473301e92f22526487ff9370286ef9ec6c4dce3c81d5e08fca1d5f412811"
     }
   ],
   "embedded_namespace": {

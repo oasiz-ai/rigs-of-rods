@@ -466,7 +466,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
             "+        mObjectMemoryManager = new ObjectMemoryManager()", source
         )
 
-    def test_lod_tail_patch_skips_padding_lanes_and_is_exact(self) -> None:
+    def test_lod_tail_patch_skips_padding_and_fragmented_dummy_lanes(self) -> None:
         patch = self.lock["patches"][7]
         self.assertEqual(
             patch["path"], "patches/0013-lod-tail-lane-isolation.patch"
@@ -488,6 +488,9 @@ class OgreNextProbeContractTests(unittest.TestCase):
         self.assertIn("assert( numValidLanes <= ARRAY_PACKED_REALS )", source)
         self.assertIn("j < numValidLanes", source)
         self.assertEqual(source.count("numNodes - i"), 5)
+        self.assertEqual(source.count("mObjectMemoryManager == 0"), 1)
+        self.assertIn("Fragmented slots can remain inside numValidLanes", source)
+        self.assertIn("NullEntity across parallel render queues", source)
         self.assertNotIn(
             "+        for( size_t j = 0; j < ARRAY_PACKED_REALS; ++j )",
             source,
@@ -510,12 +513,13 @@ class OgreNextProbeContractTests(unittest.TestCase):
         )
         self.assertEqual(
             patch["patched_sha256"],
-            "567e5f1fb2f629cac9c1d18335c8fb85c09850ebfaea328761cecca48d1a3e31",
+            "3633f1db70fad4b97ad53c0152fa2ffff49c3c76660772dfa3d031abdabbe603",
         )
         source = (PROBE_DIR / patch["path"]).read_text(encoding="utf-8")
         self.assertIn("const size_t numValidLanes", source)
-        self.assertEqual(source.count("j < numValidLanes"), 2)
+        self.assertEqual(source.count("j < numValidLanes"), 3)
         self.assertEqual(source.count("k < numValidLanes"), 1)
+        self.assertEqual(source.count("numNodes - i"), 2)
         self.assertEqual(source.count("mObjectMemoryManager != 0"), 4)
         self.assertIn("Tail padding and fragmented slots", source)
         self.assertIn("shared dummy lanes", source)
@@ -529,6 +533,35 @@ class OgreNextProbeContractTests(unittest.TestCase):
             source,
         )
 
+    def test_global_light_list_recomputes_capacity_after_staging(self) -> None:
+        patch = self.lock["patches"][9]
+        self.assertEqual(
+            patch["path"],
+            "patches/0015-global-light-list-packed-capacity.patch",
+        )
+        self.assertEqual(
+            patch["source_path"], "OgreMain/src/OgreSceneManager.cpp"
+        )
+        self.assertEqual(
+            patch["source_sha256"],
+            "6cf2e3556321588dfcd4b21501c9eb5882b0fc2ccbd81266903c9d9c9521e31f",
+        )
+        self.assertEqual(
+            patch["patched_sha256"],
+            "a011473301e92f22526487ff9370286ef9ec6c4dce3c81d5e08fca1d5f412811",
+        )
+        source = (PROBE_DIR / patch["path"]).read_text(encoding="utf-8")
+        self.assertIn(
+            "+        reserveSlotsInGlobalLightList();",
+            source,
+        )
+        self.assertNotIn(
+            "+        reserveSlotsInGlobalLightList( 1 );",
+            source,
+        )
+        self.assertIn("Light::setType moves packed objects", source)
+        self.assertIn("after all scene staging", source)
+
     def test_ibl_notice_and_patched_shader_are_fail_closed_in_cmake(self) -> None:
         cmake = PINNED_CMAKE_PATH.read_text(encoding="utf-8")
         reflection_media = self.lock["reflection_shader_media"]
@@ -541,7 +574,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
             ]
         )
         for token in (
-            "ROR_OGRE_NEXT_PATCH_COUNT EQUAL 9",
+            "ROR_OGRE_NEXT_PATCH_COUNT EQUAL 10",
             "ROR_OGRE_NEXT_IBL_PATCHED_SHA256",
             "ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCHED_SHA256",
             "ROR_OGRE_NEXT_VULKAN_SKY_PATCHED_SHA256",
@@ -555,6 +588,8 @@ class OgreNextProbeContractTests(unittest.TestCase):
             "_ror_extracted_lod_tail_sha256",
             "ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCHED_SHA256",
             "_ror_extracted_light_list_tail_sha256",
+            "ROR_OGRE_NEXT_GLOBAL_LIGHT_CAPACITY_PATCHED_SHA256",
+            "_ror_extracted_global_light_capacity_sha256",
             "_ror_extracted_ibl_shader_sha256",
             "_ror_extracted_iblbaker_license_sha256",
             "ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE",

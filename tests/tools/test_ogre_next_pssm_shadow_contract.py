@@ -105,6 +105,21 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
         self.assertEqual(
             movable_source["sha256"], light_list_patch["patched_sha256"]
         )
+        scene_source = next(
+            record
+            for record in validated["sources"]
+            if record["role"] == "scene_caster_bounds_runtime"
+        )
+        capacity_patch = next(
+            patch
+            for patch in canonical["patches"]
+            if patch["path"]
+            == "patches/0015-global-light-list-packed-capacity.patch"
+        )
+        self.assertEqual(scene_source["path"], capacity_patch["source_path"])
+        self.assertEqual(
+            scene_source["sha256"], capacity_patch["patched_sha256"]
+        )
         reference = os.environ.get("ROR_OGRE_NEXT_REFERENCE_SOURCE_ROOT")
         if reference:
             reference_policy = os.environ.get(

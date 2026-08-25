@@ -110,7 +110,7 @@
     {
       "role": "movable_shadow_flag_masks",
       "path": "OgreMain/src/OgreMovableObject.cpp",
-      "sha256": "567e5f1fb2f629cac9c1d18335c8fb85c09850ebfaea328761cecca48d1a3e31"
+      "sha256": "3633f1db70fad4b97ad53c0152fa2ffff49c3c76660772dfa3d031abdabbe603"
     },
     {
       "role": "mesh_bounds_api",
@@ -140,7 +140,7 @@
     {
       "role": "scene_caster_bounds_runtime",
       "path": "OgreMain/src/OgreSceneManager.cpp",
-      "sha256": "6cf2e3556321588dfcd4b21501c9eb5882b0fc2ccbd81266903c9d9c9521e31f"
+      "sha256": "a011473301e92f22526487ff9370286ef9ec6c4dce3c81d5e08fca1d5f412811"
     },
     {
       "role": "scalar_aabb_dispatch",

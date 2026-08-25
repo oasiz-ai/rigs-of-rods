@@ -1,0 +1,16 @@
+diff --git a/OgreMain/src/OgreSceneManager.cpp b/OgreMain/src/OgreSceneManager.cpp
+--- a/OgreMain/src/OgreSceneManager.cpp
++++ b/OgreMain/src/OgreSceneManager.cpp
+@@ -2151,6 +2151,12 @@ namespace Ogre
+     void SceneManager::buildLightList()
+     {
+         mGlobalLightList.lights.clear();
++        // Light::setType moves packed objects between render queues after
++        // createLight's scalar reservation. Recompute the complete fragmented
++        // slot count after all scene staging and before publishing per-worker
++        // output spans, while the prior frame's pointer arrays are empty and
++        // can still be replaced safely.
++        reserveSlotsInGlobalLightList();
+ 
+         {
+             // Copy directional lights first. They aren't many. And we need them sorted:

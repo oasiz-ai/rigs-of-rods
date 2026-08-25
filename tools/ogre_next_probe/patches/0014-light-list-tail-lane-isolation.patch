@@ -1,7 +1,17 @@
 diff --git a/OgreMain/src/OgreMovableObject.cpp b/OgreMain/src/OgreMovableObject.cpp
 --- a/OgreMain/src/OgreMovableObject.cpp
 +++ b/OgreMain/src/OgreMovableObject.cpp
-@@ -792,8 +792,17 @@ namespace Ogre
+@@ -752,7 +752,8 @@ namespace Ogre
+ 
+             const uint32 scalarMask = BooleanMask4::getScalarMask( mask );
+ 
+-            for( size_t j = 0; j < ARRAY_PACKED_REALS; ++j )
++            const size_t numValidLanes = std::min<size_t>( ARRAY_PACKED_REALS, numNodes - i );
++            for( size_t j = 0; j < numValidLanes; ++j )
+             {
+                 // Decompose the result for analyzing each MovableObject's
+                 // There's no need to check objData.mOwner[j] is null because
+@@ -792,8 +793,17 @@ namespace Ogre
              const ArrayInt *RESTRICT_ALIAS objLightMask =
                  reinterpret_cast<ArrayInt * RESTRICT_ALIAS>( objData.mLightMask );
  
@@ -21,7 +31,7 @@ diff --git a/OgreMain/src/OgreMovableObject.cpp b/OgreMain/src/OgreMovableObject
  
              ArrayMaskI isVisible =
                  Mathlib::TestFlags4( *objVisibilityMask, Mathlib::SetAll( LAYER_VISIBILITY ) );
-@@ -822,16 +831,18 @@ namespace Ogre
+@@ -822,16 +832,18 @@ namespace Ogre
                  // Convert rMask into something smaller we can work with.
                  uint32 r = BooleanMask4::getScalarMask( rMask );
  
@@ -43,7 +53,7 @@ diff --git a/OgreMain/src/OgreMovableObject.cpp b/OgreMain/src/OgreMovableObject
                      }
                  }
  
-@@ -840,8 +851,9 @@ namespace Ogre
+@@ -840,8 +852,9 @@ namespace Ogre
                  ++boundingSphere;
              }
  
@@ -54,7 +64,7 @@ diff --git a/OgreMain/src/OgreMovableObject.cpp b/OgreMain/src/OgreMovableObject
                  // Trying to sort an empty container will cause two things:
                  //  * (Only debug layers?) Wreaks havoc during multithreading
                  //    due to the dummy NullEntity pointer on some stl
-@@ -848,11 +860,10 @@ namespace Ogre
+@@ -848,11 +861,10 @@ namespace Ogre
                  //    implementations.
                  //  * False cache sharing when trying to recalculate the hash.
                  //    of the dummy NullEntity pointer

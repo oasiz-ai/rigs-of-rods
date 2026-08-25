@@ -267,6 +267,18 @@ string(JSON ROR_OGRE_NEXT_LIGHT_LIST_TAIL_SOURCE_SHA256 GET
     "${_ror_lock_json}" patches 8 source_sha256)
 string(JSON ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCHED_SHA256 GET
     "${_ror_lock_json}" patches 8 patched_sha256)
+string(JSON ROR_OGRE_NEXT_GLOBAL_LIGHT_CAPACITY_PATCH_PATH GET
+    "${_ror_lock_json}" patches 9 path)
+string(JSON ROR_OGRE_NEXT_GLOBAL_LIGHT_CAPACITY_PATCH_SHA256 GET
+    "${_ror_lock_json}" patches 9 sha256)
+string(JSON ROR_OGRE_NEXT_GLOBAL_LIGHT_CAPACITY_PATCH_REASON GET
+    "${_ror_lock_json}" patches 9 reason)
+string(JSON ROR_OGRE_NEXT_GLOBAL_LIGHT_CAPACITY_SOURCE_PATH GET
+    "${_ror_lock_json}" patches 9 source_path)
+string(JSON ROR_OGRE_NEXT_GLOBAL_LIGHT_CAPACITY_SOURCE_SHA256 GET
+    "${_ror_lock_json}" patches 9 source_sha256)
+string(JSON ROR_OGRE_NEXT_GLOBAL_LIGHT_CAPACITY_PATCHED_SHA256 GET
+    "${_ror_lock_json}" patches 9 patched_sha256)
 string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_NAME GET
     "${_ror_lock_json}" embedded_namespace namespace)
 string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_CMAKE_OPTION GET
@@ -694,7 +706,7 @@ endif ()
 file(SHA256
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_IBL_PATCH_PATH}"
     _ror_ibl_patch_sha256)
-if (NOT ROR_OGRE_NEXT_PATCH_COUNT EQUAL 9 OR
+if (NOT ROR_OGRE_NEXT_PATCH_COUNT EQUAL 10 OR
         NOT ROR_OGRE_NEXT_IBL_PATCH_PATH STREQUAL
         "patches/0005-metal-typed-ibl-uav-conversions.patch" OR
         NOT ROR_OGRE_NEXT_IBL_PATCH_SHA256 STREQUAL
@@ -835,7 +847,7 @@ set(_ror_lod_tail_expected_source_sha256s
     "63e167d727051e94c6f450cb0bdc95c4ef9124a21145693985a95d753405f4d8")
 set(_ror_lod_tail_expected_patched_sha256s
     "e45f909db18bc028656d95e7c444e4e062ba1934f9bf4835d5687ede85ba2684"
-    "fcd310622777dd63167114cdade3afb62aab1ed4f24943a8d88aba92c6996de1"
+    "b2467b439235e58f319cd50909758b33a39b8081981283d3bbd241b3a03a2204"
     "69a48e864401031e947bf29d47c95093b87fb4e28b12d53a2ce4decbcdfe078a"
     "180774de95d320f3615e6f95b10f6c42115080528c782e3b3d34776b687731eb"
     "bf30ed5b489591ddf71c94660f124fbc6c3e2d138d6ea42dd7e7b4120a06adfe"
@@ -843,7 +855,7 @@ set(_ror_lod_tail_expected_patched_sha256s
 if (NOT ROR_OGRE_NEXT_LOD_TAIL_PATCH_PATH STREQUAL
         "patches/0013-lod-tail-lane-isolation.patch" OR
         NOT ROR_OGRE_NEXT_LOD_TAIL_PATCH_SHA256 STREQUAL
-        "328b9960f922b0910c97d8874e48e873f50a646f7311dc0bad12068ddea1837d" OR
+        "9ad553e923aa20c12aa46381d568f7423ee2b792f104fdf06f062e74523d1848" OR
         NOT _ror_lod_tail_patch_sha256 STREQUAL
         ROR_OGRE_NEXT_LOD_TAIL_PATCH_SHA256 OR
         NOT ROR_OGRE_NEXT_LOD_TAIL_SOURCE_COUNT EQUAL 6)
@@ -883,7 +895,7 @@ file(SHA256
 if (NOT ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCH_PATH STREQUAL
         "patches/0014-light-list-tail-lane-isolation.patch" OR
         NOT ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCH_SHA256 STREQUAL
-        "9d8dd2290d405880665a2de8323770e7de165481548546d76dd8c97b050bbc46" OR
+        "cc5c411a6af01eb83017147b4146d33561f936e135abf283bcd02b17a07b27ff" OR
         NOT _ror_light_list_tail_patch_sha256 STREQUAL
         ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCH_SHA256 OR
         NOT ROR_OGRE_NEXT_LIGHT_LIST_TAIL_SOURCE_PATH STREQUAL
@@ -891,9 +903,27 @@ if (NOT ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCH_PATH STREQUAL
         NOT ROR_OGRE_NEXT_LIGHT_LIST_TAIL_SOURCE_SHA256 STREQUAL
         "b1de6a98f71c82e4c7e659305082dfa5d97f71c2fc1f2b2c4e84ac1de118336c" OR
         NOT ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCHED_SHA256 STREQUAL
-        "567e5f1fb2f629cac9c1d18335c8fb85c09850ebfaea328761cecca48d1a3e31")
+        "3633f1db70fad4b97ad53c0152fa2ffff49c3c76660772dfa3d031abdabbe603")
     message(FATAL_ERROR
         "The pinned OGRE-Next light-list tail-lane isolation changed")
+endif ()
+file(SHA256
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_GLOBAL_LIGHT_CAPACITY_PATCH_PATH}"
+    _ror_global_light_capacity_patch_sha256)
+if (NOT ROR_OGRE_NEXT_GLOBAL_LIGHT_CAPACITY_PATCH_PATH STREQUAL
+        "patches/0015-global-light-list-packed-capacity.patch" OR
+        NOT ROR_OGRE_NEXT_GLOBAL_LIGHT_CAPACITY_PATCH_SHA256 STREQUAL
+        "5f267f1b16351646c622cf6217c7aa7315f0dbbba317bad9b527b954962ce1f7" OR
+        NOT _ror_global_light_capacity_patch_sha256 STREQUAL
+        ROR_OGRE_NEXT_GLOBAL_LIGHT_CAPACITY_PATCH_SHA256 OR
+        NOT ROR_OGRE_NEXT_GLOBAL_LIGHT_CAPACITY_SOURCE_PATH STREQUAL
+        "OgreMain/src/OgreSceneManager.cpp" OR
+        NOT ROR_OGRE_NEXT_GLOBAL_LIGHT_CAPACITY_SOURCE_SHA256 STREQUAL
+        "6cf2e3556321588dfcd4b21501c9eb5882b0fc2ccbd81266903c9d9c9521e31f" OR
+        NOT ROR_OGRE_NEXT_GLOBAL_LIGHT_CAPACITY_PATCHED_SHA256 STREQUAL
+        "a011473301e92f22526487ff9370286ef9ec6c4dce3c81d5e08fca1d5f412811")
+    message(FATAL_ERROR
+        "The pinned OGRE-Next global light-list packed capacity changed")
 endif ()
 set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_PATH}")
@@ -1594,7 +1624,8 @@ set(_ror_ogre_next_patch_paths
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_BARRIER_PATCH_PATH}"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_FORWARD_CLUSTERED_PATCH_PATH}"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_LOD_TAIL_PATCH_PATH}"
-    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCH_PATH}")
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCH_PATH}"
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_GLOBAL_LIGHT_CAPACITY_PATCH_PATH}")
 if (ROR_OGRE_NEXT_EMBEDDED_NAMESPACE)
     list(APPEND _ror_ogre_next_patch_paths
         "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH}")
@@ -1896,6 +1927,15 @@ if (NOT _ror_extracted_light_list_tail_sha256 STREQUAL
         ROR_OGRE_NEXT_LIGHT_LIST_TAIL_PATCHED_SHA256)
     message(FATAL_ERROR
         "The pinned OGRE-Next light-list tail-lane patch did not produce reviewed bytes")
+endif ()
+
+file(SHA256
+    "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_GLOBAL_LIGHT_CAPACITY_SOURCE_PATH}"
+    _ror_extracted_global_light_capacity_sha256)
+if (NOT _ror_extracted_global_light_capacity_sha256 STREQUAL
+        ROR_OGRE_NEXT_GLOBAL_LIGHT_CAPACITY_PATCHED_SHA256)
+    message(FATAL_ERROR
+        "The pinned OGRE-Next global light-list capacity patch did not produce reviewed bytes")
 endif ()
 
 foreach (_ror_normal_map_source_index RANGE 0
