@@ -110,7 +110,7 @@
     {
       "role": "movable_shadow_flag_masks",
       "path": "OgreMain/src/OgreMovableObject.cpp",
-      "sha256": "b1de6a98f71c82e4c7e659305082dfa5d97f71c2fc1f2b2c4e84ac1de118336c"
+      "sha256": "567e5f1fb2f629cac9c1d18335c8fb85c09850ebfaea328761cecca48d1a3e31"
     },
     {
       "role": "mesh_bounds_api",

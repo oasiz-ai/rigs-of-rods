@@ -89,6 +89,22 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
                 ),
             },
         )
+        movable_source = next(
+            record
+            for record in validated["sources"]
+            if record["role"] == "movable_shadow_flag_masks"
+        )
+        canonical = json.loads(CANONICAL_LOCK_PATH.read_text(encoding="utf-8"))
+        light_list_patch = next(
+            patch
+            for patch in canonical["patches"]
+            if patch["path"]
+            == "patches/0014-light-list-tail-lane-isolation.patch"
+        )
+        self.assertEqual(movable_source["path"], light_list_patch["source_path"])
+        self.assertEqual(
+            movable_source["sha256"], light_list_patch["patched_sha256"]
+        )
         reference = os.environ.get("ROR_OGRE_NEXT_REFERENCE_SOURCE_ROOT")
         if reference:
             reference_policy = os.environ.get(
