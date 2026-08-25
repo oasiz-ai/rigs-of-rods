@@ -433,7 +433,10 @@ class JBeamMultiActorTSanSoakTests(unittest.TestCase):
         )
         report_failure = workflow.index("exit 1", status_failure)
 
-        self.assertIn("scene_status=0", workflow[step:command])
+        command_environment = workflow[step:command]
+        self.assertIn("scene_status=0", command_environment)
+        self.assertIn("LP_NUM_THREADS=0", command_environment)
+        self.assertIn('ROR_OGRE_NEXT_SCENE_WORKERS: "4"', workflow)
         self.assertIn("tsan_reports=1", workflow[status_capture:report_copy])
         self.assertLess(status_capture, report_copy)
         self.assertLess(report_copy, status_failure)

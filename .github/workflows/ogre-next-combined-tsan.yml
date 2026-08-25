@@ -223,6 +223,7 @@ jobs:
           test ! -e "$evidence"
           export TSAN_OPTIONS="halt_on_error=1:exitcode=66:history_size=7:second_deadlock_stack=1:log_path=$tsan_log"
           scene_status=0
+          LP_NUM_THREADS=0 \
           LD_LIBRARY_PATH="$ROR_TSAN_BUILD_DIR/bin${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
           xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
           python tools/run_playable_performance_scene.py \
