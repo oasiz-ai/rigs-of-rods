@@ -395,6 +395,43 @@ class OgreNextProbeContractTests(unittest.TestCase):
         )
         self.assertNotIn("+        bool", source)
 
+    def test_apple_reusable_barrier_patch_is_generation_safe_and_exact(
+        self,
+    ) -> None:
+        patch = self.lock["patches"][5]
+        self.assertEqual(
+            patch["path"],
+            "patches/0011-apple-reusable-pthread-barrier.patch",
+        )
+        self.assertEqual(
+            patch["header_source_sha256"],
+            "4c32f9ac41a886d3cffb4320c7a0ac4867b034647bd1e2a75cf2f260f0d40a3f",
+        )
+        self.assertEqual(
+            patch["header_patched_sha256"],
+            "2270c0696dc12747e13baad8f44a983bbda37251cff3592489c3d582c562d567",
+        )
+        self.assertEqual(
+            patch["implementation_source_sha256"],
+            "0eb6e775ffc5c0e4647fb280f8855ea8dfab2dc275bf91d612fdaeec7cc9871f",
+        )
+        self.assertEqual(
+            patch["implementation_patched_sha256"],
+            "edd2f66b8e831bf6ec918fb38efdab457ee83f1c2bf0ea095f8d482b5b476f4d",
+        )
+        source = (PROBE_DIR / patch["path"]).read_text(encoding="utf-8")
+        self.assertIn("unsigned int    generation", source)
+        self.assertIn(
+            "const unsigned int generation = barrier->generation", source
+        )
+        self.assertIn("++barrier->generation", source)
+        self.assertIn(
+            "while( generation == barrier->generation )", source
+        )
+        self.assertNotIn(
+            "+            pthread_cond_wait( &barrier->cond", source
+        )
+
     def test_ibl_notice_and_patched_shader_are_fail_closed_in_cmake(self) -> None:
         cmake = PINNED_CMAKE_PATH.read_text(encoding="utf-8")
         reflection_media = self.lock["reflection_shader_media"]
@@ -407,12 +444,14 @@ class OgreNextProbeContractTests(unittest.TestCase):
             ]
         )
         for token in (
-            "ROR_OGRE_NEXT_PATCH_COUNT EQUAL 5",
+            "ROR_OGRE_NEXT_PATCH_COUNT EQUAL 6",
             "ROR_OGRE_NEXT_IBL_PATCHED_SHA256",
             "ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCHED_SHA256",
             "ROR_OGRE_NEXT_VULKAN_SKY_PATCHED_SHA256",
             "ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_HEADER_PATCHED_SHA256",
             "ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_IMPLEMENTATION_PATCHED_SHA256",
+            "ROR_OGRE_NEXT_BARRIER_HEADER_PATCHED_SHA256",
+            "ROR_OGRE_NEXT_BARRIER_IMPLEMENTATION_PATCHED_SHA256",
             "_ror_extracted_ibl_shader_sha256",
             "_ror_extracted_iblbaker_license_sha256",
             "ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE",

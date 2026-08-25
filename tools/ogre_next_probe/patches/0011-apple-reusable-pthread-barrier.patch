@@ -1,0 +1,28 @@
+diff --git a/OgreMain/include/Threading/OgreBarrier.h b/OgreMain/include/Threading/OgreBarrier.h
+--- a/OgreMain/include/Threading/OgreBarrier.h
++++ b/OgreMain/include/Threading/OgreBarrier.h
+@@ -45,4 +45,5 @@ typedef struct
+     pthread_cond_t  cond;
+     unsigned int    count;
+     unsigned int    tripCount;
++    unsigned int    generation;
+ } pthread_barrier_t;
+diff --git a/OgreMain/src/Threading/OgreBarrierPThreads.cpp b/OgreMain/src/Threading/OgreBarrierPThreads.cpp
+--- a/OgreMain/src/Threading/OgreBarrierPThreads.cpp
++++ b/OgreMain/src/Threading/OgreBarrierPThreads.cpp
+@@ -61,2 +61,3 @@ namespace Ogre
+         barrier->count = 0;
++        barrier->generation = 0;
+ 
+@@ -76,2 +77,3 @@ namespace Ogre
+         pthread_mutex_lock( &barrier->mutex );
++        const unsigned int generation = barrier->generation;
+         ++( barrier->count );
+@@ -81,2 +83,3 @@ namespace Ogre
+             barrier->count = 0;
++            ++barrier->generation;
+             pthread_cond_broadcast( &barrier->cond );
+@@ -88 +91,2 @@ namespace Ogre
+-            pthread_cond_wait( &barrier->cond, &( barrier->mutex ) );
++            while( generation == barrier->generation )
++                pthread_cond_wait( &barrier->cond, &( barrier->mutex ) );

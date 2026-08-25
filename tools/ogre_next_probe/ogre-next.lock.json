@@ -77,6 +77,17 @@
       "implementation_source_path": "OgreMain/src/OgreTextureGpuManager.cpp",
       "implementation_source_sha256": "9db903623cea3e61db10caace8eb8e16ca109cb0ca6f3503a42074f4e1c07226",
       "implementation_patched_sha256": "e05b007104f5eb7877ffb2842fe0b0bca631585d948dfee501396afec994ce38"
+    },
+    {
+      "path": "patches/0011-apple-reusable-pthread-barrier.patch",
+      "sha256": "9785e7f3e77337f9e24368ed21cadd968d91d3de5848948bbe328078637dabd7",
+      "reason": "Make Ogre-Next's Apple and legacy Android pthread barrier generation-safe so multiple native scene workers cannot cross reusable barrier cycles",
+      "header_source_path": "OgreMain/include/Threading/OgreBarrier.h",
+      "header_source_sha256": "4c32f9ac41a886d3cffb4320c7a0ac4867b034647bd1e2a75cf2f260f0d40a3f",
+      "header_patched_sha256": "2270c0696dc12747e13baad8f44a983bbda37251cff3592489c3d582c562d567",
+      "implementation_source_path": "OgreMain/src/Threading/OgreBarrierPThreads.cpp",
+      "implementation_source_sha256": "0eb6e775ffc5c0e4647fb280f8855ea8dfab2dc275bf91d612fdaeec7cc9871f",
+      "implementation_patched_sha256": "edd2f66b8e831bf6ec918fb38efdab457ee83f1c2bf0ea095f8d482b5b476f4d"
     }
   ],
   "embedded_namespace": {

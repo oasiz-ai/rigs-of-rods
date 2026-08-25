@@ -891,6 +891,9 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
     expected_texture_shutdown_patch_sha256 = (
         "a3200b9038561ef1508a125eceb1b889bd95100905edc8d7017ec83e77f67b12"
     )
+    expected_barrier_patch_sha256 = (
+        "9785e7f3e77337f9e24368ed21cadd968d91d3de5848948bbe328078637dabd7"
+    )
     if type(lock.get("schema_version")) is not int or lock.get("schema_version") != 6:
         raise ProbeError("unsupported OGRE-Next lock schema")
     if lock.get("repository") != "https://github.com/OGRECave/ogre-next":
@@ -1122,6 +1125,31 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
             ),
             "implementation_patched_sha256": (
                 "e05b007104f5eb7877ffb2842fe0b0bca631585d948dfee501396afec994ce38"
+            ),
+        },
+        {
+            "path": "patches/0011-apple-reusable-pthread-barrier.patch",
+            "sha256": expected_barrier_patch_sha256,
+            "reason": (
+                "Make Ogre-Next's Apple and legacy Android pthread barrier "
+                "generation-safe so multiple native scene workers cannot "
+                "cross reusable barrier cycles"
+            ),
+            "header_source_path": "OgreMain/include/Threading/OgreBarrier.h",
+            "header_source_sha256": (
+                "4c32f9ac41a886d3cffb4320c7a0ac4867b034647bd1e2a75cf2f260f0d40a3f"
+            ),
+            "header_patched_sha256": (
+                "2270c0696dc12747e13baad8f44a983bbda37251cff3592489c3d582c562d567"
+            ),
+            "implementation_source_path": (
+                "OgreMain/src/Threading/OgreBarrierPThreads.cpp"
+            ),
+            "implementation_source_sha256": (
+                "0eb6e775ffc5c0e4647fb280f8855ea8dfab2dc275bf91d612fdaeec7cc9871f"
+            ),
+            "implementation_patched_sha256": (
+                "edd2f66b8e831bf6ec918fb38efdab457ee83f1c2bf0ea095f8d482b5b476f4d"
             ),
         },
     ]

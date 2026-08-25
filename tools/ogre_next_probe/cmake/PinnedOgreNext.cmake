@@ -209,6 +209,24 @@ string(JSON ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_IMPLEMENTATION_SOURCE_SHA256 GET
     "${_ror_lock_json}" patches 4 implementation_source_sha256)
 string(JSON ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_IMPLEMENTATION_PATCHED_SHA256 GET
     "${_ror_lock_json}" patches 4 implementation_patched_sha256)
+string(JSON ROR_OGRE_NEXT_BARRIER_PATCH_PATH GET
+    "${_ror_lock_json}" patches 5 path)
+string(JSON ROR_OGRE_NEXT_BARRIER_PATCH_SHA256 GET
+    "${_ror_lock_json}" patches 5 sha256)
+string(JSON ROR_OGRE_NEXT_BARRIER_PATCH_REASON GET
+    "${_ror_lock_json}" patches 5 reason)
+string(JSON ROR_OGRE_NEXT_BARRIER_HEADER_PATH GET
+    "${_ror_lock_json}" patches 5 header_source_path)
+string(JSON ROR_OGRE_NEXT_BARRIER_HEADER_SOURCE_SHA256 GET
+    "${_ror_lock_json}" patches 5 header_source_sha256)
+string(JSON ROR_OGRE_NEXT_BARRIER_HEADER_PATCHED_SHA256 GET
+    "${_ror_lock_json}" patches 5 header_patched_sha256)
+string(JSON ROR_OGRE_NEXT_BARRIER_IMPLEMENTATION_PATH GET
+    "${_ror_lock_json}" patches 5 implementation_source_path)
+string(JSON ROR_OGRE_NEXT_BARRIER_IMPLEMENTATION_SOURCE_SHA256 GET
+    "${_ror_lock_json}" patches 5 implementation_source_sha256)
+string(JSON ROR_OGRE_NEXT_BARRIER_IMPLEMENTATION_PATCHED_SHA256 GET
+    "${_ror_lock_json}" patches 5 implementation_patched_sha256)
 string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_NAME GET
     "${_ror_lock_json}" embedded_namespace namespace)
 string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_CMAKE_OPTION GET
@@ -636,7 +654,7 @@ endif ()
 file(SHA256
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_IBL_PATCH_PATH}"
     _ror_ibl_patch_sha256)
-if (NOT ROR_OGRE_NEXT_PATCH_COUNT EQUAL 5 OR
+if (NOT ROR_OGRE_NEXT_PATCH_COUNT EQUAL 6 OR
         NOT ROR_OGRE_NEXT_IBL_PATCH_PATH STREQUAL
         "patches/0005-metal-typed-ibl-uav-conversions.patch" OR
         NOT ROR_OGRE_NEXT_IBL_PATCH_SHA256 STREQUAL
@@ -709,6 +727,30 @@ if (NOT ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_PATCH_PATH STREQUAL
         "e05b007104f5eb7877ffb2842fe0b0bca631585d948dfee501396afec994ce38")
     message(FATAL_ERROR
         "The pinned OGRE-Next texture shutdown synchronization changed")
+endif ()
+file(SHA256
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_BARRIER_PATCH_PATH}"
+    _ror_barrier_patch_sha256)
+if (NOT ROR_OGRE_NEXT_BARRIER_PATCH_PATH STREQUAL
+        "patches/0011-apple-reusable-pthread-barrier.patch" OR
+        NOT ROR_OGRE_NEXT_BARRIER_PATCH_SHA256 STREQUAL
+        "9785e7f3e77337f9e24368ed21cadd968d91d3de5848948bbe328078637dabd7" OR
+        NOT _ror_barrier_patch_sha256 STREQUAL
+        ROR_OGRE_NEXT_BARRIER_PATCH_SHA256 OR
+        NOT ROR_OGRE_NEXT_BARRIER_HEADER_PATH STREQUAL
+        "OgreMain/include/Threading/OgreBarrier.h" OR
+        NOT ROR_OGRE_NEXT_BARRIER_HEADER_SOURCE_SHA256 STREQUAL
+        "4c32f9ac41a886d3cffb4320c7a0ac4867b034647bd1e2a75cf2f260f0d40a3f" OR
+        NOT ROR_OGRE_NEXT_BARRIER_HEADER_PATCHED_SHA256 STREQUAL
+        "2270c0696dc12747e13baad8f44a983bbda37251cff3592489c3d582c562d567" OR
+        NOT ROR_OGRE_NEXT_BARRIER_IMPLEMENTATION_PATH STREQUAL
+        "OgreMain/src/Threading/OgreBarrierPThreads.cpp" OR
+        NOT ROR_OGRE_NEXT_BARRIER_IMPLEMENTATION_SOURCE_SHA256 STREQUAL
+        "0eb6e775ffc5c0e4647fb280f8855ea8dfab2dc275bf91d612fdaeec7cc9871f" OR
+        NOT ROR_OGRE_NEXT_BARRIER_IMPLEMENTATION_PATCHED_SHA256 STREQUAL
+        "edd2f66b8e831bf6ec918fb38efdab457ee83f1c2bf0ea095f8d482b5b476f4d")
+    message(FATAL_ERROR
+        "The pinned OGRE-Next reusable pthread barrier adaptation changed")
 endif ()
 set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_PATH}")
@@ -1405,7 +1447,8 @@ set(_ror_ogre_next_patch_paths
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_IBL_PATCH_PATH}"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCH_PATH}"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_VULKAN_SKY_PATCH_PATH}"
-    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_PATCH_PATH}")
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_PATCH_PATH}"
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_BARRIER_PATCH_PATH}")
 if (ROR_OGRE_NEXT_EMBEDDED_NAMESPACE)
     list(APPEND _ror_ogre_next_patch_paths
         "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH}")
@@ -1655,6 +1698,20 @@ if (NOT _ror_extracted_texture_shutdown_header_sha256 STREQUAL
         ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_IMPLEMENTATION_PATCHED_SHA256)
     message(FATAL_ERROR
         "The pinned OGRE-Next texture shutdown patch did not produce reviewed bytes")
+endif ()
+
+file(SHA256
+    "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_BARRIER_HEADER_PATH}"
+    _ror_extracted_barrier_header_sha256)
+file(SHA256
+    "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_BARRIER_IMPLEMENTATION_PATH}"
+    _ror_extracted_barrier_implementation_sha256)
+if (NOT _ror_extracted_barrier_header_sha256 STREQUAL
+        ROR_OGRE_NEXT_BARRIER_HEADER_PATCHED_SHA256 OR
+        NOT _ror_extracted_barrier_implementation_sha256 STREQUAL
+        ROR_OGRE_NEXT_BARRIER_IMPLEMENTATION_PATCHED_SHA256)
+    message(FATAL_ERROR
+        "The pinned OGRE-Next reusable pthread barrier patch did not produce reviewed bytes")
 endif ()
 
 foreach (_ror_normal_map_source_index RANGE 0
