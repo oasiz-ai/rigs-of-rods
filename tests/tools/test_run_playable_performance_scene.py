@@ -494,6 +494,45 @@ class ConfigurationTests(unittest.TestCase):
             receipt["triangles_selected"], receipt["triangles_base"]
         )
 
+    def test_scene_worker_receipt_binds_native_runtime_count(self) -> None:
+        default = (
+            "[RoR|OgreNext|SceneWorkers] requested=4 native=4 hardware=12 "
+            "override_present=false override_valid=false\n"
+        )
+        receipt = runner.verify_ogrenext_scene_workers(default)
+        self.assertEqual(receipt["native"], 4)
+        self.assertFalse(receipt["override_present"])
+
+        overridden = (
+            "[RoR|OgreNext|SceneWorkers] requested=1 native=1 hardware=12 "
+            "override_present=true override_valid=true\n"
+        )
+        receipt = runner.verify_ogrenext_scene_workers(overridden)
+        self.assertEqual(receipt["native"], 1)
+        self.assertTrue(receipt["override_valid"])
+
+    def test_scene_worker_receipt_rejects_unproved_or_invalid_state(self) -> None:
+        valid = (
+            "[RoR|OgreNext|SceneWorkers] requested=4 native=4 hardware=12 "
+            "override_present=false override_valid=false\n"
+        )
+        malformed = (
+            "",
+            valid + valid,
+            valid.replace("native=4", "native=3"),
+            valid.replace("requested=4", "requested=9").replace(
+                "native=4", "native=9"
+            ),
+            valid.replace("requested=4", "requested=2").replace(
+                "native=4", "native=2"
+            ),
+            valid.replace("override_present=false", "override_present=true"),
+        )
+        for statement in malformed:
+            with self.subTest(statement=statement):
+                with self.assertRaises(runner.PerformanceSceneFailure):
+                    runner.verify_ogrenext_scene_workers(statement)
+
     def test_native_combined_lod_requires_recovery_after_rejection(self) -> None:
         native = (
             "[RoR|RendererCombined|NativeLighting] "

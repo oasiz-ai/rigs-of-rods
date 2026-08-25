@@ -13,6 +13,7 @@
 #include "OgreNextN1ParticleRuntime.h"
 #include "OgreNextN1NativeInterop.h"
 #include "OgreNextN1Policy.h"
+#include "OgreNextN1SceneWorkerPolicy.h"
 #include "OgreNextReflectionProbeRuntime.h"
 #include "OgreNextSunVisibilityV2Interop.h"
 #include "OgreNextTaaContract.h"
@@ -12985,8 +12986,28 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
     }
     impl_->unlit =
         RegisterUnlit(*impl_->root, impl_->resolved_shader_media_root);
+    const OgreNextSceneWorkerSelection scene_workers =
+        ResolveOgreNextSceneWorkerSelection(
+            std::thread::hardware_concurrency(),
+            std::getenv("ROR_OGRE_NEXT_SCENE_WORKERS"));
     impl_->scene_manager = impl_->root->createSceneManager(
-        Ogre::ST_GENERIC, 1U, "RoROgreNextN1Scene");
+        Ogre::ST_GENERIC, scene_workers.requested_worker_threads,
+        "RoROgreNextN1Scene");
+    const std::size_t native_scene_workers =
+        impl_->scene_manager->getNumWorkerThreads();
+    std::fprintf(
+        stderr,
+        "[RoR|OgreNext|SceneWorkers] requested=%u native=%zu hardware=%u "
+        "override_present=%s override_valid=%s\n",
+        scene_workers.requested_worker_threads, native_scene_workers,
+        scene_workers.hardware_threads,
+        scene_workers.override_present ? "true" : "false",
+        scene_workers.override_valid ? "true" : "false");
+    if (native_scene_workers != scene_workers.requested_worker_threads) {
+      return fail_after_cleanup(RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "Ogre-Next substituted the requested scene-worker count"));
+    }
     // Stage 2: Forward+ clustered turns the compositor passes' hitherto
     // inert mEnableForwardPlus into live point/spot shading. It must exist
     // before any Hlms shader compiles so every scene pass gets the clustered

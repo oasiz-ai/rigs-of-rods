@@ -7,6 +7,7 @@
 */
 
 #include "OgreNextN1Policy.h"
+#include "OgreNextN1SceneWorkerPolicy.h"
 
 #include <cmath>
 #include <cstdint>
@@ -36,6 +37,53 @@ void Require(bool condition, const char *message) {
     std::cerr << "Ogre-Next N1 policy test failed: " << message << '\n';
     std::exit(EXIT_FAILURE);
   }
+}
+
+void TestSceneWorkerPolicy() {
+  const auto expect_default = [](std::uint32_t hardware,
+                                 std::uint32_t expected) {
+    const OgreNextSceneWorkerSelection selection =
+        ResolveOgreNextSceneWorkerSelection(hardware, nullptr);
+    Require(selection.hardware_threads == hardware &&
+                selection.requested_worker_threads == expected &&
+                !selection.override_present && !selection.override_valid,
+            "hardware-bounded scene-worker default changed");
+  };
+  expect_default(0U, 1U);
+  expect_default(1U, 1U);
+  expect_default(2U, 2U);
+  expect_default(4U, 4U);
+  expect_default(64U, 4U);
+
+  const char *const valid_overrides[] = {"1", "4", "8"};
+  const std::uint32_t valid_counts[] = {1U, 4U, 8U};
+  for (std::size_t index = 0U; index < 3U; ++index) {
+    const OgreNextSceneWorkerSelection selection =
+        ResolveOgreNextSceneWorkerSelection(2U, valid_overrides[index]);
+    Require(selection.requested_worker_threads == valid_counts[index] &&
+                selection.override_present && selection.override_valid,
+            "valid scene-worker override was not accepted exactly");
+  }
+
+  const char *const invalid_overrides[] = {"", "0", "9", "01", " 4", "4 ",
+                                            "four"};
+  for (const char *const invalid : invalid_overrides) {
+    const OgreNextSceneWorkerSelection selection =
+        ResolveOgreNextSceneWorkerSelection(6U, invalid);
+    Require(selection.requested_worker_threads == 4U &&
+                selection.override_present && !selection.override_valid,
+            "invalid scene-worker override did not fall back exactly");
+  }
+
+  const OgreNextSceneWorkerSelection first =
+      ResolveOgreNextSceneWorkerSelection(12U, "6");
+  const OgreNextSceneWorkerSelection repeat =
+      ResolveOgreNextSceneWorkerSelection(12U, "6");
+  Require(first.hardware_threads == repeat.hardware_threads &&
+              first.requested_worker_threads == repeat.requested_worker_threads &&
+              first.override_present == repeat.override_present &&
+              first.override_valid == repeat.override_valid,
+          "equal scene-worker inputs produced different selections");
 }
 
 /// FNV-1a-64 over the exact binary32 bit patterns and index words of one
@@ -2390,6 +2438,7 @@ void TestAnalyticSkyCloudLayerIsDeterministicAndHorizonExact() {
 } // namespace
 
 int main() {
+  TestSceneWorkerPolicy();
   TestProjectionDepthConversion();
   TestLifetimeSubmissionState();
   TestCapabilitiesFailClosed();

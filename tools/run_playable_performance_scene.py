@@ -250,6 +250,14 @@ NATIVE_LIGHTING_PATTERN = re.compile(
 NATIVE_LIGHTING_FIELD_PATTERN = re.compile(
     r"(?P<name>[a-z][a-z0-9_]*)=(?P<value>\S+)"
 )
+OGRE_NEXT_SCENE_WORKER_PATTERN = re.compile(
+    r"\[RoR\|OgreNext\|SceneWorkers\] "
+    r"requested=(?P<requested>[0-9]+) "
+    r"native=(?P<native>[0-9]+) "
+    r"hardware=(?P<hardware>[0-9]+) "
+    r"override_present=(?P<override_present>true|false) "
+    r"override_valid=(?P<override_valid>true|false)"
+)
 SCENE_SOURCE_TIMING_PATTERN = re.compile(
     r"\[RoR\|SceneSource\] captures=(?P<captures>[0-9]+) mean_ns "
     r"(?P<body>[^\r\n]+)"
@@ -517,6 +525,51 @@ def verify_combined_native_distance_lod(text: str) -> dict[str, object]:
         **{name: fields[name] == "true" for name in true_fields},
         "pssm": fields["pssm"] == "true",
         "reduced_this_frame": reduced_this_frame,
+    }
+
+
+def verify_ogrenext_scene_workers(text: str) -> dict[str, object]:
+    """Require one exact native scene-worker startup readback.
+
+    This consumes the executable's startup receipt, not the policy selector in
+    isolation. It therefore proves that Ogre-Next accepted the requested
+    worker count used by the measured run and records whether the count came
+    from the hardware-bounded default or an intentional A/B override.
+    """
+
+    matches = list(OGRE_NEXT_SCENE_WORKER_PATTERN.finditer(text))
+    if len(matches) != 1:
+        raise PerformanceSceneFailure(
+            "the combined runtime must emit exactly one Ogre-Next "
+            f"scene-worker receipt, observed {len(matches)}"
+        )
+    match = matches[0]
+    requested = int(match.group("requested"))
+    native = int(match.group("native"))
+    hardware = int(match.group("hardware"))
+    override_present = match.group("override_present") == "true"
+    override_valid = match.group("override_valid") == "true"
+    if not 1 <= requested <= 8 or native != requested:
+        raise PerformanceSceneFailure(
+            "the native Ogre-Next scene-worker count does not match the "
+            f"bounded request: requested={requested} native={native}"
+        )
+    if override_present != override_valid:
+        raise PerformanceSceneFailure(
+            "the performance run inherited an invalid scene-worker override"
+        )
+    expected_default = min(4, max(1, hardware))
+    if not override_present and requested != expected_default:
+        raise PerformanceSceneFailure(
+            "the runtime scene-worker default does not match its hardware "
+            f"receipt: requested={requested} expected={expected_default}"
+        )
+    return {
+        "requested": requested,
+        "native": native,
+        "hardware": hardware,
+        "override_present": override_present,
+        "override_valid": override_valid,
     }
 
 
@@ -1816,6 +1869,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             identity["render_system"] = ownership["visible_render_system"]
             identity["presentation_ownership"] = ownership
+            identity["scene_workers"] = verify_ogrenext_scene_workers(console)
             identity["native_distance_lod"] = (
                 verify_combined_native_distance_lod(log_text)
             )
