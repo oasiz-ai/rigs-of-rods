@@ -38,7 +38,7 @@
   "compiler": {
     "format": "ror-cityworld-scene-compiler-v1",
     "path": "tools/compile_cityworld_asset.py",
-    "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059"
+    "sha256": "8d90b2fe1b8b43b4c81d766ad0ac1d700282d36c244d6ef2b17ef81e748b2144"
   },
   "connectors": [
     {
@@ -70,7 +70,7 @@
   ],
   "format": "ror-cityworld-scene-compile-report-v1",
   "inputs": {
-    "asset_contract_sha256": "485b2ab6c252123bba8da285fe703eb6391ae208ab30f9383647401771c19b75",
+    "asset_contract_sha256": "1634f086873f638d5cd54bff861059e7608bf2543b6e7ef07314788c8ef36850",
     "glb": {
       "path": "resources/nextgen/cityworld/bridge/transition_12m/rorng_city_bridge_transition_12m.glb",
       "sha256": "547aaa785b9d17f6ebc85de90bac92ae8bcecdcddddfbe22ad01f9190a802b3e"
@@ -88,7 +88,7 @@
   "mesh_format": "MeshSerializer_v1.100-little-endian",
   "ogre_converter": {
     "executable": "OgreXMLConverter",
-    "sha256": "01f80e0400688d899e8934335678ea9875089d3715543f63f7b69f24f1b93ce3",
+    "sha256": "113c724b5be89fb3e05b5bfd92bf9696776f522856b49bc2bcf95113578929bd",
     "version": "OgreXMLConverter Tsathoggua (14.5.2)"
   },
   "options": {
