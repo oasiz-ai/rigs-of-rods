@@ -250,6 +250,7 @@ NATIVE_LIGHTING_PATTERN = re.compile(
 NATIVE_LIGHTING_FIELD_PATTERN = re.compile(
     r"(?P<name>[a-z][a-z0-9_]*)=(?P<value>\S+)"
 )
+OGRE_NEXT_DEFAULT_MAXIMUM_SCENE_WORKERS = 4
 OGRE_NEXT_SCENE_WORKER_PATTERN = re.compile(
     r"\[RoR\|OgreNext\|SceneWorkers\] "
     r"requested=(?P<requested>[0-9]+) "
@@ -558,7 +559,9 @@ def verify_ogrenext_scene_workers(text: str) -> dict[str, object]:
         raise PerformanceSceneFailure(
             "the performance run inherited an invalid scene-worker override"
         )
-    expected_default = 1
+    expected_default = max(
+        1, min(hardware, OGRE_NEXT_DEFAULT_MAXIMUM_SCENE_WORKERS)
+    )
     if not override_present and requested != expected_default:
         raise PerformanceSceneFailure(
             "the runtime scene-worker default does not match its hardware "

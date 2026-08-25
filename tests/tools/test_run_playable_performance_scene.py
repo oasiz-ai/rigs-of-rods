@@ -496,35 +496,47 @@ class ConfigurationTests(unittest.TestCase):
 
     def test_scene_worker_receipt_binds_native_runtime_count(self) -> None:
         default = (
-            "[RoR|OgreNext|SceneWorkers] requested=1 native=1 hardware=12 "
+            "[RoR|OgreNext|SceneWorkers] requested=4 native=4 hardware=12 "
             "override_present=false override_valid=false\n"
         )
         receipt = runner.verify_ogrenext_scene_workers(default)
-        self.assertEqual(receipt["native"], 1)
+        self.assertEqual(receipt["native"], 4)
         self.assertFalse(receipt["override_present"])
 
         overridden = (
-            "[RoR|OgreNext|SceneWorkers] requested=4 native=4 hardware=12 "
+            "[RoR|OgreNext|SceneWorkers] requested=6 native=6 hardware=12 "
             "override_present=true override_valid=true\n"
         )
         receipt = runner.verify_ogrenext_scene_workers(overridden)
-        self.assertEqual(receipt["native"], 4)
+        self.assertEqual(receipt["native"], 6)
         self.assertTrue(receipt["override_valid"])
+
+        for hardware, expected in ((0, 1), (1, 1), (2, 2), (4, 4), (64, 4)):
+            with self.subTest(hardware=hardware):
+                statement = (
+                    "[RoR|OgreNext|SceneWorkers] "
+                    f"requested={expected} native={expected} "
+                    f"hardware={hardware} "
+                    "override_present=false override_valid=false\n"
+                )
+                receipt = runner.verify_ogrenext_scene_workers(statement)
+                self.assertEqual(receipt["requested"], expected)
+                self.assertEqual(receipt["native"], expected)
 
     def test_scene_worker_receipt_rejects_unproved_or_invalid_state(self) -> None:
         valid = (
-            "[RoR|OgreNext|SceneWorkers] requested=1 native=1 hardware=12 "
+            "[RoR|OgreNext|SceneWorkers] requested=4 native=4 hardware=12 "
             "override_present=false override_valid=false\n"
         )
         malformed = (
             "",
             valid + valid,
-            valid.replace("native=1", "native=3"),
-            valid.replace("requested=1", "requested=9").replace(
-                "native=1", "native=9"
+            valid.replace("native=4", "native=3"),
+            valid.replace("requested=4", "requested=9").replace(
+                "native=4", "native=9"
             ),
-            valid.replace("requested=1", "requested=2").replace(
-                "native=1", "native=2"
+            valid.replace("requested=4", "requested=3").replace(
+                "native=4", "native=3"
             ),
             valid.replace("override_present=false", "override_present=true"),
         )
