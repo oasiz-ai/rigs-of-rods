@@ -85,6 +85,12 @@ class CombinedProviderContractTests(unittest.TestCase):
             '"header_patched_sha256": "@ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_HEADER_PATCHED_SHA256@"',
             '"implementation_source_sha256": "@ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_IMPLEMENTATION_SOURCE_SHA256@"',
             '"implementation_patched_sha256": "@ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_IMPLEMENTATION_PATCHED_SHA256@"',
+            '"path": "@ROR_OGRE_NEXT_BARRIER_PATCH_PATH@"',
+            '"sha256": "@ROR_OGRE_NEXT_BARRIER_PATCH_SHA256@"',
+            '"header_source_sha256": "@ROR_OGRE_NEXT_BARRIER_HEADER_SOURCE_SHA256@"',
+            '"header_patched_sha256": "@ROR_OGRE_NEXT_BARRIER_HEADER_PATCHED_SHA256@"',
+            '"implementation_source_sha256": "@ROR_OGRE_NEXT_BARRIER_IMPLEMENTATION_SOURCE_SHA256@"',
+            '"implementation_patched_sha256": "@ROR_OGRE_NEXT_BARRIER_IMPLEMENTATION_PATCHED_SHA256@"',
         ):
             with self.subTest(token=token):
                 self.assertIn(token, NAMESPACE_AUDIT_BUILD_CONTRACT)
