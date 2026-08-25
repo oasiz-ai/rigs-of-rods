@@ -358,7 +358,7 @@ class NativeA1CourseTests(unittest.TestCase):
                 )
                 changed = copy.deepcopy(original)
                 mutate(changed)
-                path.write_text(canonical_pretty(changed), encoding="ascii")
+                path.write_bytes(canonical_pretty(changed).encode("ascii"))
                 result = self.run_tool(ALIGNMENT_VALIDATOR, path, "--repo-root", REPOSITORY_ROOT)
                 self.assertNotEqual(result.returncode, 0)
                 codes = {entry["code"] for entry in json.loads(result.stdout)["diagnostics"]}
@@ -413,7 +413,7 @@ class NativeA1CourseTests(unittest.TestCase):
             manifest_path = root / MANIFEST_RELATIVE
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest["source"]["glb"]["sha256"] = sha256_file(glb_path)
-            manifest_path.write_text(canonical_pretty(manifest), encoding="ascii")
+            manifest_path.write_bytes(canonical_pretty(manifest).encode("ascii"))
 
             result = self.run_tool(
                 ALIGNMENT_VALIDATOR,
@@ -468,7 +468,7 @@ class NativeA1CourseTests(unittest.TestCase):
             manifest_path = root / MANIFEST_RELATIVE
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest["source"]["glb"]["sha256"] = sha256_file(glb_path)
-            manifest_path.write_text(canonical_pretty(manifest), encoding="ascii")
+            manifest_path.write_bytes(canonical_pretty(manifest).encode("ascii"))
             result = self.run_tool(
                 ALIGNMENT_VALIDATOR,
                 root / ALIGNMENT_RELATIVE,
@@ -527,7 +527,7 @@ class NativeA1CourseTests(unittest.TestCase):
                 if entry["id"] == "rorng_a1_curb_mesh"
             )
             curb_mesh["render_from_object"][12] = 0.25
-            manifest_path.write_text(canonical_pretty(manifest), encoding="ascii")
+            manifest_path.write_bytes(canonical_pretty(manifest).encode("ascii"))
             result = self.run_tool(
                 ALIGNMENT_VALIDATOR,
                 alignment_path,
@@ -551,7 +551,7 @@ class NativeA1CourseTests(unittest.TestCase):
                 if entry["id"] == "rorng_a1_curb_mesh"
             )
             curb_mesh["node"] = "rorng_a1_shoulder_mesh"
-            manifest_path.write_text(canonical_pretty(manifest), encoding="ascii")
+            manifest_path.write_bytes(canonical_pretty(manifest).encode("ascii"))
             result = self.run_tool(
                 ALIGNMENT_VALIDATOR,
                 alignment_path,
