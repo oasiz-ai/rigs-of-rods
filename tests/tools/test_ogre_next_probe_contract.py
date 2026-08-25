@@ -466,6 +466,33 @@ class OgreNextProbeContractTests(unittest.TestCase):
             "+        mObjectMemoryManager = new ObjectMemoryManager()", source
         )
 
+    def test_lod_tail_patch_skips_padding_lanes_and_is_exact(self) -> None:
+        patch = self.lock["patches"][7]
+        self.assertEqual(
+            patch["path"], "patches/0013-lod-tail-lane-isolation.patch"
+        )
+        self.assertEqual(len(patch["sources"]), 6)
+        self.assertEqual(
+            [entry["path"] for entry in patch["sources"]],
+            [
+                "OgreMain/include/OgreLodStrategy.h",
+                "OgreMain/include/OgreLodStrategyPrivate.inl",
+                "OgreMain/include/OgreMovableObject.h",
+                "OgreMain/include/OgreRenderable.h",
+                "OgreMain/src/OgreDistanceLodStrategy.cpp",
+                "OgreMain/src/OgrePixelCountLodStrategy.cpp",
+            ],
+        )
+        source = (PROBE_DIR / patch["path"]).read_text(encoding="utf-8")
+        self.assertIn("size_t numValidLanes", source)
+        self.assertIn("assert( numValidLanes <= ARRAY_PACKED_REALS )", source)
+        self.assertIn("j < numValidLanes", source)
+        self.assertEqual(source.count("numNodes - i"), 5)
+        self.assertNotIn(
+            "+        for( size_t j = 0; j < ARRAY_PACKED_REALS; ++j )",
+            source,
+        )
+
     def test_ibl_notice_and_patched_shader_are_fail_closed_in_cmake(self) -> None:
         cmake = PINNED_CMAKE_PATH.read_text(encoding="utf-8")
         reflection_media = self.lock["reflection_shader_media"]
@@ -478,7 +505,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
             ]
         )
         for token in (
-            "ROR_OGRE_NEXT_PATCH_COUNT EQUAL 7",
+            "ROR_OGRE_NEXT_PATCH_COUNT EQUAL 8",
             "ROR_OGRE_NEXT_IBL_PATCHED_SHA256",
             "ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCHED_SHA256",
             "ROR_OGRE_NEXT_VULKAN_SKY_PATCHED_SHA256",
@@ -488,6 +515,8 @@ class OgreNextProbeContractTests(unittest.TestCase):
             "ROR_OGRE_NEXT_BARRIER_IMPLEMENTATION_PATCHED_SHA256",
             "ROR_OGRE_NEXT_FORWARD_CLUSTERED_HEADER_PATCHED_SHA256",
             "ROR_OGRE_NEXT_FORWARD_CLUSTERED_IMPLEMENTATION_PATCHED_SHA256",
+            "ROR_OGRE_NEXT_LOD_TAIL_SOURCE_COUNT EQUAL 6",
+            "_ror_extracted_lod_tail_sha256",
             "_ror_extracted_ibl_shader_sha256",
             "_ror_extracted_iblbaker_license_sha256",
             "ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE",

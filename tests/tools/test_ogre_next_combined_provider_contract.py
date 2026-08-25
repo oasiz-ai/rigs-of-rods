@@ -97,6 +97,9 @@ class CombinedProviderContractTests(unittest.TestCase):
             '"header_patched_sha256": "@ROR_OGRE_NEXT_FORWARD_CLUSTERED_HEADER_PATCHED_SHA256@"',
             '"implementation_source_sha256": "@ROR_OGRE_NEXT_FORWARD_CLUSTERED_IMPLEMENTATION_SOURCE_SHA256@"',
             '"implementation_patched_sha256": "@ROR_OGRE_NEXT_FORWARD_CLUSTERED_IMPLEMENTATION_PATCHED_SHA256@"',
+            '"path": "@ROR_OGRE_NEXT_LOD_TAIL_PATCH_PATH@"',
+            '"sha256": "@ROR_OGRE_NEXT_LOD_TAIL_PATCH_SHA256@"',
+            '"sources": @ROR_OGRE_NEXT_LOD_TAIL_SOURCES_JSON@',
         ):
             with self.subTest(token=token):
                 self.assertIn(token, NAMESPACE_AUDIT_BUILD_CONTRACT)

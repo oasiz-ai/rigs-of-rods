@@ -245,6 +245,16 @@ string(JSON ROR_OGRE_NEXT_FORWARD_CLUSTERED_IMPLEMENTATION_SOURCE_SHA256 GET
     "${_ror_lock_json}" patches 6 implementation_source_sha256)
 string(JSON ROR_OGRE_NEXT_FORWARD_CLUSTERED_IMPLEMENTATION_PATCHED_SHA256 GET
     "${_ror_lock_json}" patches 6 implementation_patched_sha256)
+string(JSON ROR_OGRE_NEXT_LOD_TAIL_PATCH_PATH GET
+    "${_ror_lock_json}" patches 7 path)
+string(JSON ROR_OGRE_NEXT_LOD_TAIL_PATCH_SHA256 GET
+    "${_ror_lock_json}" patches 7 sha256)
+string(JSON ROR_OGRE_NEXT_LOD_TAIL_PATCH_REASON GET
+    "${_ror_lock_json}" patches 7 reason)
+string(JSON ROR_OGRE_NEXT_LOD_TAIL_SOURCES_JSON GET
+    "${_ror_lock_json}" patches 7 sources)
+string(JSON ROR_OGRE_NEXT_LOD_TAIL_SOURCE_COUNT LENGTH
+    "${ROR_OGRE_NEXT_LOD_TAIL_SOURCES_JSON}")
 string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_NAME GET
     "${_ror_lock_json}" embedded_namespace namespace)
 string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_CMAKE_OPTION GET
@@ -672,7 +682,7 @@ endif ()
 file(SHA256
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_IBL_PATCH_PATH}"
     _ror_ibl_patch_sha256)
-if (NOT ROR_OGRE_NEXT_PATCH_COUNT EQUAL 7 OR
+if (NOT ROR_OGRE_NEXT_PATCH_COUNT EQUAL 8 OR
         NOT ROR_OGRE_NEXT_IBL_PATCH_PATH STREQUAL
         "patches/0005-metal-typed-ibl-uav-conversions.patch" OR
         NOT ROR_OGRE_NEXT_IBL_PATCH_SHA256 STREQUAL
@@ -794,6 +804,67 @@ if (NOT ROR_OGRE_NEXT_FORWARD_CLUSTERED_PATCH_PATH STREQUAL
     message(FATAL_ERROR
         "The pinned OGRE-Next ForwardClustered worker-memory isolation changed")
 endif ()
+file(SHA256
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_LOD_TAIL_PATCH_PATH}"
+    _ror_lod_tail_patch_sha256)
+set(_ror_lod_tail_expected_paths
+    "OgreMain/include/OgreLodStrategy.h"
+    "OgreMain/include/OgreLodStrategyPrivate.inl"
+    "OgreMain/include/OgreMovableObject.h"
+    "OgreMain/include/OgreRenderable.h"
+    "OgreMain/src/OgreDistanceLodStrategy.cpp"
+    "OgreMain/src/OgrePixelCountLodStrategy.cpp")
+set(_ror_lod_tail_expected_source_sha256s
+    "b3075e3a1ab7794a6b5b6a03b97caaa8ae5b8e46053ec6169174ef67c494dc32"
+    "7cd14b7656a2553d1a74eb83482c01681fb86392770e3df42d0147fd70f295bb"
+    "ed3a756d0fa01570adadff05d76f3bf43375bd7ca0731f7319ed6e1e036fa8ac"
+    "2113c9d9c543162af503eb51956519e77b3c6f408fbd9efbd6284bf11c316677"
+    "f21d83749e4cb2b503408fa9a96591a147329a4f23c11221d6a6c2625a46c390"
+    "63e167d727051e94c6f450cb0bdc95c4ef9124a21145693985a95d753405f4d8")
+set(_ror_lod_tail_expected_patched_sha256s
+    "e45f909db18bc028656d95e7c444e4e062ba1934f9bf4835d5687ede85ba2684"
+    "fcd310622777dd63167114cdade3afb62aab1ed4f24943a8d88aba92c6996de1"
+    "69a48e864401031e947bf29d47c95093b87fb4e28b12d53a2ce4decbcdfe078a"
+    "180774de95d320f3615e6f95b10f6c42115080528c782e3b3d34776b687731eb"
+    "bf30ed5b489591ddf71c94660f124fbc6c3e2d138d6ea42dd7e7b4120a06adfe"
+    "ea27e7d101749346e3fa35e373235694d8ad1eb5bf99111f60c23fd6cb0a8c24")
+if (NOT ROR_OGRE_NEXT_LOD_TAIL_PATCH_PATH STREQUAL
+        "patches/0013-lod-tail-lane-isolation.patch" OR
+        NOT ROR_OGRE_NEXT_LOD_TAIL_PATCH_SHA256 STREQUAL
+        "328b9960f922b0910c97d8874e48e873f50a646f7311dc0bad12068ddea1837d" OR
+        NOT _ror_lod_tail_patch_sha256 STREQUAL
+        ROR_OGRE_NEXT_LOD_TAIL_PATCH_SHA256 OR
+        NOT ROR_OGRE_NEXT_LOD_TAIL_SOURCE_COUNT EQUAL 6)
+    message(FATAL_ERROR
+        "The pinned OGRE-Next LOD tail-lane isolation changed")
+endif ()
+foreach (_ror_lod_tail_source_index RANGE 0 5)
+    string(JSON _ror_lod_tail_source_path GET
+        "${ROR_OGRE_NEXT_LOD_TAIL_SOURCES_JSON}"
+        ${_ror_lod_tail_source_index} path)
+    string(JSON _ror_lod_tail_source_sha256 GET
+        "${ROR_OGRE_NEXT_LOD_TAIL_SOURCES_JSON}"
+        ${_ror_lod_tail_source_index} source_sha256)
+    string(JSON _ror_lod_tail_patched_sha256 GET
+        "${ROR_OGRE_NEXT_LOD_TAIL_SOURCES_JSON}"
+        ${_ror_lod_tail_source_index} patched_sha256)
+    list(GET _ror_lod_tail_expected_paths ${_ror_lod_tail_source_index}
+        _ror_lod_tail_expected_path)
+    list(GET _ror_lod_tail_expected_source_sha256s ${_ror_lod_tail_source_index}
+        _ror_lod_tail_expected_source_sha256)
+    list(GET _ror_lod_tail_expected_patched_sha256s ${_ror_lod_tail_source_index}
+        _ror_lod_tail_expected_patched_sha256)
+    if (NOT _ror_lod_tail_source_path STREQUAL
+            _ror_lod_tail_expected_path OR
+            NOT _ror_lod_tail_source_sha256 STREQUAL
+            _ror_lod_tail_expected_source_sha256 OR
+            NOT _ror_lod_tail_patched_sha256 STREQUAL
+            _ror_lod_tail_expected_patched_sha256)
+        message(FATAL_ERROR
+            "The reviewed OGRE-Next LOD source contract changed at index "
+            "${_ror_lod_tail_source_index}")
+    endif ()
+endforeach ()
 set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_PATH}")
 set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP
@@ -1491,7 +1562,8 @@ set(_ror_ogre_next_patch_paths
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_VULKAN_SKY_PATCH_PATH}"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_TEXTURE_SHUTDOWN_PATCH_PATH}"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_BARRIER_PATCH_PATH}"
-    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_FORWARD_CLUSTERED_PATCH_PATH}")
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_FORWARD_CLUSTERED_PATCH_PATH}"
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_LOD_TAIL_PATCH_PATH}")
 if (ROR_OGRE_NEXT_EMBEDDED_NAMESPACE)
     list(APPEND _ror_ogre_next_patch_paths
         "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH}")
@@ -1770,6 +1842,21 @@ if (NOT _ror_extracted_forward_clustered_header_sha256 STREQUAL
     message(FATAL_ERROR
         "The pinned OGRE-Next ForwardClustered worker-memory patch did not produce reviewed bytes")
 endif ()
+
+foreach (_ror_lod_tail_source_index RANGE 0 5)
+    list(GET _ror_lod_tail_expected_paths ${_ror_lod_tail_source_index}
+        _ror_lod_tail_source_path)
+    list(GET _ror_lod_tail_expected_patched_sha256s ${_ror_lod_tail_source_index}
+        _ror_lod_tail_expected_patched_sha256)
+    file(SHA256 "${ogre_next_SOURCE_DIR}/${_ror_lod_tail_source_path}"
+        _ror_extracted_lod_tail_sha256)
+    if (NOT _ror_extracted_lod_tail_sha256 STREQUAL
+            _ror_lod_tail_expected_patched_sha256)
+        message(FATAL_ERROR
+            "The pinned OGRE-Next LOD tail-lane patch did not produce reviewed bytes: "
+            "${_ror_lod_tail_source_path}")
+    endif ()
+endforeach ()
 
 foreach (_ror_normal_map_source_index RANGE 0
         ${_ror_normal_map_source_last})

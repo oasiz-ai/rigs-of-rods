@@ -1,0 +1,111 @@
+diff --git a/OgreMain/include/OgreLodStrategy.h b/OgreMain/include/OgreLodStrategy.h
+--- a/OgreMain/include/OgreLodStrategy.h
++++ b/OgreMain/include/OgreLodStrategy.h
+@@ -74,7 +74,8 @@ namespace Ogre
+                                     Real bias ) const = 0;
+ 
+         // Include OgreLodStrategyPrivate.inl in the CPP files that use this function.
+-        inline static void lodSet( ObjectData &t, Real lodValues[ARRAY_PACKED_REALS] );
++        inline static void lodSet( ObjectData &t, Real lodValues[ARRAY_PACKED_REALS],
++                                   size_t numValidLanes );
+ 
+         /** Transform user supplied value to internal value.
+         @remarks
+diff --git a/OgreMain/include/OgreLodStrategyPrivate.inl b/OgreMain/include/OgreLodStrategyPrivate.inl
+--- a/OgreMain/include/OgreLodStrategyPrivate.inl
++++ b/OgreMain/include/OgreLodStrategyPrivate.inl
+@@ -28,9 +28,11 @@ THE SOFTWARE.
+ 
+ namespace Ogre
+ {
+-    inline void LodStrategy::lodSet( ObjectData &objData, Real lodValues[ARRAY_PACKED_REALS] )
++    inline void LodStrategy::lodSet( ObjectData &objData, Real lodValues[ARRAY_PACKED_REALS],
++                                     size_t numValidLanes )
+     {
+-        for( size_t j = 0; j < ARRAY_PACKED_REALS; ++j )
++        assert( numValidLanes <= ARRAY_PACKED_REALS );
++        for( size_t j = 0; j < numValidLanes; ++j )
+         {
+             MovableObject *owner = objData.mOwner[j];
+ 
+diff --git a/OgreMain/include/OgreMovableObject.h b/OgreMain/include/OgreMovableObject.h
+--- a/OgreMain/include/OgreMovableObject.h
++++ b/OgreMain/include/OgreMovableObject.h
+@@ -323,6 +323,7 @@ namespace Ogre
+         friend void LodStrategy::lodUpdateImpl( const size_t numNodes, ObjectData t,
+                                                 const Camera *camera, Real bias ) const;
+-        friend void LodStrategy::lodSet( ObjectData &t, Real lodValues[ARRAY_PACKED_REALS] );
++        friend void LodStrategy::lodSet( ObjectData &t, Real lodValues[ARRAY_PACKED_REALS],
++                                         size_t numValidLanes );
+ 
+         /** Tells this object whether to be visible or not, if it has a renderable component.
+         @note An alternative approach of making an object invisible is to detach it
+diff --git a/OgreMain/include/OgreRenderable.h b/OgreMain/include/OgreRenderable.h
+--- a/OgreMain/include/OgreRenderable.h
++++ b/OgreMain/include/OgreRenderable.h
+@@ -418,7 +418,8 @@ namespace Ogre
+ 
+         uint8 getCurrentMaterialLod() const { return mCurrentMaterialLod; }
+ 
+-        friend void LodStrategy::lodSet( ObjectData &t, Real lodValues[ARRAY_PACKED_REALS] );
++        friend void LodStrategy::lodSet( ObjectData &t, Real lodValues[ARRAY_PACKED_REALS],
++                                         size_t numValidLanes );
+ 
+         /** Sets the render queue sub group.
+         @remarks
+diff --git a/OgreMain/src/OgreDistanceLodStrategy.cpp b/OgreMain/src/OgreDistanceLodStrategy.cpp
+--- a/OgreMain/src/OgreDistanceLodStrategy.cpp
++++ b/OgreMain/src/OgreDistanceLodStrategy.cpp
+@@ -101,7 +101,8 @@ namespace Ogre
+             arrayLodValue = arrayLodValue * lodInvBias;
+             CastArrayToReal( lodValues, arrayLodValue );
+ 
+-            lodSet( objData, lodValues );
++            const size_t numValidLanes = std::min<size_t>( ARRAY_PACKED_REALS, numNodes - i );
++            lodSet( objData, lodValues, numValidLanes );
+ 
+             objData.advanceLodPack();
+         }
+diff --git a/OgreMain/src/OgrePixelCountLodStrategy.cpp b/OgreMain/src/OgrePixelCountLodStrategy.cpp
+--- a/OgreMain/src/OgrePixelCountLodStrategy.cpp
++++ b/OgreMain/src/OgrePixelCountLodStrategy.cpp
+@@ -163,7 +163,8 @@ namespace Ogre
+ 
+                 CastArrayToReal( lodValues, arrayLodValue );
+ 
+-                lodSet( objData, lodValues );
++                const size_t numValidLanes = std::min<size_t>( ARRAY_PACKED_REALS, numNodes - i );
++                lodSet( objData, lodValues, numValidLanes );
+ 
+                 objData.advanceLodPack();
+             }
+@@ -190,7 +191,8 @@ namespace Ogre
+                     ( *worldRadius * *worldRadius ) * PiDotVpAreaDivOrhtoArea * lodBias;
+                 CastArrayToReal( lodValues, arrayLodValue );
+ 
+-                lodSet( objData, lodValues );
++                const size_t numValidLanes = std::min<size_t>( ARRAY_PACKED_REALS, numNodes - i );
++                lodSet( objData, lodValues, numValidLanes );
+ 
+                 objData.advanceLodPack();
+             }
+@@ -301,7 +303,8 @@ namespace Ogre
+ 
+                 CastArrayToReal( lodValues, arrayLodValue );
+ 
+-                lodSet( objData, lodValues );
++                const size_t numValidLanes = std::min<size_t>( ARRAY_PACKED_REALS, numNodes - i );
++                lodSet( objData, lodValues, numValidLanes );
+ 
+                 objData.advanceLodPack();
+             }
+@@ -327,7 +330,8 @@ namespace Ogre
+                     ( *worldRadius * *worldRadius ) * PiDotVpAreaDivOrhtoArea * lodBias;
+                 CastArrayToReal( lodValues, arrayLodValue );
+ 
+-                lodSet( objData, lodValues );
++                const size_t numValidLanes = std::min<size_t>( ARRAY_PACKED_REALS, numNodes - i );
++                lodSet( objData, lodValues, numValidLanes );
+ 
+                 objData.advanceLodPack();
+             }

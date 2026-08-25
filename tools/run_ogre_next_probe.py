@@ -897,6 +897,9 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
     expected_forward_clustered_patch_sha256 = (
         "2bb9f7edbbf3c8618820174dd71007815078c0b795b261115c0b7db7524259a5"
     )
+    expected_lod_tail_patch_sha256 = (
+        "328b9960f922b0910c97d8874e48e873f50a646f7311dc0bad12068ddea1837d"
+    )
     if type(lock.get("schema_version")) is not int or lock.get("schema_version") != 6:
         raise ProbeError("unsupported OGRE-Next lock schema")
     if lock.get("repository") != "https://github.com/OGRECave/ogre-next":
@@ -1180,6 +1183,71 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
                 "cca3f8c0f5d621311fa40cd60d383c5ec1c7801ea9bf9fc48372767aa40a3708"
             ),
         },
+        {
+            "path": "patches/0013-lod-tail-lane-isolation.patch",
+            "sha256": expected_lod_tail_patch_sha256,
+            "reason": (
+                "Restrict parallel LOD writes to valid SIMD lanes so "
+                "render-queue tail padding never mutates a shared "
+                "ObjectMemoryManager dummy object"
+            ),
+            "sources": [
+                {
+                    "path": "OgreMain/include/OgreLodStrategy.h",
+                    "source_sha256": (
+                        "b3075e3a1ab7794a6b5b6a03b97caaa8ae5b8e46053ec6169174ef67c494dc32"
+                    ),
+                    "patched_sha256": (
+                        "e45f909db18bc028656d95e7c444e4e062ba1934f9bf4835d5687ede85ba2684"
+                    ),
+                },
+                {
+                    "path": "OgreMain/include/OgreLodStrategyPrivate.inl",
+                    "source_sha256": (
+                        "7cd14b7656a2553d1a74eb83482c01681fb86392770e3df42d0147fd70f295bb"
+                    ),
+                    "patched_sha256": (
+                        "fcd310622777dd63167114cdade3afb62aab1ed4f24943a8d88aba92c6996de1"
+                    ),
+                },
+                {
+                    "path": "OgreMain/include/OgreMovableObject.h",
+                    "source_sha256": (
+                        "ed3a756d0fa01570adadff05d76f3bf43375bd7ca0731f7319ed6e1e036fa8ac"
+                    ),
+                    "patched_sha256": (
+                        "69a48e864401031e947bf29d47c95093b87fb4e28b12d53a2ce4decbcdfe078a"
+                    ),
+                },
+                {
+                    "path": "OgreMain/include/OgreRenderable.h",
+                    "source_sha256": (
+                        "2113c9d9c543162af503eb51956519e77b3c6f408fbd9efbd6284bf11c316677"
+                    ),
+                    "patched_sha256": (
+                        "180774de95d320f3615e6f95b10f6c42115080528c782e3b3d34776b687731eb"
+                    ),
+                },
+                {
+                    "path": "OgreMain/src/OgreDistanceLodStrategy.cpp",
+                    "source_sha256": (
+                        "f21d83749e4cb2b503408fa9a96591a147329a4f23c11221d6a6c2625a46c390"
+                    ),
+                    "patched_sha256": (
+                        "bf30ed5b489591ddf71c94660f124fbc6c3e2d138d6ea42dd7e7b4120a06adfe"
+                    ),
+                },
+                {
+                    "path": "OgreMain/src/OgrePixelCountLodStrategy.cpp",
+                    "source_sha256": (
+                        "63e167d727051e94c6f450cb0bdc95c4ef9124a21145693985a95d753405f4d8"
+                    ),
+                    "patched_sha256": (
+                        "ea27e7d101749346e3fa35e373235694d8ad1eb5bf99111f60c23fd6cb0a8c24"
+                    ),
+                },
+            ],
+        },
     ]
     patches = lock.get("patches")
     if patches != expected_patches:
@@ -1198,6 +1266,13 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
                 _require_sha256(
                     patch[hash_field], f"adaptation {hash_field} hash"
                 )
+        for source in patch.get("sources", []):
+            _require_sha256(
+                source.get("source_sha256"), "adaptation source hash"
+            )
+            _require_sha256(
+                source.get("patched_sha256"), "adaptation patched hash"
+            )
         patch_path = path.parent / patch["path"]
         if not patch_path.is_file():
             raise ProbeError(f"pinned patch is missing: {patch_path}")

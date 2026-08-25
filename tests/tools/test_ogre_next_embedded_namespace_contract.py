@@ -181,6 +181,9 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
                 '"implementation_patched_sha256": '
                 '"@ROR_OGRE_NEXT_FORWARD_CLUSTERED_IMPLEMENTATION_PATCHED_SHA256@"'
             ),
+            '"path": "@ROR_OGRE_NEXT_LOD_TAIL_PATCH_PATH@"',
+            '"sha256": "@ROR_OGRE_NEXT_LOD_TAIL_PATCH_SHA256@"',
+            '"sources": @ROR_OGRE_NEXT_LOD_TAIL_SOURCES_JSON@',
             '"full_n1_link_evidence": "not_evaluated"',
         ):
             with self.subTest(token=token):
@@ -306,7 +309,14 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
             "ROR_OGRE_NEXT_FORWARD_CLUSTERED_IMPLEMENTATION_PATCHED_SHA256": patches[6][
                 "implementation_patched_sha256"
             ],
+            "ROR_OGRE_NEXT_LOD_TAIL_PATCH_PATH": patches[7]["path"],
+            "ROR_OGRE_NEXT_LOD_TAIL_PATCH_SHA256": patches[7]["sha256"],
+            "ROR_OGRE_NEXT_LOD_TAIL_PATCH_REASON": patches[7]["reason"],
         }
+        rendered = rendered.replace(
+            "@ROR_OGRE_NEXT_LOD_TAIL_SOURCES_JSON@",
+            json.dumps(patches[7]["sources"]),
+        )
         for name, value in bindings.items():
             rendered = rendered.replace(
                 f"@{name}@", json.dumps(value)[1:-1]
