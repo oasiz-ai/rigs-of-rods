@@ -9061,9 +9061,10 @@ void ContentManager::InitManagedMaterials(std::string const & rg_name)
 {
     Ogre::String managed_materials_dir = PathCombine(App::sys_resources_dir->getStr(), "managed_materials");
 
-    // OGRE 14's programmable-only renderers use RTShader System for the
-    // receiver programs. Loading the legacy "on" directory there would bind
-    // Cg-only programs and leave every inheriting material unsupported.
+    // OGRE 14's programmable-only renderers generate the receiver programs
+    // through RTShader System. Keep the explicit GL3Plus/D3D11 "on" programs
+    // reserved for the older managed-material route instead of double-binding
+    // a generated receiver in OGRE 14.
 #if OGRE_VERSION_MAJOR >= 14
     if (App::gfx_shadow_type->getEnum<GfxShadowType>() == GfxShadowType::PSSM)
     {
@@ -9078,7 +9079,8 @@ void ContentManager::InitManagedMaterials(std::string const & rg_name)
             "FileSystem", rg_name);
     }
 #else
-    // Legacy PSSM materials use the Cg programs shipped in the "on" tree.
+    // The older managed-material route uses the explicit GL3Plus/D3D11 PSSM
+    // programs shipped in the "on" tree.
     if (App::gfx_shadow_type->getEnum<GfxShadowType>() == GfxShadowType::PSSM)
     {
         if (rg_name == RGN_MANAGED_MATS) // Only load shared resources on startup
