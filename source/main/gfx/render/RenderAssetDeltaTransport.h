@@ -24,7 +24,10 @@ namespace RoR::Render {
 constexpr std::uint32_t kRenderAssetDeltaTransportPayloadVersion = 2U;
 constexpr std::uint32_t kRenderAssetDeltaTransportRegistryVersion = 1U;
 constexpr std::uint32_t kRenderAssetDeltaTransportMeshVersion = 2U;
-constexpr std::uint32_t kRenderAssetDeltaTransportTextureVersion = 1U;
+// Version 2 carries the block-compressed storage formats. The pitch fields
+// change meaning (bytes per block row, not per texel row), so this is a hard
+// lockstep bump rather than an additive field.
+constexpr std::uint32_t kRenderAssetDeltaTransportTextureVersion = 2U;
 constexpr std::uint32_t kRenderAssetDeltaTransportMaterialVersion = 4U;
 constexpr std::uint32_t kRenderAssetDeltaTransportSamplerVersion = 1U;
 

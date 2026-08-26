@@ -120,12 +120,73 @@ BytesPerTextureResourceTexel(TextureResourceFormat format) noexcept {
     return 8U;
   case TextureResourceFormat::RGBA32_FLOAT:
     return 16U;
+  case TextureResourceFormat::BC4_UNORM:
+  case TextureResourceFormat::BC5_UNORM:
+  case TextureResourceFormat::BC7_UNORM:
+    // Block-compressed storage has no per-texel byte count. Reporting zero is
+    // deliberate: it makes any caller that silently assumed a linear layout
+    // divide by zero or fail its own emptiness check rather than compute a
+    // plausible-looking wrong pitch.
+    return 0U;
   }
   return 0U;
 }
 
+TextureResourceFormatBlockExtent
+TextureResourceFormatBlockLayout(TextureResourceFormat format) noexcept {
+  switch (format) {
+  case TextureResourceFormat::BC4_UNORM:
+    return TextureResourceFormatBlockExtent{4U, 4U, 8U};
+  case TextureResourceFormat::BC5_UNORM:
+  case TextureResourceFormat::BC7_UNORM:
+    return TextureResourceFormatBlockExtent{4U, 4U, 16U};
+  case TextureResourceFormat::R8_UNORM:
+  case TextureResourceFormat::RG8_UNORM:
+  case TextureResourceFormat::RGBA8_UNORM:
+  case TextureResourceFormat::R16_FLOAT:
+  case TextureResourceFormat::RG16_FLOAT:
+  case TextureResourceFormat::RGBA16_FLOAT:
+  case TextureResourceFormat::R32_FLOAT:
+  case TextureResourceFormat::RGBA32_FLOAT:
+    return TextureResourceFormatBlockExtent{
+        1U, 1U, BytesPerTextureResourceTexel(format)};
+  }
+  return TextureResourceFormatBlockExtent{};
+}
+
+bool IsBlockCompressedTextureResourceFormat(
+    TextureResourceFormat format) noexcept {
+  const TextureResourceFormatBlockExtent extent =
+      TextureResourceFormatBlockLayout(format);
+  return extent.block_bytes != 0U &&
+         (extent.block_width != 1U || extent.block_height != 1U);
+}
+
+std::uint64_t MinimumTextureRowPitchBytes(TextureResourceFormat format,
+                                          std::uint32_t width) noexcept {
+  const TextureResourceFormatBlockExtent extent =
+      TextureResourceFormatBlockLayout(format);
+  if (extent.block_width == 0U) {
+    return 0U;
+  }
+  const std::uint64_t blocks =
+      (static_cast<std::uint64_t>(width) + extent.block_width - 1U) /
+      extent.block_width;
+  return blocks * extent.block_bytes;
+}
+
+std::uint32_t TextureBlockRowCount(TextureResourceFormat format,
+                                   std::uint32_t height) noexcept {
+  const TextureResourceFormatBlockExtent extent =
+      TextureResourceFormatBlockLayout(format);
+  if (extent.block_height == 0U) {
+    return 0U;
+  }
+  return (height + extent.block_height - 1U) / extent.block_height;
+}
+
 bool IsKnownTextureResourceFormat(TextureResourceFormat format) noexcept {
-  return BytesPerTextureResourceTexel(format) != 0U;
+  return TextureResourceFormatBlockLayout(format).block_bytes != 0U;
 }
 
 bool IsKnownTextureColorSpace(TextureColorSpace color_space) noexcept {
@@ -448,10 +509,11 @@ ValidateTextureResourceDescriptor(const TextureResourceDescriptor &descriptor) {
                                      "cube texture faces must be square");
   }
   if (descriptor.color_space == TextureColorSpace::SRGB &&
-      descriptor.format != TextureResourceFormat::RGBA8_UNORM) {
+      descriptor.format != TextureResourceFormat::RGBA8_UNORM &&
+      descriptor.format != TextureResourceFormat::BC7_UNORM) {
     return ValidationResult::Failure(
         ValidationCode::VALUE_OUT_OF_RANGE, "color_space",
-        "sRGB transfer is supported only for RGBA8_UNORM storage");
+        "sRGB transfer is supported only for RGBA8_UNORM or BC7_UNORM storage");
   }
   if (descriptor.mip_levels.empty()) {
     return ValidationResult::Failure(ValidationCode::EMPTY_PAYLOAD,
@@ -466,8 +528,10 @@ ValidateTextureResourceDescriptor(const TextureResourceDescriptor &descriptor) {
         "texture supplies more mip levels than its base extent permits");
   }
 
-  const std::uint64_t bytes_per_texel =
-      BytesPerTextureResourceTexel(descriptor.format);
+  const TextureResourceFormatBlockExtent block =
+      TextureResourceFormatBlockLayout(descriptor.format);
+  const bool block_compressed =
+      IsBlockCompressedTextureResourceFormat(descriptor.format);
   std::uint32_t expected_width = descriptor.width;
   std::uint32_t expected_height = descriptor.height;
   for (std::size_t index = 0U; index < descriptor.mip_levels.size(); ++index) {
@@ -482,22 +546,32 @@ ValidateTextureResourceDescriptor(const TextureResourceDescriptor &descriptor) {
           ValidationCode::EMPTY_PAYLOAD, "mip_levels.bytes",
           "every supplied mip level requires a payload", index);
     }
+    // Pitches are expressed in whole blocks. For an uncompressed format the
+    // block is 1x1, so this reduces exactly to the previous per-texel rule; for
+    // a BC format a partial edge block is still a complete stored block, which
+    // is why the block counts round up rather than truncate.
     const std::uint64_t minimum_row_pitch =
-        static_cast<std::uint64_t>(mip.width) * bytes_per_texel;
+        MinimumTextureRowPitchBytes(descriptor.format, mip.width);
     if (mip.row_pitch_bytes < minimum_row_pitch ||
-        mip.row_pitch_bytes % bytes_per_texel != 0U) {
+        mip.row_pitch_bytes % block.block_bytes != 0U) {
       return ValidationResult::Failure(
           ValidationCode::SIZE_MISMATCH, "mip_levels.row_pitch_bytes",
-          "row pitch must contain whole texels and at least one complete row",
+          block_compressed
+              ? "row pitch must contain whole 4x4 blocks and at least one "
+                "complete block row"
+              : "row pitch must contain whole texels and at least one complete "
+                "row",
           index);
     }
+    const std::uint32_t block_rows =
+        TextureBlockRowCount(descriptor.format, mip.height);
     if (mip.row_pitch_bytes >
-        (std::numeric_limits<std::uint64_t>::max)() / mip.height) {
+        (std::numeric_limits<std::uint64_t>::max)() / block_rows) {
       return ValidationResult::Failure(
           ValidationCode::SIZE_MISMATCH, "mip_levels.layer_pitch_bytes",
-          "row pitch times height overflows", index);
+          "row pitch times block row count overflows", index);
     }
-    const std::uint64_t minimum_layer_pitch = mip.row_pitch_bytes * mip.height;
+    const std::uint64_t minimum_layer_pitch = mip.row_pitch_bytes * block_rows;
     if (mip.layer_pitch_bytes < minimum_layer_pitch ||
         mip.layer_pitch_bytes > (std::numeric_limits<std::uint64_t>::max)() /
                                     descriptor.array_layers) {

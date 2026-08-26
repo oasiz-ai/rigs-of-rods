@@ -198,6 +198,11 @@ constexpr std::uint32_t kOgreNextDemoGlowOverlayMaximumKeptTexelDelta = 16U;
 constexpr std::size_t kOgreNextDemoTextureProjectionExclusionCount =
     static_cast<std::size_t>(OgreNextDemoTextureProjectionExclusion::COUNT);
 
+/// Buckets in the layered-projection depth histogram: one per possible
+/// declared layer count, 1..4. Zero-layer materials are not layered and are
+/// not counted, so there is no bucket for them.
+constexpr std::size_t kMaterialDetailLayerHistogramBuckets = 4U;
+
 /// Reviewed CityWorld vertical-slice declaration. This table is intentionally
 /// tiny and content-addressed: the material name is only a lookup hint. Runtime
 /// admission additionally authenticates the exact package, script bytes,
@@ -401,6 +406,22 @@ struct OgreNextDemoTextureSourceCounters final {
   /// are observed, counted, and deliberately not presented.
   std::size_t layered_legacy_material_projections = 0U;
   std::size_t unpresented_legacy_layer_units = 0U;
+  /// Distinct new projections that carry authored v6 weighted detail layers,
+  /// and the layer/relief totals across them. Unlike the legacy layer units
+  /// above, which are counted precisely because they are NOT presented, every
+  /// layer counted here is bound to a native detail slot and shades.
+  std::size_t layered_material_projections = 0U;
+  std::size_t layered_material_detail_layers = 0U;
+  std::size_t layered_material_detail_normal_layers = 0U;
+  /// Projections whose material declared detail layers that could not be
+  /// projected exactly. The base material still projects; only its layers are
+  /// refused, so this is a quality shortfall and never a lost surface.
+  std::size_t layered_material_refusals = 0U;
+  /// One bucket per declared layer count, indexed 1..4 at [0..3]. This is the
+  /// only counter that answers "how deep are the layered materials", which the
+  /// aggregate totals above cannot.
+  std::array<std::size_t, kMaterialDetailLayerHistogramBuckets>
+      layered_material_projections_by_layer_count{};
   /// Distinct new projections admitted through the additive-overlay shape: one
   /// canonical base-colour pass plus one or more purely additive overlay passes
   /// that are observed, counted, and deliberately not presented. A projection

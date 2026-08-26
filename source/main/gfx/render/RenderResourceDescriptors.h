@@ -25,7 +25,11 @@ struct DynamicMeshUpdateDescriptor;
 struct MeshInstanceDescriptor;
 
 constexpr std::uint32_t kMeshResourceDescriptorVersion = 2U;
-constexpr std::uint32_t kTextureResourceDescriptorVersion = 1U;
+/// Version 2 adds the block-compressed storage formats (BC4/BC5/BC7). A
+/// version-1 reader must refuse a version-2 descriptor outright rather than
+/// reinterpret its format byte, because the pitch fields change meaning from
+/// bytes-per-texel-row to bytes-per-block-row.
+constexpr std::uint32_t kTextureResourceDescriptorVersion = 2U;
 constexpr std::uint32_t kSamplerResourceDescriptorVersion = 1U;
 constexpr std::size_t kMaximumResourceDebugNameBytes = 255U;
 constexpr std::uint32_t kMaximumTextureResourceDimension = 65535U;
@@ -109,6 +113,27 @@ enum class TextureResourceFormat : std::uint8_t {
   RGBA16_FLOAT = 5,
   R32_FLOAT = 6,
   RGBA32_FLOAT = 7,
+  /// Block-compressed storage. Every BC format packs a fixed 4x4 texel block
+  /// into a fixed number of bytes and is uploaded to the GPU still compressed:
+  /// there is no CPU decode step and no channel extraction, because a single
+  /// channel cannot be read out of a BC block without decoding it.
+  ///
+  /// BC4 stores one unsigned channel in 8 bytes per block (0.5 bytes/texel).
+  /// BC5 stores two unsigned channels in 16 bytes per block (1 byte/texel).
+  /// BC7 stores four channels in 16 bytes per block (1 byte/texel) and is the
+  /// only BC format here that may carry the sRGB transfer function.
+  BC4_UNORM = 8,
+  BC5_UNORM = 9,
+  BC7_UNORM = 10,
+};
+
+/// Storage geometry of one texture format. Uncompressed formats report a 1x1
+/// block whose size is the texel size, so every pitch rule below is expressed
+/// once, in blocks, and holds for both families.
+struct TextureResourceFormatBlockExtent {
+  std::uint32_t block_width = 0U;
+  std::uint32_t block_height = 0U;
+  std::uint32_t block_bytes = 0U;
 };
 
 enum class TextureColorSpace : std::uint8_t {
@@ -120,6 +145,11 @@ enum class TextureColorSpace : std::uint8_t {
 /// V=0 (the top row), rows advance toward +V, and texels advance toward +U.
 /// Rows and layers may be padded; byte payload size must equal
 /// layer_pitch_bytes * layer count.
+///
+/// `width`/`height` are always in texels. `row_pitch_bytes` is the stride of
+/// one BLOCK row, and `layer_pitch_bytes` must cover ceil(height/block_height)
+/// such rows. For the uncompressed formats the block is 1x1, so a block row is
+/// a texel row and both fields keep their original meaning.
 struct TextureMipLevelDescriptor {
   std::uint32_t width = 0U;
   std::uint32_t height = 0U;
@@ -195,8 +225,24 @@ IsKnownTextureResourceType(TextureResourceType type) noexcept;
 IsKnownTextureResourceFormat(TextureResourceFormat format) noexcept;
 [[nodiscard]] bool
 IsKnownTextureColorSpace(TextureColorSpace color_space) noexcept;
+/// Bytes occupied by one texel. Returns zero for every block-compressed
+/// format, which has no per-texel byte count; callers that must work for both
+/// families use TextureResourceFormatBlockLayout instead.
 [[nodiscard]] std::uint32_t
 BytesPerTextureResourceTexel(TextureResourceFormat format) noexcept;
+/// Block geometry for any known format, or a zeroed extent for an unknown one.
+[[nodiscard]] TextureResourceFormatBlockExtent
+TextureResourceFormatBlockLayout(TextureResourceFormat format) noexcept;
+[[nodiscard]] bool
+IsBlockCompressedTextureResourceFormat(TextureResourceFormat format) noexcept;
+/// Minimum legal row pitch: one complete row of blocks covering `width`.
+[[nodiscard]] std::uint64_t
+MinimumTextureRowPitchBytes(TextureResourceFormat format,
+                            std::uint32_t width) noexcept;
+/// Number of block rows needed to cover `height`.
+[[nodiscard]] std::uint32_t
+TextureBlockRowCount(TextureResourceFormat format,
+                     std::uint32_t height) noexcept;
 [[nodiscard]] bool IsKnownSamplerFilter(SamplerFilter filter) noexcept;
 [[nodiscard]] bool
 IsKnownSamplerAddressMode(SamplerAddressMode address_mode) noexcept;

@@ -61,6 +61,7 @@
 #include "OgreMesh2.h"
 #include "OgreMeshManager2.h"
 #include "OgrePixelFormatGpu.h"
+#include "OgrePixelFormatGpuUtils.h"
 #include "OgreQuaternion.h"
 #include "OgreRenderSystem.h"
 #include "OgreRenderSystemCapabilities.h"
@@ -748,7 +749,31 @@ enum class UploadedTextureChannel : std::uint8_t {
   GREEN,
   BLUE,
   NORMAL_RG,
+  /// Block-compressed pass-through: the payload is uploaded exactly as
+  /// authored, block for block. No decode, no channel extraction, no
+  /// resampling. This is the only channel whose GPU format is decided by the
+  /// descriptor rather than by the role.
+  BLOCK_COMPRESSED,
 };
+
+/// GPU format for a block-compressed descriptor, or PFG_UNKNOWN if the
+/// descriptor is not one of the admitted block formats. sRGB is expressed in
+/// the GPU format because BC7 decode happens in fixed-function hardware.
+[[nodiscard]] inline Ogre::PixelFormatGpu
+BlockCompressedPixelFormat(const TextureResourceDescriptor &descriptor) noexcept {
+  switch (descriptor.format) {
+  case TextureResourceFormat::BC4_UNORM:
+    return Ogre::PFG_BC4_UNORM;
+  case TextureResourceFormat::BC5_UNORM:
+    return Ogre::PFG_BC5_UNORM;
+  case TextureResourceFormat::BC7_UNORM:
+    return descriptor.color_space == TextureColorSpace::SRGB
+               ? Ogre::PFG_BC7_UNORM_SRGB
+               : Ogre::PFG_BC7_UNORM;
+  default:
+    return Ogre::PFG_UNKNOWN;
+  }
+}
 
 struct NativeTextureUsage final {
   bool sampled_rgba = false;
@@ -993,6 +1018,45 @@ ToOgreAddressMode(SamplerAddressMode address_mode) {
   }
   throw std::logic_error(
       "validated RT4/V1 sampler address mode became unsupported");
+}
+
+// The renderer-neutral detail operators are declared in the same order as
+// Ogre's PbsBlendModes, but this stays an explicit table rather than a cast:
+// the neutral enum is a transport contract and must not silently follow an
+// upstream reordering. Every enumerator is listed, so adding one without
+// mapping it fails the build instead of falling through to a default.
+Ogre::PbsBlendModes
+ToOgreNextDetailBlendMode(MaterialDetailBlendMode mode) {
+  switch (mode) {
+  case MaterialDetailBlendMode::NORMAL_NON_PREMUL:
+    return Ogre::PBSM_BLEND_NORMAL_NON_PREMUL;
+  case MaterialDetailBlendMode::NORMAL_PREMUL:
+    return Ogre::PBSM_BLEND_NORMAL_PREMUL;
+  case MaterialDetailBlendMode::ADD:
+    return Ogre::PBSM_BLEND_ADD;
+  case MaterialDetailBlendMode::SUBTRACT:
+    return Ogre::PBSM_BLEND_SUBTRACT;
+  case MaterialDetailBlendMode::MULTIPLY:
+    return Ogre::PBSM_BLEND_MULTIPLY;
+  case MaterialDetailBlendMode::MULTIPLY2X:
+    return Ogre::PBSM_BLEND_MULTIPLY2X;
+  case MaterialDetailBlendMode::SCREEN:
+    return Ogre::PBSM_BLEND_SCREEN;
+  case MaterialDetailBlendMode::OVERLAY:
+    return Ogre::PBSM_BLEND_OVERLAY;
+  case MaterialDetailBlendMode::LIGHTEN:
+    return Ogre::PBSM_BLEND_LIGHTEN;
+  case MaterialDetailBlendMode::DARKEN:
+    return Ogre::PBSM_BLEND_DARKEN;
+  case MaterialDetailBlendMode::GRAIN_EXTRACT:
+    return Ogre::PBSM_BLEND_GRAIN_EXTRACT;
+  case MaterialDetailBlendMode::GRAIN_MERGE:
+    return Ogre::PBSM_BLEND_GRAIN_MERGE;
+  case MaterialDetailBlendMode::DIFFERENCE:
+    return Ogre::PBSM_BLEND_DIFFERENCE;
+  }
+  throw std::logic_error(
+      "validated RT4/V1 detail blend operator became unsupported");
 }
 
 Ogre::HlmsSamplerblock
@@ -4691,6 +4755,23 @@ public:
           texture.roughness != nullptr ? 1U : 0U;
       audit.metallic_r8_allocations += texture.metallic != nullptr ? 1U : 0U;
       audit.normal_rg8_allocations += texture.normal != nullptr ? 1U : 0U;
+      for (const Ogre::TextureGpu *allocation :
+           {texture.sampled, texture.linear, texture.roughness,
+            texture.metallic, texture.normal}) {
+        if (allocation == nullptr) {
+          continue;
+        }
+        const Ogre::PixelFormatGpu format = allocation->getPixelFormat();
+        // Ogre's own arithmetic; it is block-aware, so this is the real
+        // resident footprint rather than a width*height*bpp estimate.
+        audit.resident_texture_bytes +=
+            static_cast<std::uint64_t>(Ogre::PixelFormatGpuUtils::calculateSizeBytes(
+                allocation->getWidth(), allocation->getHeight(), 1U, 1U, format,
+                allocation->getNumMipmaps(), 4U));
+        if (Ogre::PixelFormatGpuUtils::isCompressed(format)) {
+          ++audit.block_compressed_allocations;
+        }
+      }
       audit.exact_usage =
           audit.exact_usage && !texture.usage.empty() &&
           (texture.sampled != nullptr) ==
@@ -6087,13 +6168,26 @@ public:
     const bool rgba = channel == UploadedTextureChannel::RGBA ||
                       display_domain_rgba || linear_rgba;
     const bool normal_rg = channel == UploadedTextureChannel::NORMAL_RG;
+    const bool block_compressed =
+        channel == UploadedTextureChannel::BLOCK_COMPRESSED;
+    if (block_compressed !=
+        IsBlockCompressedTextureResourceFormat(descriptor.format)) {
+      throw std::logic_error(
+          "RT4/V1 block-compressed upload channel does not match the descriptor storage format");
+    }
     const Ogre::PixelFormatGpu pixel_format =
-        rgba ? (display_domain_rgba || linear_rgba
-                    ? Ogre::PFG_RGBA8_UNORM
-                    : descriptor.color_space == TextureColorSpace::SRGB
-                    ? Ogre::PFG_RGBA8_UNORM_SRGB
-                    : Ogre::PFG_RGBA8_UNORM)
-             : normal_rg ? Ogre::PFG_RG8_UNORM : Ogre::PFG_R8_UNORM;
+        block_compressed
+            ? BlockCompressedPixelFormat(descriptor)
+            : rgba ? (display_domain_rgba || linear_rgba
+                          ? Ogre::PFG_RGBA8_UNORM
+                          : descriptor.color_space == TextureColorSpace::SRGB
+                          ? Ogre::PFG_RGBA8_UNORM_SRGB
+                          : Ogre::PFG_RGBA8_UNORM)
+                   : normal_rg ? Ogre::PFG_RG8_UNORM : Ogre::PFG_R8_UNORM;
+    if (pixel_format == Ogre::PFG_UNKNOWN) {
+      throw std::runtime_error(
+          "RT4/V1 refused a texture whose storage format has no exact GPU pixel format");
+    }
     auto *image = new Ogre::Image2();
     Ogre::TextureGpu *texture = nullptr;
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
@@ -6124,6 +6218,45 @@ public:
              destination.bytesPerRow < source.width * 2U)) {
           throw std::runtime_error(
               "Ogre-Next RT4/V1 normal Image2 has an unexpected RG8 row layout");
+        }
+        if (block_compressed) {
+          // A BC payload is copied one block row at a time. Ogre reports
+          // bytesPerRow for a compressed TextureBox in bytes per BLOCK row, so
+          // both sides speak the same units; the row count is the number of
+          // block rows, not texel rows.
+          const std::uint64_t source_block_row_bytes =
+              MinimumTextureRowPitchBytes(descriptor.format, source.width);
+          const std::uint32_t block_rows =
+              TextureBlockRowCount(descriptor.format, source.height);
+          if (!destination.isCompressed() ||
+              destination.bytesPerRow < source_block_row_bytes ||
+              source_block_row_bytes == 0U || block_rows == 0U) {
+            throw std::runtime_error(
+                "Ogre-Next RT4/V1 block-compressed Image2 has an unexpected block row layout");
+          }
+          auto *destination_base =
+              static_cast<std::uint8_t *>(destination.at(0U, 0U, 0U));
+          for (std::uint32_t block_row = 0U; block_row < block_rows;
+               ++block_row) {
+            const auto *source_row =
+                source.bytes.data() +
+                static_cast<std::size_t>(block_row) * source.row_pitch_bytes;
+            std::memcpy(destination_base +
+                            static_cast<std::size_t>(block_row) *
+                                destination.bytesPerRow,
+                        source_row,
+                        static_cast<std::size_t>(source_block_row_bytes));
+          }
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+          ++verified_mip_levels;
+          verified_rows += block_rows;
+          verified_texels +=
+              static_cast<std::uint64_t>(source.width) * source.height;
+          if (source.row_pitch_bytes > source_block_row_bytes) {
+            ++verified_padded_source_rows;
+          }
+#endif
+          continue;
         }
         for (std::uint32_t row = 0U; row < source.height; ++row) {
           const auto *source_row = source.bytes.data() +
@@ -6275,20 +6408,40 @@ public:
     native.roughness_name = native.sampled_name + "_roughness_g";
     native.metallic_name = native.sampled_name + "_metallic_b";
     native.normal_name = native.sampled_name + "_normal_rg";
+    // A block-compressed payload cannot be split or resampled on the CPU, so
+    // each role uploads it verbatim and the descriptor's own format decides the
+    // GPU format. The channel-extracting roles are refused rather than
+    // approximated: see ValidateMaterialTextureCompatibility.
+    const bool block_compressed =
+        IsBlockCompressedTextureResourceFormat(descriptor.format);
+    if (block_compressed && (usage.roughness_g || usage.metallic_b)) {
+      throw std::logic_error(
+          "RT4/V1 cannot channel-split a block-compressed texture into roughness or metallic");
+    }
+    const UploadedTextureChannel color_channel =
+        block_compressed ? UploadedTextureChannel::BLOCK_COMPRESSED
+                         : UploadedTextureChannel::RGBA;
+    const UploadedTextureChannel display_channel =
+        block_compressed ? UploadedTextureChannel::BLOCK_COMPRESSED
+                         : UploadedTextureChannel::DISPLAY_DOMAIN_RGBA;
+    const UploadedTextureChannel linear_channel =
+        block_compressed ? UploadedTextureChannel::BLOCK_COMPRESSED
+                         : UploadedTextureChannel::LINEAR_RGBA;
+    const UploadedTextureChannel normal_channel =
+        block_compressed ? UploadedTextureChannel::BLOCK_COMPRESSED
+                         : UploadedTextureChannel::NORMAL_RG;
     try {
       if (usage.sampled_rgba) {
         native.sampled = CreateUploadedTexture(
-            descriptor, native.sampled_name, UploadedTextureChannel::RGBA);
+            descriptor, native.sampled_name, color_channel);
       }
       if (usage.display_domain_rgba) {
         native.sampled = CreateUploadedTexture(
-            descriptor, native.sampled_name,
-            UploadedTextureChannel::DISPLAY_DOMAIN_RGBA);
+            descriptor, native.sampled_name, display_channel);
       }
       if (usage.linear_rgba) {
         native.linear = CreateUploadedTexture(
-            descriptor, native.linear_name,
-            UploadedTextureChannel::LINEAR_RGBA);
+            descriptor, native.linear_name, linear_channel);
       }
       if (usage.roughness_g) {
         native.roughness = CreateUploadedTexture(
@@ -6301,8 +6454,7 @@ public:
       }
       if (usage.normal_rg) {
         native.normal = CreateUploadedTexture(
-            descriptor, native.normal_name,
-            UploadedTextureChannel::NORMAL_RG);
+            descriptor, native.normal_name, normal_channel);
       }
       return native;
     } catch (...) {
@@ -6332,16 +6484,33 @@ public:
       throw std::runtime_error(
           "Ogre-Next RT4/V1 native texture usage differs from the current material graph");
     }
+    // For a block-compressed descriptor every role keeps the authored storage
+    // format, so the expected GPU format comes from the descriptor rather than
+    // from the role's uncompressed default. The audit stays exact in both
+    // directions either way.
+    const bool block_compressed =
+        IsBlockCompressedTextureResourceFormat(descriptor.format);
+    const Ogre::PixelFormatGpu block_format =
+        block_compressed ? BlockCompressedPixelFormat(descriptor)
+                         : Ogre::PFG_UNKNOWN;
+    if (block_compressed && block_format == Ogre::PFG_UNKNOWN) {
+      throw std::runtime_error(
+          "Ogre-Next RT4/V1 block-compressed texture has no exact GPU pixel format");
+    }
     if (expected_usage.sampled_rgba) {
-      verify_one(native.sampled, Ogre::PFG_RGBA8_UNORM_SRGB);
+      verify_one(native.sampled, block_compressed
+                                     ? block_format
+                                     : Ogre::PFG_RGBA8_UNORM_SRGB);
     } else if (expected_usage.display_domain_rgba) {
-      verify_one(native.sampled, Ogre::PFG_RGBA8_UNORM);
+      verify_one(native.sampled,
+                 block_compressed ? block_format : Ogre::PFG_RGBA8_UNORM);
     } else if (native.sampled != nullptr) {
       throw std::runtime_error(
           "Ogre-Next RT4/V1 allocated an unused sampled RGBA texture");
     }
     if (expected_usage.linear_rgba) {
-      verify_one(native.linear, Ogre::PFG_RGBA8_UNORM);
+      verify_one(native.linear,
+                 block_compressed ? block_format : Ogre::PFG_RGBA8_UNORM);
     } else if (native.linear != nullptr) {
       throw std::runtime_error(
           "Ogre-Next RT4/V1 allocated an unused linear RGBA texture");
@@ -6359,7 +6528,8 @@ public:
           "Ogre-Next RT4/V1 allocated an unused metallic derivative");
     }
     if (expected_usage.normal_rg) {
-      verify_one(native.normal, Ogre::PFG_RG8_UNORM);
+      verify_one(native.normal,
+                 block_compressed ? block_format : Ogre::PFG_RG8_UNORM);
     } else if (native.normal != nullptr) {
       throw std::runtime_error(
           "Ogre-Next RT4/V1 allocated an unused normal RG derivative");
@@ -6628,31 +6798,49 @@ public:
         constexpr std::array<Ogre::PbsTextureTypes, kMaterialDetailMapCount>
             kDetailSlots{Ogre::PBSM_DETAIL0, Ogre::PBSM_DETAIL1,
                          Ogre::PBSM_DETAIL2, Ogre::PBSM_DETAIL3};
+        constexpr std::array<Ogre::PbsTextureTypes, kMaterialDetailMapCount>
+            kDetailNormalSlots{Ogre::PBSM_DETAIL0_NM, Ogre::PBSM_DETAIL1_NM,
+                               Ogre::PBSM_DETAIL2_NM, Ogre::PBSM_DETAIL3_NM};
         for (std::size_t layer = 0U; layer < kMaterialDetailMapCount;
              ++layer) {
           const TextureBinding &detail = descriptor.detail_textures[layer];
+          const TextureBinding &detail_normal =
+              descriptor.detail_normal_textures[layer];
           bind_texture(detail, kDetailSlots[layer], &NativeTexture::sampled);
-          if (!detail.texture.valid()) {
+          bind_texture(detail_normal, kDetailNormalSlots[layer],
+                       &NativeTexture::normal);
+          if (!detail.texture.valid() && !detail_normal.texture.valid()) {
             continue;
           }
           const auto detail_index = static_cast<Ogre::uint8>(layer);
-          // Sequential lerp over the running result, which is exactly how the
-          // legacy terrain material composited its layers.
-          native.pbs_datablock->setDetailMapBlendMode(
-              detail_index, Ogre::PBSM_BLEND_NORMAL_NON_PREMUL);
+          const Ogre::PbsBlendModes blend_mode =
+              ToOgreNextDetailBlendMode(descriptor.detail_blend_modes[layer]);
+          native.pbs_datablock->setDetailMapBlendMode(detail_index, blend_mode);
           native.pbs_datablock->setDetailMapWeight(
               detail_index, descriptor.detail_weights[layer]);
+          native.pbs_datablock->setDetailNormalWeight(
+              detail_index, descriptor.detail_normal_weights[layer]);
+          // A layer owns ONE offset/scale row that both its albedo and its
+          // normal read (`mDetailsOffsetScale[i]`). The descriptor validator
+          // already refused any layer whose two bindings disagree, so either
+          // present binding carries the authoritative transform here.
+          const TextureBinding &transform_source =
+              detail.texture.valid() ? detail : detail_normal;
+          const Ogre::Vector4 offset_scale(
+              transform_source.offset.x, transform_source.offset.y,
+              transform_source.scale.x, transform_source.scale.y);
           // Ogre packs this as XY = offset, ZW = scale, which is the opposite
           // order from the userValue[0] affine packing above.
-          native.pbs_datablock->setDetailMapOffsetScale(
-              detail_index,
-              Ogre::Vector4(detail.offset.x, detail.offset.y, detail.scale.x,
-                            detail.scale.y));
+          native.pbs_datablock->setDetailMapOffsetScale(detail_index,
+                                                        offset_scale);
           if (native.pbs_datablock->getDetailMapBlendMode(detail_index) !=
-                  Ogre::PBSM_BLEND_NORMAL_NON_PREMUL ||
+                  blend_mode ||
               native.pbs_datablock->getDetailMapOffsetScale(detail_index) !=
-                  Ogre::Vector4(detail.offset.x, detail.offset.y,
-                                detail.scale.x, detail.scale.y)) {
+                  offset_scale ||
+              native.pbs_datablock->getDetailMapWeight(detail_index) !=
+                  Ogre::Real(descriptor.detail_weights[layer]) ||
+              native.pbs_datablock->getDetailNormalWeight(detail_index) !=
+                  Ogre::Real(descriptor.detail_normal_weights[layer])) {
             throw std::runtime_error(
                 "Ogre-Next RT4/V1 live PBS detail state differs from the reviewed mapping");
           }
@@ -13660,6 +13848,16 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
                  {true, false, false, false, false, false}},
                 {&material->detail_textures[3],
                  {true, false, false, false, false, false}},
+                // Detail normals are tangent-space vectors and take the same
+                // linear normal channel as the base normal map.
+                {&material->detail_normal_textures[0],
+                 {false, false, false, false, false, true}},
+                {&material->detail_normal_textures[1],
+                 {false, false, false, false, false, true}},
+                {&material->detail_normal_textures[2],
+                 {false, false, false, false, false, true}},
+                {&material->detail_normal_textures[3],
+                 {false, false, false, false, false, true}},
             };
             for (const BindingUsage &binding_usage : bindings) {
               const TextureBinding &binding = *binding_usage.binding;

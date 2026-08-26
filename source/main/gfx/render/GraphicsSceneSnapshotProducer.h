@@ -26,7 +26,10 @@
 namespace RoR::Render {
 
 constexpr std::uint32_t kGraphicsSceneSnapshotProducerVersion = 7U;
-constexpr std::size_t kGraphicsSceneMaterialTextureSlotCount = 11U;
+/// Every MaterialTextureSlot enumerator, in enumerator order: the six
+/// classic PBR slots, the detail weight mask, the four detail albedos and
+/// their four paired detail normals.
+constexpr std::size_t kGraphicsSceneMaterialTextureSlotCount = 15U;
 
 /// Reserved joined-graphics source identities for the producer-synthesized
 /// menu/HUD overlay assets ("RORHUD" + ordinal). Adapters must never mint

@@ -45,9 +45,16 @@ static_assert(static_cast<std::size_t>(MaterialTextureSlot::DETAIL0) == 7U);
 static_assert(static_cast<std::size_t>(MaterialTextureSlot::DETAIL1) == 8U);
 static_assert(static_cast<std::size_t>(MaterialTextureSlot::DETAIL2) == 9U);
 static_assert(static_cast<std::size_t>(MaterialTextureSlot::DETAIL3) == 10U);
+static_assert(static_cast<std::size_t>(MaterialTextureSlot::DETAIL0_NM) == 11U);
+static_assert(static_cast<std::size_t>(MaterialTextureSlot::DETAIL1_NM) == 12U);
+static_assert(static_cast<std::size_t>(MaterialTextureSlot::DETAIL2_NM) == 13U);
+static_assert(static_cast<std::size_t>(MaterialTextureSlot::DETAIL3_NM) == 14U);
 static_assert(static_cast<std::size_t>(MaterialTextureSlot::DETAIL0) +
                   kMaterialDetailMapCount - 1U ==
               static_cast<std::size_t>(MaterialTextureSlot::DETAIL3));
+static_assert(static_cast<std::size_t>(MaterialTextureSlot::DETAIL0_NM) +
+                  kMaterialDetailMapCount - 1U ==
+              static_cast<std::size_t>(MaterialTextureSlot::DETAIL3_NM));
 
 bool RetainedAuditEverythingRequested() noexcept {
 #if defined(_WIN32)
@@ -92,7 +99,11 @@ MaterialBindings(MaterialDescriptor &material) noexcept {
            &material.detail_textures[0],
            &material.detail_textures[1],
            &material.detail_textures[2],
-           &material.detail_textures[3]}};
+           &material.detail_textures[3],
+           &material.detail_normal_textures[0],
+           &material.detail_normal_textures[1],
+           &material.detail_normal_textures[2],
+           &material.detail_normal_textures[3]}};
 }
 
 std::array<const TextureBinding *, kGraphicsSceneMaterialTextureSlotCount>
@@ -107,7 +118,11 @@ MaterialBindings(const MaterialDescriptor &material) noexcept {
            &material.detail_textures[0],
            &material.detail_textures[1],
            &material.detail_textures[2],
-           &material.detail_textures[3]}};
+           &material.detail_textures[3],
+           &material.detail_normal_textures[0],
+           &material.detail_normal_textures[1],
+           &material.detail_normal_textures[2],
+           &material.detail_normal_textures[3]}};
 }
 
 bool BindingIsAbsent(const GraphicsSceneAssetBinding &binding) noexcept {

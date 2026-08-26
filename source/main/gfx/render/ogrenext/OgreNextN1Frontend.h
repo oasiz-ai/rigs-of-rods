@@ -798,8 +798,18 @@ struct OgreNextPssmShadowRuntimeAudit final {
 /// derivative for an admitted positive-Z normal map.
 /// `exact_usage` is false unless every live native allocation exactly matches
 /// the roles discovered from the currently published material graph.
+/// `resident_texture_bytes` is the exact sum, over every live native texture
+/// allocation, of the GPU bytes its full mip chain occupies in its ACTUAL
+/// uploaded pixel format. It is measured from Ogre's own per-format size
+/// arithmetic, not estimated, so a block-compressed upload is counted at its
+/// block size and an uncompressed one at its texel size. This is the number
+/// that must fall when a texture moves from RGBA8 to BC.
+/// `block_compressed_allocations` counts how many of those allocations are
+/// stored block-compressed.
 struct OgreNextN1TextureAllocationAudit final {
-  std::uint32_t version = 2U;
+  std::uint32_t version = 3U;
+  std::uint64_t resident_texture_bytes = 0U;
+  std::uint32_t block_compressed_allocations = 0U;
   std::uint32_t live_source_textures = 0U;
   std::uint32_t sampled_rgba_allocations = 0U;
   std::uint32_t linear_rgba_allocations = 0U;
