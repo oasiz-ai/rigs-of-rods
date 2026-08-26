@@ -71,6 +71,10 @@ EXPECTED_RTSHADER_LIBRARIES = {
 }
 MAX_COMPILER_OUTPUT_BYTES = 1024 * 1024
 MAX_AGGREGATE_COMPILER_DIAGNOSTICS_BYTES = 1024 * 1024
+AGGREGATE_COMPILER_FAILURE_METADATA_RESERVE_BYTES = 512
+COMPILER_FAILURE_TRUNCATION_MARKER = (
+    "\n<compiler failure detail truncated at aggregate byte limit>"
+)
 MAX_SOURCE_BYTES = 8 * 1024 * 1024
 MAX_CASES = 4096
 
@@ -732,6 +736,17 @@ def _normalise_output(payload: bytes) -> str:
     )
 
 
+def _utf8_prefix(text: str, maximum_bytes: int) -> str:
+    """Return the longest valid UTF-8 prefix that fits the byte budget."""
+
+    if maximum_bytes <= 0:
+        return ""
+    payload = text.encode("utf-8")
+    if len(payload) <= maximum_bytes:
+        return text
+    return payload[:maximum_bytes].decode("utf-8", errors="ignore")
+
+
 def _validate_compiler(fxc_path: Path) -> tuple[Path, bytes]:
     fxc_path = fxc_path.expanduser().absolute()
     if fxc_path.name.lower() != "fxc.exe":
@@ -775,6 +790,11 @@ def compile_cases(
     compiler_failure_count = 0
     aggregate_diagnostic_bytes = 0
     omitted_compiler_failure_count = 0
+    aggregate_diagnostic_limit_reached = False
+    aggregate_detail_limit = (
+        MAX_AGGREGATE_COMPILER_DIAGNOSTICS_BYTES
+        - AGGREGATE_COMPILER_FAILURE_METADATA_RESERVE_BYTES
+    )
     with tempfile.TemporaryDirectory(prefix="ror-hlsl-fxc-") as temporary:
         temporary_root = Path(temporary)
         for index, case in enumerate(cases):
@@ -822,14 +842,36 @@ def compile_cases(
                 )
                 compiler_failure_count += 1
                 failure_bytes = len(failure.encode("utf-8"))
-                if (
-                    aggregate_diagnostic_bytes + failure_bytes
-                    <= MAX_AGGREGATE_COMPILER_DIAGNOSTICS_BYTES
-                ):
-                    compiler_failures.append(failure)
-                    aggregate_diagnostic_bytes += failure_bytes
-                else:
+                separator_bytes = 2 if compiler_failures else 0
+                remaining_bytes = (
+                    aggregate_detail_limit
+                    - aggregate_diagnostic_bytes
+                    - separator_bytes
+                )
+                if aggregate_diagnostic_limit_reached:
                     omitted_compiler_failure_count += 1
+                elif failure_bytes <= remaining_bytes:
+                    compiler_failures.append(failure)
+                    aggregate_diagnostic_bytes += separator_bytes + failure_bytes
+                else:
+                    marker_bytes = len(
+                        COMPILER_FAILURE_TRUNCATION_MARKER.encode("utf-8")
+                    )
+                    if remaining_bytes >= marker_bytes:
+                        prefix = _utf8_prefix(
+                            failure,
+                            remaining_bytes - marker_bytes,
+                        )
+                        truncated_failure = (
+                            prefix + COMPILER_FAILURE_TRUNCATION_MARKER
+                        )
+                        compiler_failures.append(truncated_failure)
+                        aggregate_diagnostic_bytes += separator_bytes + len(
+                            truncated_failure.encode("utf-8")
+                        )
+                    else:
+                        omitted_compiler_failure_count += 1
+                    aggregate_diagnostic_limit_reached = True
                 continue
             if stderr.strip():
                 raise ValidationFailure(f"fxc.exe wrote to stderr for {case.case_id}")
@@ -874,11 +916,19 @@ def compile_cases(
             if omitted_compiler_failure_count
             else ""
         )
-        raise ValidationFailure(
+        failure_message = (
             f"fxc.exe failed for {compiler_failure_count} case(s):\n\n"
             + "\n\n".join(compiler_failures)
             + omitted
         )
+        if (
+            len(failure_message.encode("utf-8"))
+            > MAX_AGGREGATE_COMPILER_DIAGNOSTICS_BYTES
+        ):
+            raise ValidationFailure(
+                "internal compiler failure report exceeded its aggregate byte limit"
+            )
+        raise ValidationFailure(failure_message)
     return results
 
 

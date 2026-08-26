@@ -576,6 +576,62 @@ class ModernHlslValidatorTests(unittest.TestCase):
         ):
             VALIDATOR._normalise_output(accepted + b"x")
 
+    def test_aggregate_failure_limit_keeps_a_strict_diagnostic_prefix(self) -> None:
+        compiler_path, compiler_payload = VALIDATOR._validate_compiler(
+            self.compiler
+        )
+        cases = VALIDATOR.discover_cases(self.repository)
+        immutable_inputs = VALIDATOR.snapshot_immutable_inputs(
+            self.repository,
+            compiler_path,
+            compiler_payload,
+        )
+        invocations: list[list[str]] = []
+
+        def fail_every_case(
+            command: list[str], **_kwargs: object
+        ) -> subprocess.CompletedProcess[bytes]:
+            invocation_index = len(invocations)
+            invocations.append(command)
+            stdout = (
+                b"x" * VALIDATOR.MAX_COMPILER_OUTPUT_BYTES
+                if invocation_index == 0
+                else f"later failure {invocation_index}".encode("utf-8")
+            )
+            return subprocess.CompletedProcess(
+                command,
+                2,
+                stdout=stdout,
+                stderr=b"",
+            )
+
+        with mock.patch.object(
+            VALIDATOR.subprocess,
+            "run",
+            side_effect=fail_every_case,
+        ):
+            with self.assertRaises(VALIDATOR.ValidationFailure) as raised:
+                VALIDATOR.compile_cases(
+                    cases,
+                    compiler_path,
+                    immutable_inputs,
+                )
+
+        message = str(raised.exception)
+        self.assertEqual(len(invocations), VALIDATOR.EXPECTED_TOTAL_CASE_COUNT)
+        self.assertIn(cases[0].case_id, message)
+        self.assertNotIn(cases[1].case_id, message)
+        self.assertIn(VALIDATOR.COMPILER_FAILURE_TRUNCATION_MARKER, message)
+        self.assertIn(
+            "96 additional compiler failure(s) omitted after the aggregate "
+            "diagnostic byte limit",
+            message,
+        )
+        self.assertLessEqual(
+            len(message.encode("utf-8")),
+            VALIDATOR.MAX_AGGREGATE_COMPILER_DIAGNOSTICS_BYTES,
+        )
+
     def test_compiled_and_excluded_source_inventories_fail_closed(self) -> None:
         rtshader = self.repository / "resources/rtshader/FFPLib_Common.hlsl"
         rtshader_bytes = rtshader.read_bytes()
