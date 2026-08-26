@@ -432,6 +432,7 @@ if (ROR_OGRE14)
         gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp
         gfx/ogre14/detail/OgreNextDemoPrivatePolicy.{h,cpp}
         gfx/ogre14/detail/OgreNextDemoMaterialSource.{h,cpp}
+        gfx/ogre14/detail/Ogre14MaterialDetailLayerDeclaration.{h,cpp}
         gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.{h,cpp}
         gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.{h,cpp}
         gfx/ogre14/Ogre14LegacyNativeAssetExtractor.{h,cpp}
@@ -754,12 +755,14 @@ if (ROR_OGRE14)
     list(APPEND ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
             gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp
             gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp
+            gfx/ogre14/detail/Ogre14MaterialDetailLayerDeclaration.cpp
             gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp
             gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp
             )
     set_source_files_properties(
             gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp
             gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp
+            gfx/ogre14/detail/Ogre14MaterialDetailLayerDeclaration.cpp
             gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp
             gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp
             PROPERTIES
