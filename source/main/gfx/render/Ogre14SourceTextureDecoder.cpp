@@ -89,6 +89,23 @@
 namespace RoR::Render {
 namespace {
 
+/// A block payload is only worth preserving if it can actually be carried to
+/// the GPU as blocks. BC2 is block-compressed but has no transport format, so
+/// preserving it hands the consumer a payload it is obliged to refuse -- which
+/// is how every frame of a session containing one DXT3 texture came to be
+/// dropped on 'block_format.bc2_unorm'. A format with no mapping takes the
+/// canonical RGBA8 decode instead, exactly as it did before pass-through
+/// existed.
+[[nodiscard]] bool BlockPassThroughIsTransportable(
+    Ogre14SourceTextureFormat format) noexcept {
+  TextureResourceFormat transport = TextureResourceFormat::RGBA8_UNORM;
+  return TryMapOgre14SourceTextureFormatToTransport(format, transport);
+}
+
+} // namespace
+
+namespace {
+
 constexpr std::size_t kDdsHeaderBytes = 128U;
 constexpr std::uint32_t kDdsMagic = 0x20534444U;
 constexpr std::uint32_t kDdsHeaderSize = 124U;
@@ -1683,8 +1700,9 @@ ValidationResult BuildMipSpans(
   std::uint64_t source_offset = kDdsHeaderBytes;
   // A pass-through decode holds the authored block payload instead of an RGBA8
   // expansion, so the budget must charge for the bytes actually retained.
-  const bool preserve_blocks =
-      options.preserve_block_compression && parsed.block_compressed;
+  const bool preserve_blocks = options.preserve_block_compression &&
+                               parsed.block_compressed &&
+                               BlockPassThroughIsTransportable(parsed.format);
   std::uint64_t total_retained_bytes = 0U;
   for (std::uint32_t level = 0U; level < parsed.mip_count; ++level) {
     MipSpan span;
@@ -1949,7 +1967,8 @@ ValidationResult DecodeOgre14SourceTextureDds(
     // for it on any other source is a legitimate request for whatever the
     // source can offer, which is the canonical RGBA8 decode.
     const bool preserve_blocks =
-        options.preserve_block_compression && parsed.block_compressed;
+        options.preserve_block_compression && parsed.block_compressed &&
+        BlockPassThroughIsTransportable(parsed.format);
     candidate.block_compressed = preserve_blocks;
     candidate.mip_levels.reserve(parsed.mip_count);
     for (std::uint32_t level = 0U; level < parsed.mip_count; ++level) {
