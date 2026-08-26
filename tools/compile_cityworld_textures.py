@@ -248,10 +248,34 @@ def resident_bytes_block(width: int, height: int, block_bytes: int) -> int:
     return total
 
 
+# Formats that may be written into a terrain archive.
+#
+# BC7 is deliberately absent and this is the guard, not a comment. Archive
+# textures load through the OGRE-14 producer, whose isLoaded() gate runs before
+# the presenter's decoder ever sees the bytes, and macOS core profile caps at
+# OpenGL 4.1 while BPTC needs 4.2. Measured directly from a producer session:
+# GL_VERSION = 4.1.0.0, GL_EXT_texture_compression_s3tc present, no BPTC
+# extension at all. A BC7 archive member would compile cleanly, pass material
+# validation, and then project zero layers at runtime.
+#
+# The material validator still admits BC7, correctly: it is a platform-neutral
+# contract about what a format can express, and BC7 loads fine on D3D12 and
+# Vulkan. The platform truth belongs here instead, in the one place that
+# chooses what to write.
+ARCHIVE_ADMITTED_FOURCC = {b"DXT5": 16}
+
+
 def compile_colour_texture(width: int, height: int, pixels: bytes) -> bytes:
+    four_cc = b"DXT5"
+    if four_cc not in ARCHIVE_ADMITTED_FOURCC:
+        raise TextureCompileError(
+            f"{four_cc!r} may not be written into a terrain archive: it must "
+            "load in the OGRE-14 producer, which runs GL 4.1 on macOS"
+        )
+    block_bytes = ARCHIVE_ADMITTED_FOURCC[four_cc]
     chain = bcpack.build_mip_chain(width, height, pixels, srgb=True)
     payloads = [bcpack.encode_bc3(w, h, data) for w, h, data in chain]
-    return bcpack.write_dds_fourcc(width, height, b"DXT5", 16, payloads)
+    return bcpack.write_dds_fourcc(width, height, four_cc, block_bytes, payloads)
 
 
 class Entry:

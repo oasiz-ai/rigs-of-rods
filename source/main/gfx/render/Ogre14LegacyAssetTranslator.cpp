@@ -797,11 +797,20 @@ ValidateOgre14LegacyTextureInput(const Ogre14LegacyTextureInput &input) {
         ValidationCode::UNSUPPORTED_FEATURE, "texture.color_transform",
         "hardware gamma state disagrees with the explicit color role");
   }
-  if (input.compressed || input.render_target || input.generated ||
-      input.procedural) {
+  // `compressed` describes the PROVENANCE of the native texture, not this
+  // payload: the extractor reads every source back as RGBA8, and BC decode is
+  // exactly defined, so a compressed source arrives here as the same texels
+  // the GPU would sample. Refusing on it rejected a faithful RGBA8 payload for
+  // what its source used to be.
+  //
+  // The other three stay refused, and for a different reason that still holds:
+  // a render target, a generated texture and a procedural texture have no
+  // stable authored content to capture, so what was read back is not
+  // reproducible.
+  if (input.render_target || input.generated || input.procedural) {
     return ValidationResult::Failure(
         ValidationCode::UNSUPPORTED_FEATURE, "texture.source_kind",
-        "compressed, render-target, generated, or procedural textures are not "
+        "render-target, generated, and procedural textures are not "
         "representable in v2");
   }
   if (input.width == 0U || input.height == 0U ||

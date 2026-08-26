@@ -279,7 +279,17 @@ struct RendererNativeLightingAudit final {
 /// Renderer-neutral copy of the combined frontend's retained-native-scene
 /// lifecycle evidence. `last_*` fields describe the most recent completed
 /// present; cumulative counters are monotonic for the frontend lifetime.
+/// `resident_texture_bytes` is the exact GPU footprint of every live texture
+/// allocation in its ACTUAL uploaded format, summed from Ogre's own
+/// block-aware size arithmetic. It rides on this audit because this is the
+/// structure already plumbed to a throttled log site; it is not otherwise
+/// related to the retained scene. Without it a texture changing storage format
+/// moves no counter anywhere, and the whole point of block compression is
+/// unmeasurable.
 struct RendererRetainedSceneAudit final {
+  std::uint64_t resident_texture_bytes = 0U;
+  std::uint32_t live_texture_allocations = 0U;
+  std::uint32_t block_compressed_texture_allocations = 0U;
   std::uint32_t version = 0U;
   std::uint64_t generation = 0U;
   std::uint64_t frames_diffed = 0U;

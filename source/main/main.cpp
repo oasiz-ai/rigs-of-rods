@@ -5611,7 +5611,10 @@ int main(int argc, char *argv[])
                                     "cleanup_phase_us={} "
                                     "publication_phase_us={} "
                                     "recovery_teardowns={} "
-                                    "retired_light_teardowns={}",
+                                    "retired_light_teardowns={} "
+                                    "resident_texture_bytes={} "
+                                    "texture_allocations={} "
+                                    "block_compressed_textures={}",
                                     retained_scene_audit.last_created,
                                     retained_scene_audit.last_updated,
                                     retained_scene_audit.last_destroyed,
@@ -5647,7 +5650,13 @@ int main(int argc, char *argv[])
                                         .last_publication_phase_microseconds,
                                     retained_scene_audit.recovery_teardowns,
                                     retained_scene_audit
-                                        .retired_light_teardowns));
+                                        .retired_light_teardowns,
+                                    retained_scene_audit
+                                        .resident_texture_bytes,
+                                    retained_scene_audit
+                                        .live_texture_allocations,
+                                    retained_scene_audit
+                                        .block_compressed_texture_allocations));
                                 renderer_combined_retained_scene_logged_frame =
                                     retained_scene_audit.frames_diffed;
                             }

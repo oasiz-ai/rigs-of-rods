@@ -1674,6 +1674,62 @@ ValidationResult ParseDdsHeader(
   return ValidationResult::Success();
 }
 
+/// Whether a parsed source format is worth carrying to the GPU still
+/// compressed.
+///
+/// Pass-through is only useful for a format some material slot will actually
+/// bind. BC1 is deliberately excluded: it is refused at every material slot
+/// because its single alpha bit cannot carry transparency, cutout coverage, or
+/// a detail layer's height curve. Preserving it would manufacture a texture
+/// that nothing downstream can accept, turning a legacy DXT1 texture that used
+/// to decode and render into a rejected frame. Falling back to the RGBA8
+/// decode for BC1 is the correct behaviour, not a compromise -- it is exactly
+/// what happened before pass-through existed.
+///
+/// BC2 is excluded because it has no transport format at all and must never be
+/// silently treated as BC3.
+[[nodiscard]] bool IsPassThroughFormatEligible(
+    Ogre14SourceTextureFormat format) noexcept {
+  switch (format) {
+  case Ogre14SourceTextureFormat::BC3_UNORM:
+  case Ogre14SourceTextureFormat::BC4_UNORM:
+  case Ogre14SourceTextureFormat::BC5_UNORM:
+    return true;
+  default:
+    return false;
+  }
+}
+
+/// Every condition the descriptor builder will later insist on.
+///
+/// This predicate exists as one place on purpose. Pass-through hands a payload
+/// to a consumer with its own admission rules, and each time one of those rules
+/// was not mirrored here the result was the same: a texture that used to render
+/// stopped rendering, and the frame was lost at a layer further on than the one
+/// that enabled it. So the rule is that pass-through is offered only for a
+/// payload every downstream layer has already agreed to take.
+///
+/// The two conditions:
+///
+/// - The format must be one a material slot will bind. BC1 is excluded because
+///   its single alpha bit cannot carry transparency, cutout coverage, or a
+///   detail layer's height curve, so it is refused at every slot; BC2 has no
+///   transport format at all.
+///
+/// There used to be a second condition here demanding a COMPLETE base-to-1x1
+/// mip chain, mirroring what the descriptor builder insisted on. Both were
+/// wrong in the same way. A compressed mip cannot be GENERATED at load time,
+/// which is true, but that never obliged the source to reach 1x1: a BC block
+/// is 4x4, so authoring tools stop at or above the block floor and omit the
+/// sub-block levels. Stock RoR particle art ships six levels where
+/// completeness would demand eight or nine. A truncated chain is a valid
+/// texture and sampling simply clamps to the last authored level, so those
+/// payloads pass through now rather than falling back to an RGBA8 decode they
+/// never needed.
+[[nodiscard]] bool IsPassThroughEligible(const ParsedDds &parsed) noexcept {
+  return IsPassThroughFormatEligible(parsed.format);
+}
+
 ValidationResult BuildMipSpans(
     const std::vector<std::uint8_t> &bytes,
     const Ogre14SourceTextureDecodeOptions &options, const ParsedDds &parsed,
@@ -1683,8 +1739,9 @@ ValidationResult BuildMipSpans(
   std::uint64_t source_offset = kDdsHeaderBytes;
   // A pass-through decode holds the authored block payload instead of an RGBA8
   // expansion, so the budget must charge for the bytes actually retained.
-  const bool preserve_blocks =
-      options.preserve_block_compression && parsed.block_compressed;
+  const bool preserve_blocks = options.preserve_block_compression &&
+                               parsed.block_compressed &&
+                               IsPassThroughEligible(parsed);
   std::uint64_t total_retained_bytes = 0U;
   for (std::uint32_t level = 0U; level < parsed.mip_count; ++level) {
     MipSpan span;
@@ -1945,11 +2002,14 @@ ValidationResult DecodeOgre14SourceTextureDds(
             ? options.bc1_alpha_mode
             : Ogre14SourceTextureBc1AlphaMode::NOT_APPLICABLE;
     candidate.source_has_alpha = parsed.source_has_alpha;
-    // Pass-through is only meaningful for a block-compressed container. Asking
-    // for it on any other source is a legitimate request for whatever the
-    // source can offer, which is the canonical RGBA8 decode.
-    const bool preserve_blocks =
-        options.preserve_block_compression && parsed.block_compressed;
+    // Pass-through is only meaningful for a block-compressed container whose
+    // format some material slot will bind. Asking for it on any other source
+    // is a legitimate request for whatever the source can offer, which is the
+    // canonical RGBA8 decode. This must agree exactly with the budget
+    // arithmetic above, or the bytes charged and the bytes retained diverge.
+    const bool preserve_blocks = options.preserve_block_compression &&
+                                 parsed.block_compressed &&
+                                 IsPassThroughEligible(parsed);
     candidate.block_compressed = preserve_blocks;
     candidate.mip_levels.reserve(parsed.mip_count);
     for (std::uint32_t level = 0U; level < parsed.mip_count; ++level) {
