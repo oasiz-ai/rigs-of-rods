@@ -4,6 +4,7 @@ on:
   push:
     branches: [nextgen/playable-performance-gate]
     paths:
+      - .gitattributes
       - .github/workflows/ogre-next-combined-tsan.yml
       - CMakeLists.txt
       - cmake/conan/locks/ror-ogre14-linux-x86_64-tsan.lock

@@ -8,6 +8,9 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 RESOURCES = ROOT / "resources"
+NATIVE_WORKFLOW = ROOT / ".github/workflows/ogre-next-combined-native.yml"
+TSAN_WORKFLOW = ROOT / ".github/workflows/ogre-next-combined-tsan.yml"
+GIT_ATTRIBUTES = ROOT / ".gitattributes"
 
 LEGACY_SOURCE_SUFFIXES = {".asm", ".cg"}
 MODERN_SOURCE_SUFFIXES = {".fragment", ".glsl", ".hlsl", ".metal", ".vertex"}
@@ -71,6 +74,75 @@ class ModernShaderSourceClosureTests(unittest.TestCase):
             with self.subTest(path=path.relative_to(ROOT)):
                 source = path.read_text(encoding="utf-8")
                 self.assertIsNone(CONTINUED_GLSL_DIRECTIVE.search(source))
+
+    def test_byte_bound_shader_fixtures_trigger_native_validation(self) -> None:
+        attributes = GIT_ATTRIBUTES.read_text(encoding="utf-8")
+        native = NATIVE_WORKFLOW.read_text(encoding="utf-8")
+        tsan = TSAN_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "tests/fixtures/nicemetal_runtime/** text eol=lf", attributes
+        )
+        self.assertEqual(native.count("      - .gitattributes\n"), 2)
+        self.assertEqual(tsan.count("      - .gitattributes\n"), 1)
+
+    def test_success_artifacts_retain_compiler_receipts(self) -> None:
+        native = NATIVE_WORKFLOW.read_text(encoding="utf-8")
+        tsan = TSAN_WORKFLOW.read_text(encoding="utf-8")
+
+        linux_stage = native.index("Stage the GLSL source compiler receipt")
+        linux_inventory = native.index("Write deterministic package inventory")
+        linux_upload = native.index("Upload qualified Linux RoR-Combined runtime")
+        windows_stage = native.index("Stage the HLSL source compiler receipts")
+        windows_inventory = native.index(
+            "Write deterministic Windows package inventory"
+        )
+        windows_upload = native.index("Upload qualified Windows RoR-Combined runtime")
+        self.assertLess(linux_stage, linux_inventory)
+        self.assertLess(linux_inventory, linux_upload)
+        self.assertLess(windows_stage, windows_inventory)
+        self.assertLess(windows_inventory, windows_upload)
+        self.assertIn(
+            'source_receipt="$ROR_COMBINED_ARTIFACTS_DIR/'
+            'linux-x86_64-modern-glsl-source-compile.json"',
+            native[linux_stage:linux_inventory],
+        )
+        self.assertIn(
+            'destination_receipt="$destination_dir/glsl-receipt.json"',
+            native[linux_stage:linux_inventory],
+        )
+        self.assertIn(
+            "'hlsl-receipt.json' = "
+            "'windows-x86_64-modern-hlsl-source-compile.json'",
+            native[windows_stage:windows_inventory],
+        )
+        self.assertIn(
+            "'fxc-provenance.json' = 'windows-x86_64-fxc-provenance.json'",
+            native[windows_stage:windows_inventory],
+        )
+        for required in (
+            '"receipt": "qualification/shader-source-compile/glsl-receipt.json"',
+            '"receipt": "qualification/shader-source-compile/hlsl-receipt.json"',
+            '"compiler_provenance": "qualification/shader-source-compile/fxc-provenance.json"',
+        ):
+            self.assertIn(required, native)
+        staged_upload_path = "path: ${{ runner.temp }}/ror-combined-stage/"
+        self.assertEqual(native.count(staged_upload_path), 2)
+        self.assertIn(staged_upload_path, native[linux_upload:windows_stage])
+        self.assertIn(staged_upload_path, native[windows_upload:])
+
+        tsan_compile = tsan.index("Compile the complete modern GLSL source closure")
+        tsan_upload = tsan.index("Upload TSan evidence and failure diagnostics")
+        self.assertLess(tsan_compile, tsan_upload)
+        self.assertIn(
+            'receipt="$ROR_TSAN_ARTIFACTS_DIR/'
+            'linux-x86_64-modern-glsl-source-compile.json"',
+            tsan[tsan_compile:tsan_upload],
+        )
+        self.assertIn(
+            "path: ${{ runner.temp }}/ror-combined-tsan-artifacts",
+            tsan[tsan_upload:],
+        )
 
 
 if __name__ == "__main__":

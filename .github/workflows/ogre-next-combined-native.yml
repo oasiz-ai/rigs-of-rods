@@ -4,6 +4,7 @@ on:
   push:
     branches: [master, nextgen/playable-performance-gate]
     paths:
+      - .gitattributes
       - .github/workflows/ogre-next-combined-native.yml
       - CMakeLists.txt
       - conanfile.py
@@ -74,6 +75,7 @@ on:
       - tests/fixtures/nicemetal_runtime/**
   pull_request:
     paths:
+      - .gitattributes
       - .github/workflows/ogre-next-combined-native.yml
       - CMakeLists.txt
       - conanfile.py
@@ -915,6 +917,20 @@ jobs:
               raise SystemExit("save/resume authenticated input digest differs")
           PY
 
+      - name: Stage the GLSL source compiler receipt
+        shell: bash
+        run: |
+          source_receipt="$ROR_COMBINED_ARTIFACTS_DIR/linux-x86_64-modern-glsl-source-compile.json"
+          destination_dir="$ROR_COMBINED_STAGE_DIR/qualification/shader-source-compile"
+          destination_receipt="$destination_dir/glsl-receipt.json"
+          test -s "$source_receipt"
+          test -d "$ROR_COMBINED_STAGE_DIR/qualification"
+          test ! -e "$destination_dir"
+          cmake -E make_directory "$destination_dir"
+          cmake -E copy "$source_receipt" "$destination_receipt"
+          test -s "$destination_receipt"
+          cmp "$source_receipt" "$destination_receipt"
+
       - name: Write deterministic package inventory
         shell: bash
         run: |
@@ -985,6 +1001,15 @@ jobs:
                   "scope": "ogre14-hidden-resource-host-managed-template-shader-compile-load",
                   "receipt": "qualification/nicemetal-resource-host-shader-smoke/receipt.json",
                   "visible_nicemetal_draw_proven": False,
+              },
+              "shader_source_compile_evidence": {
+                  "passed": True,
+                  "scope": "glsl-source-preprocess-parse-semantic-link-only",
+                  "case_count": 49,
+                  "receipt": "qualification/shader-source-compile/glsl-receipt.json",
+                  "ogre_resource_load_proven": False,
+                  "rendered_frame_proven": False,
+                  "runtime_playability_proven": False,
               },
               "default_scene": {
                   "terrain": "simple2_a.terrn2",
@@ -2610,6 +2635,35 @@ jobs:
             throw "Windows save/resume report validation failed with exit code $LASTEXITCODE"
           }
 
+      - name: Stage the HLSL source compiler receipts
+        shell: pwsh
+        run: |
+          $destinationDir = Join-Path $env:ROR_COMBINED_STAGE_DIR 'qualification/shader-source-compile'
+          if (Test-Path -LiteralPath $destinationDir) {
+            throw "Shader source-compile evidence destination already exists: $destinationDir"
+          }
+          New-Item -ItemType Directory -Path $destinationDir -ErrorAction Stop | Out-Null
+          $evidenceFiles = [ordered]@{
+            'hlsl-receipt.json' = 'windows-x86_64-modern-hlsl-source-compile.json'
+            'fxc-provenance.json' = 'windows-x86_64-fxc-provenance.json'
+          }
+          foreach ($destinationName in $evidenceFiles.Keys) {
+            $sourcePath = Join-Path $env:ROR_COMBINED_ARTIFACTS_DIR $evidenceFiles[$destinationName]
+            $destinationPath = Join-Path $destinationDir $destinationName
+            if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+              throw "Shader source-compile evidence is missing: $sourcePath"
+            }
+            if ((Get-Item -LiteralPath $sourcePath).Length -le 0) {
+              throw "Shader source-compile evidence is empty: $sourcePath"
+            }
+            Copy-Item -LiteralPath $sourcePath -Destination $destinationPath -ErrorAction Stop
+            $sourceHash = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash
+            $destinationHash = (Get-FileHash -LiteralPath $destinationPath -Algorithm SHA256).Hash
+            if ($sourceHash -cne $destinationHash) {
+              throw "Staged shader source-compile evidence changed: $destinationName"
+            }
+          }
+
       - name: Write deterministic Windows package inventory
         shell: pwsh
         run: |
@@ -2654,6 +2708,16 @@ jobs:
                   "scope": "ogre14-hidden-resource-host-managed-template-shader-compile-load",
                   "receipt": "qualification/nicemetal-resource-host-shader-smoke/receipt.json",
                   "visible_nicemetal_draw_proven": False,
+              },
+              "shader_source_compile_evidence": {
+                  "passed": True,
+                  "scope": "explicit-sm4-hlsl-source-compile-only",
+                  "case_count": 74,
+                  "receipt": "qualification/shader-source-compile/hlsl-receipt.json",
+                  "compiler_provenance": "qualification/shader-source-compile/fxc-provenance.json",
+                  "ogre_resource_load_proven": False,
+                  "rendered_frame_proven": False,
+                  "runtime_playability_proven": False,
               },
               "default_scene": {
                   "terrain": "simple2_a.terrn2",
