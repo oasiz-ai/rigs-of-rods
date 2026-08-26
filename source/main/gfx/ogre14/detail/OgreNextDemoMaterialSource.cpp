@@ -718,9 +718,34 @@ bool IsCanonicalModulate(const Ogre::LayerBlendModeEx &blend,
 OgreNextDemoExactSamplerObservation
 ObserveExactSampler(const Ogre::Sampler &sampler) noexcept;
 
+/// A multi-frame texture unit whose frames are selected by hand rather than by
+/// a clock. `anim_texture <base> <frames> 0` - the trailing zero duration - is
+/// how every legacy lamp lens in this game is authored: two frames, unlit and
+/// lit, with the frame chosen from simulation state. It builds no animation
+/// controller, so at any instant the unit resolves to exactly ONE texture,
+/// which is what makes it projectable at all.
+///
+/// A nonzero duration is a different thing entirely - OGRE attaches a
+/// controller and the texture changes on a wall clock the capture does not
+/// observe - and stays refused.
+///
+/// The safety of admitting the manual form rests on the caller, not on this
+/// predicate: whatever changes the current frame must also make the section's
+/// material decision key name that state, or the projection freezes at
+/// whichever frame happened to be live. Exactly one thing in this codebase
+/// calls TextureUnitState::setCurrentFrame - GfxActor::SetMaterialFlareOn -
+/// and the flare capture path keys its decision on the live flare state for
+/// precisely that reason. Any future consumer that does not is visible by name
+/// in the per-material section census.
+bool HasManualFrameSelection(const Ogre::TextureUnitState &unit) noexcept {
+  return unit.getNumFrames() > 1U &&
+         unit.getAnimationDuration() == Ogre::Real(0);
+}
+
 bool HasCanonicalTextureUnitEnvelope(
     const Ogre::TextureUnitState &unit) noexcept {
-  return unit.getNumFrames() == 1U && unit.getTextureCoordSet() == 0U &&
+  return (unit.getNumFrames() == 1U || HasManualFrameSelection(unit)) &&
+         unit.getTextureCoordSet() == 0U &&
          unit.getProjectiveTexturingFrustum() == nullptr &&
          unit.getEffects().empty() && unit.getUnorderedAccessMipLevel() == -1 &&
          IsIdentityTextureTransform(unit.getTextureTransform());

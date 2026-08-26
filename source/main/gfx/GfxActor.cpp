@@ -3267,9 +3267,10 @@ Ogre::Vector3 ComputeFlareLightDirection(FlareType type,
     }
     heading /= heading_length;
 
-    const Ogre::Radian depression(Ogre::Degree(depression_degrees));
-    return heading * Ogre::Math::Cos(depression) -
-        Ogre::Vector3::UNIT_Y * Ogre::Math::Sin(depression);
+    const float depression_radians =
+        depression_degrees * (3.14159265358979323846f / 180.0f);
+    return heading * std::cos(depression_radians) -
+        Ogre::Vector3::UNIT_Y * std::sin(depression_radians);
 }
 
 bool ShouldEnableLightSource(FlareType type, bool is_player)

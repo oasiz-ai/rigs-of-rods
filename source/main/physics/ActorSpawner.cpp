@@ -84,7 +84,9 @@
 #include <OgreMovableObject.h>
 #include <OgreParticleSystem.h>
 #include <OgreEntity.h>
+#include <algorithm>
 #include <climits>
+#include <cmath>
 #include <fmt/format.h>
 
 using namespace RoR;
@@ -2396,6 +2398,95 @@ void ActorSpawner::ProcessFlare3(RigDef::Flare3 & def)
     }
 }
 
+namespace {
+
+/// Photometric authoring for vehicle flare lights.
+///
+/// Legacy flare lights were authored for a fixed-function renderer where a
+/// light is a colour divided by `c + l*d + q*d*d` and the result is clamped at
+/// 1. A headlight authored as `setAttenuation(200, 0.9, 0, 0)` therefore means
+/// "full white everywhere inside 200 m" - a wash, not a lamp. The combined
+/// runtime is photometric: it matches that legacy curve at
+/// `d* = clamp(range/2, 1, 25)` and converts it to candela, so the same
+/// headlight arrives as roughly 8.1e5 cd. Measured against this scene's
+/// analytic sun (~888 lux) and its street lamps (24 m range, c=1 l=0.3, warm
+/// (1, 0.72, 0.3) -> ~2.7e4 cd, ~750 lux in the pool underneath), that put
+/// ~3.6e3 lux on the road 15 m ahead: five times the brightest thing in the
+/// night scene, and it clipped to flat white in the tonemap shoulder.
+///
+/// So the flare lights are authored here as real lamps instead: a physical
+/// inverse-square curve, and an explicit power scale carrying the intended
+/// luminous intensity. The capture multiplies power scale straight into the
+/// candela it publishes, which makes it the one honest place to say how bright
+/// a lamp is. `FlareLightPowerScale` inverts the capture's own conversion so
+/// the target below is the number that actually reaches the renderer.
+///
+/// Targets are chosen relative to the street lamps already in the scene rather
+/// than to real-world candela, because this scene's photometric domain is
+/// compressed (its "daylight" is 888 lux, not 1e5). A low beam that lands the
+/// same illuminance at 10 m that a street lamp lands directly underneath reads
+/// correctly next to them; the ratios between the vehicle's own lamps are the
+/// real-world ones.
+constexpr double kFlareLegacyDiffusePowerToCandela = 1024.0;
+constexpr double kFlareReferenceWindowHalfRange = 0.87890625; // (1-0.5^4)^2
+
+/// Rec.709 luminance, matching the capture's own weighting of the diffuse
+/// colour - a red tail lamp only delivers 21% of a white lamp's candela for
+/// the same authored power, and the target below is stated post-weighting.
+double FlareDiffuseLuminance(const Ogre::ColourValue& diffuse)
+{
+    return 0.2126 * diffuse.r + 0.7152 * diffuse.g + 0.0722 * diffuse.b;
+}
+
+/// Power scale that makes a light with `setAttenuation(range, 1, 0, 1)` and
+/// this diffuse colour arrive at `target_candela`.
+float FlareLightPowerScale(float range, const Ogre::ColourValue& diffuse,
+                           double target_candela)
+{
+    const double reference_distance =
+        std::clamp(static_cast<double>(range) * 0.5, 1.0, 25.0);
+    const double legacy_denominator =
+        1.0 + reference_distance * reference_distance;
+    const double curve_match_scale = reference_distance * reference_distance /
+        (legacy_denominator * kFlareReferenceWindowHalfRange);
+    const double luminance = FlareDiffuseLuminance(diffuse);
+    const double denominator =
+        luminance * kFlareLegacyDiffusePowerToCandela * curve_match_scale;
+    if (!(denominator > 0.0))
+    {
+        return 1.0f;
+    }
+    return static_cast<float>(target_candela / denominator);
+}
+
+/// One authored lamp: colour, reach, beam and intended luminous intensity.
+struct FlareLampAuthoring
+{
+    Ogre::ColourValue diffuse;
+    float range;
+    double target_candela;
+    float inner_cone_degrees;
+    float outer_cone_degrees;
+};
+
+void ApplyFlareLampAuthoring(Ogre::Light* light,
+                             const FlareLampAuthoring& lamp)
+{
+    light->setType(Ogre::Light::LT_SPOTLIGHT);
+    light->setDiffuseColour(lamp.diffuse);
+    light->setSpecularColour(lamp.diffuse);
+    // Physical inverse square with the engine's own range window, so the
+    // capture's curve match reproduces a lamp rather than a legacy wash.
+    light->setAttenuation(lamp.range, 1.0f, 0.0f, 1.0f);
+    light->setPowerScale(
+        FlareLightPowerScale(lamp.range, lamp.diffuse, lamp.target_candela));
+    light->setSpotlightRange(Ogre::Degree(lamp.inner_cone_degrees),
+                             Ogre::Degree(lamp.outer_cone_degrees));
+    light->setCastShadows(false);
+}
+
+} // namespace
+
 void ActorSpawner::AddBaseFlare(RigDef::FlareBase & def)
 {
     if (m_actor->m_flares_mode == GfxFlaresMode::NONE) { return; }
@@ -2535,91 +2626,77 @@ void ActorSpawner::AddBaseFlare(RigDef::FlareBase & def)
     flare.intensity = 1.f;
     flare.light = nullptr;
 
-    if ((App::gfx_flares_mode->getEnum<GfxFlaresMode>() >= GfxFlaresMode::CURR_VEHICLE_HEAD_ONLY) && size > 0.001 && !is_placeholder)
+    // Beam types: a narrow forward cone. Marker types: a wide, nearly
+    // hemispherical lobe, because a tail lamp is a diffuser and not a torch -
+    // the legacy 35/45 cone on every type is what made a tail light a spot
+    // pointed at the tarmac behind the bumper.
+    const bool beam_flares_enabled =
+        App::gfx_flares_mode->getEnum<GfxFlaresMode>() >=
+            GfxFlaresMode::CURR_VEHICLE_HEAD_ONLY &&
+        size > 0.001 && !is_placeholder;
+    const bool marker_flares_enabled =
+        App::gfx_flares_mode->getEnum<GfxFlaresMode>() >=
+            GfxFlaresMode::ALL_VEHICLES_ALL_LIGHTS &&
+        size > 0.001 && !is_placeholder;
+
+    const Ogre::ColourValue kLampWhite(1.0f, 0.97f, 0.92f);
+    const Ogre::ColourValue kLampRed(1.0f, 0.05f, 0.02f);
+    const Ogre::ColourValue kLampAmber(1.0f, 0.62f, 0.05f);
+
+    bool has_lamp = false;
+    FlareLampAuthoring lamp{Ogre::ColourValue(1.0f, 1.0f, 1.0f), 1.0f, 0.0, 35.0f, 45.0f};
+    switch (flare.fl_type)
     {
-        if (flare.fl_type == FlareType::HEADLIGHT)
-        {
-            flare.light=App::GetGfxScene()->GetSceneManager()->createLight(flare_name);
-            flare.light->setType(Ogre::Light::LT_SPOTLIGHT);
-            flare.light->setDiffuseColour( Ogre::ColourValue(1, 1, 1));
-            flare.light->setSpecularColour( Ogre::ColourValue(1, 1, 1));
-            flare.light->setAttenuation(200, 0.9, 0, 0);
-            flare.light->setSpotlightRange( Ogre::Degree(35), Ogre::Degree(45) );
-            flare.light->setCastShadows(false);
-        }
-        else if (flare.fl_type == FlareType::HIGH_BEAM)
-        {
-            flare.light = App::GetGfxScene()->GetSceneManager()->createLight(flare_name);
-            flare.light->setType(Ogre::Light::LT_SPOTLIGHT);
-            flare.light->setDiffuseColour(Ogre::ColourValue(1, 1, 1));
-            flare.light->setSpecularColour(Ogre::ColourValue(1, 1, 1));
-            flare.light->setAttenuation(400, 0.9, 0, 0);
-            flare.light->setSpotlightRange(Ogre::Degree(35), Ogre::Degree(45));
-            flare.light->setCastShadows(false);
-        }
-        else if (flare.fl_type == FlareType::FOG_LIGHT)
-        {
-            flare.light = App::GetGfxScene()->GetSceneManager()->createLight(flare_name);
-            flare.light->setType(Ogre::Light::LT_SPOTLIGHT);
-            flare.light->setDiffuseColour(Ogre::ColourValue(1, 1, 1));
-            flare.light->setSpecularColour(Ogre::ColourValue(1, 1, 1));
-            flare.light->setAttenuation(400, 0.9, 0, 0);
-            flare.light->setSpotlightRange(Ogre::Degree(35), Ogre::Degree(45));
-            flare.light->setCastShadows(false);
-        }
-    }
-    if ((App::gfx_flares_mode->getEnum<GfxFlaresMode>() >= GfxFlaresMode::ALL_VEHICLES_ALL_LIGHTS) && size > 0.001 && !is_placeholder)
-    {
-        if (flare.fl_type == FlareType::TAIL_LIGHT)
-        {
-            flare.light=App::GetGfxScene()->GetSceneManager()->createLight(flare_name);
-            flare.light->setDiffuseColour( Ogre::ColourValue(1.0, 0, 0));
-            flare.light->setSpecularColour( Ogre::ColourValue(1.0, 0, 0));
-            flare.light->setAttenuation(10.0, 1.0, 0, 0);
-        }
-        else if (flare.fl_type == FlareType::REVERSE_LIGHT)
-        {
-            flare.light=App::GetGfxScene()->GetSceneManager()->createLight(flare_name);
-            flare.light->setDiffuseColour(Ogre::ColourValue(1, 1, 1));
-            flare.light->setSpecularColour(Ogre::ColourValue(1, 1, 1));
-            flare.light->setAttenuation(20.0, 1, 0, 0);
-        }
-        else if (flare.fl_type == FlareType::BRAKE_LIGHT)
-        {
-            flare.light=App::GetGfxScene()->GetSceneManager()->createLight(flare_name);
-            flare.light->setDiffuseColour( Ogre::ColourValue(1.0, 0, 0));
-            flare.light->setSpecularColour( Ogre::ColourValue(1.0, 0, 0));
-            flare.light->setAttenuation(10.0, 1.0, 0, 0);
-        }
-        else if (flare.fl_type == FlareType::BLINKER_LEFT || (flare.fl_type == FlareType::BLINKER_RIGHT))
-        {
-            flare.light=App::GetGfxScene()->GetSceneManager()->createLight(flare_name);
-            flare.light->setDiffuseColour( Ogre::ColourValue(1, 1, 0));
-            flare.light->setSpecularColour( Ogre::ColourValue(1, 1, 0));
-            flare.light->setAttenuation(10.0, 1, 1, 0);
-        }
-        else if (flare.fl_type == FlareType::USER)
-        {
-            flare.light=App::GetGfxScene()->GetSceneManager()->createLight(flare_name);
-            flare.light->setDiffuseColour( Ogre::ColourValue(1, 1, 1));
-            flare.light->setSpecularColour( Ogre::ColourValue(1, 1, 1));
-            flare.light->setAttenuation(1.0, 1.0, 1, 0.2);
-        }
-        else if (flare.fl_type == FlareType::SIDELIGHT)
-        {
-            flare.light = App::GetGfxScene()->GetSceneManager()->createLight(flare_name);
-            flare.light->setDiffuseColour(Ogre::ColourValue(1, 1, 1));
-            flare.light->setSpecularColour(Ogre::ColourValue(1, 1, 1));
-            flare.light->setAttenuation(5.0, 1.0, 1, 0.2);
-        }
+    case FlareType::HEADLIGHT:
+        // Low beam: matches a street lamp's pool at 10 m, then falls off.
+        lamp = FlareLampAuthoring{kLampWhite, 120.0f, 9.0e4, 30.0f, 46.0f};
+        has_lamp = beam_flares_enabled;
+        break;
+    case FlareType::HIGH_BEAM:
+        lamp = FlareLampAuthoring{kLampWhite, 250.0f, 2.2e5, 20.0f, 34.0f};
+        has_lamp = beam_flares_enabled;
+        break;
+    case FlareType::FOG_LIGHT:
+        // Short, wide and low - a fog lamp is aimed down and spread sideways.
+        lamp = FlareLampAuthoring{kLampWhite, 60.0f, 4.5e4, 46.0f, 80.0f};
+        has_lamp = beam_flares_enabled;
+        break;
+    case FlareType::TAIL_LIGHT:
+        lamp = FlareLampAuthoring{kLampRed, 18.0f, 9.0e2, 90.0f, 150.0f};
+        has_lamp = marker_flares_enabled;
+        break;
+    case FlareType::BRAKE_LIGHT:
+        // Four times the tail lamp, which is the real regulated ratio.
+        lamp = FlareLampAuthoring{kLampRed, 18.0f, 3.6e3, 90.0f, 150.0f};
+        has_lamp = marker_flares_enabled;
+        break;
+    case FlareType::REVERSE_LIGHT:
+        lamp = FlareLampAuthoring{kLampWhite, 18.0f, 2.5e3, 90.0f, 150.0f};
+        has_lamp = marker_flares_enabled;
+        break;
+    case FlareType::BLINKER_LEFT:
+    case FlareType::BLINKER_RIGHT:
+        lamp = FlareLampAuthoring{kLampAmber, 18.0f, 4.0e3, 90.0f, 150.0f};
+        has_lamp = marker_flares_enabled;
+        break;
+    case FlareType::SIDELIGHT:
+        lamp = FlareLampAuthoring{kLampWhite, 12.0f, 4.0e2, 90.0f, 150.0f};
+        has_lamp = marker_flares_enabled;
+        break;
+    case FlareType::USER:
+        lamp = FlareLampAuthoring{kLampWhite, 15.0f, 1.5e3, 60.0f, 110.0f};
+        has_lamp = marker_flares_enabled;
+        break;
+    default:
+        // DASHBOARD and NONE never carried a light source and still do not.
+        break;
     }
 
-    /* Finalize light */
-    if (flare.light != nullptr)
+    if (has_lamp)
     {
-        flare.light->setType(Ogre::Light::LT_SPOTLIGHT);
-        flare.light->setSpotlightRange( Ogre::Degree(35), Ogre::Degree(45) );
-        flare.light->setCastShadows(false);
+        flare.light =
+            App::GetGfxScene()->GetSceneManager()->createLight(flare_name);
+        ApplyFlareLampAuthoring(flare.light, lamp);
     }
     m_actor->ar_flares.push_back(flare);
 }
@@ -8175,6 +8252,7 @@ void ActorSpawner::CreateMaterialFlare(int flareid, Ogre::MaterialPtr m)
     Ogre::Pass* p = tech->getPass(0);
     if (!p)
         return;
+
     // save emissive colour and then set to zero (light disabled by default)
     binding.emissive_color = p->getSelfIllumination();
     p->setSelfIllumination(Ogre::ColourValue::ZERO);
