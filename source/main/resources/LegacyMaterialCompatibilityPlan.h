@@ -36,9 +36,9 @@ constexpr std::uint64_t
 /// falls back to the ordinary unauthenticated mount and road captures fail
 /// closed.
 constexpr char kCityWorldNextLocalOverlayArchiveSha256[] =
-    "f6084a9f2b116c43c35c989810eb0e7d4b64fbb358cc8a8dfe0cc230037a153d";
+    "ba20e68bba11731a9ca6620d66d9ba7332f114a250ee72bafd579a046637facc";
 constexpr std::uint64_t
-    kCityWorldNextLocalOverlayArchiveBytes = 36519796ULL;
+    kCityWorldNextLocalOverlayArchiveBytes = 37265508ULL;
 
 /// Hash probing is private to the active OgreNext migration session and only
 /// applies to a selected primary terrain ZIP.  These inexpensive facts limit
