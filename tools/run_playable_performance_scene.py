@@ -325,6 +325,7 @@ ACTOR_CONTROL_PRESS_PRESENTED_MARKER = (
     "schema=ror.ogre_next_actor_control_press.v1 press_presented=true"
 )
 ACTOR_CONTROL_RECEIPT_MARKER = "[RoR|RendererCombined|ActorControl]"
+ACTOR_CONTROL_PRESENTATION_TIMEOUT_SECONDS = 30.0
 
 
 def effective_graphics_settings(text: str) -> dict[str, str]:
@@ -1854,7 +1855,7 @@ def drive_macos_up_key(
 def drive_external_actor_control(
     target_platform: str,
     process_id: int,
-    hold_seconds: float = 3.0,
+    hold_seconds: float = ACTOR_CONTROL_PRESENTATION_TIMEOUT_SECONDS,
     wait_for_pressed_scene: Callable[[], None] | None = None,
 ) -> dict[str, object]:
     held_seconds = hold_seconds
@@ -1933,7 +1934,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument(
         "--actor-control-hold-seconds",
         type=float,
-        default=3.0,
+        default=ACTOR_CONTROL_PRESENTATION_TIMEOUT_SECONDS,
         help=(
             "maximum seconds between the external Up Arrow press and the "
             "next completed native actor scene"
@@ -1985,9 +1986,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise PerformanceSceneFailure(
                 "--qualify-actor-control requires an explicit actor"
             )
-        if not (0.05 <= args.actor_control_hold_seconds <= 30.0):
+        if not (
+            0.05
+            <= args.actor_control_hold_seconds
+            <= ACTOR_CONTROL_PRESENTATION_TIMEOUT_SECONDS
+        ):
             raise PerformanceSceneFailure(
-                "--actor-control-hold-seconds must be between 0.05 and 30"
+                "--actor-control-hold-seconds must be between 0.05 and "
+                f"{ACTOR_CONTROL_PRESENTATION_TIMEOUT_SECONDS:g}"
             )
         driver: dict[str, object] | None = None
         console_path = artifact_dir / "console.txt"

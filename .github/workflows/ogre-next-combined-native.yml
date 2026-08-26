@@ -527,6 +527,7 @@ jobs:
             --percentile 99 \
             --percentile-ms 1000 \
             --qualify-actor-control \
+            --actor-control-hold-seconds 30 \
             --measure-only \
             --timeout 180
           python - "$scene/performance-run.json" <<'PY'
@@ -1885,6 +1886,7 @@ jobs:
             --percentile 99 `
             --percentile-ms 1000 `
             --qualify-actor-control `
+            --actor-control-hold-seconds 30 `
             --measure-only `
             --timeout 180
           if ($LASTEXITCODE -ne 0) {

@@ -899,6 +899,19 @@ class ConfigurationTests(unittest.TestCase):
         self,
     ) -> None:
         self.assertEqual(
+            runner.ACTOR_CONTROL_PRESENTATION_TIMEOUT_SECONDS,
+            30.0,
+        )
+        defaults = runner.parse_args(
+            [
+                "--executable", "/tmp/RoR",
+                "--artifact-dir", "/tmp/ror-performance-artifact",
+                "--scenario-id", "actor-control-timeout-default",
+                "--terrain", "simple2_a.terrn2",
+            ]
+        )
+        self.assertEqual(defaults.actor_control_hold_seconds, 30.0)
+        self.assertEqual(
             runner.ACTOR_CONTROL_SPAWN_MARKER,
             "== Spawning vehicle:",
         )
