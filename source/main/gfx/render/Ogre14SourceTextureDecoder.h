@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "RenderResourceDescriptors.h"
 #include "RenderValidation.h"
 
 #include <cstddef>
@@ -63,6 +64,16 @@ enum class Ogre14SourceTextureFormat : std::uint8_t {
   BGRX8_UNORM = 8U,
 };
 
+/// Resolves the transport format that carries an authored source format to the
+/// presenter without decoding it. Only the formats the transport can represent
+/// exactly are mapped: BC2 stores four-bit explicit alpha that no admitted
+/// transport format encodes, so it is refused by name rather than reinterpreted
+/// as BC3, whose alpha block means something else entirely. Every uncompressed
+/// source format is refused too, because those already have a canonical RGBA8
+/// path. `out` is left unchanged on refusal.
+[[nodiscard]] bool TryMapOgre14SourceTextureFormatToTransport(
+    Ogre14SourceTextureFormat format, TextureResourceFormat &out) noexcept;
+
 struct Ogre14SourceTextureDecodeOptions final {
   std::uint32_t version = kOgre14SourceTextureDecodeOptionsVersion;
   Ogre14SourceTextureColorSemantic color_semantic =
@@ -77,19 +88,32 @@ struct Ogre14SourceTextureDecodeOptions final {
       kOgre14SourceTextureHardMaximumEncodedBytes;
   std::uint64_t maximum_decoded_bytes =
       kOgre14SourceTextureHardMaximumDecodedBytes;
+  /// Keeps a block-compressed DDS in its authored blocks instead of expanding
+  /// it to RGBA8, so a presenter that can upload the blocks directly never pays
+  /// for a decode it would only have to re-encode. A source that is not
+  /// block-compressed is unaffected and still decodes to canonical RGBA8.
+  bool preserve_block_compression = false;
 };
 
 struct Ogre14DecodedSourceTextureMip final {
   std::uint32_t version = kOgre14DecodedSourceTextureMipVersion;
   std::uint32_t width = 0U;
   std::uint32_t height = 0U;
-  /// Canonical rows are always tightly packed width * 4 bytes.
+  /// Canonical rows are always tightly packed width * 4 bytes. A passed-through
+  /// block payload instead reports the stride of one tightly packed block row.
   std::uint64_t row_pitch_bytes = 0U;
-  /// Canonical slices are always tightly packed row_pitch_bytes * height.
+  /// Canonical slices are always tightly packed row_pitch_bytes * height. A
+  /// passed-through block payload instead reports its whole tightly packed
+  /// block byte count.
   std::uint64_t slice_pitch_bytes = 0U;
   /// Canonical R, G, B, A bytes in texel row-major order. Values are UNORM;
   /// `color_semantic` on the parent remains separate metadata.
   std::vector<std::uint8_t> rgba8_unorm;
+  /// Authored block bytes, carried verbatim from the container and populated
+  /// only when the parent reports `block_compressed`. Exactly one of these two
+  /// vectors is ever nonempty, because block bytes cannot be read as texels
+  /// without decoding them.
+  std::vector<std::uint8_t> block_bytes;
 };
 
 struct Ogre14DecodedSourceTexture final {
@@ -103,6 +127,9 @@ struct Ogre14DecodedSourceTexture final {
   Ogre14SourceTextureBc1AlphaMode bc1_alpha_mode =
       Ogre14SourceTextureBc1AlphaMode::NOT_APPLICABLE;
   bool source_has_alpha = false;
+  /// True only when the caller asked for pass-through and the container really
+  /// was block-compressed. The mip payloads then live in `block_bytes`.
+  bool block_compressed = false;
   std::vector<Ogre14DecodedSourceTextureMip> mip_levels;
 };
 

@@ -101,6 +101,33 @@ std::uint32_t CompleteMipCount(std::uint32_t width,
   return count;
 }
 
+// A refusal has to name the format it refused, otherwise the operator cannot
+// tell an unsupported authored format from a defect in the loader.
+const char *DecodedSourceFormatToken(
+    Render::Ogre14SourceTextureFormat format) noexcept {
+  switch (format) {
+  case Render::Ogre14SourceTextureFormat::BC1_UNORM:
+    return "bc1_unorm";
+  case Render::Ogre14SourceTextureFormat::BC2_UNORM:
+    return "bc2_unorm";
+  case Render::Ogre14SourceTextureFormat::BC3_UNORM:
+    return "bc3_unorm";
+  case Render::Ogre14SourceTextureFormat::BC4_UNORM:
+    return "bc4_unorm";
+  case Render::Ogre14SourceTextureFormat::BC5_UNORM:
+    return "bc5_unorm";
+  case Render::Ogre14SourceTextureFormat::RGBA8_UNORM:
+    return "rgba8_unorm";
+  case Render::Ogre14SourceTextureFormat::RGBX8_UNORM:
+    return "rgbx8_unorm";
+  case Render::Ogre14SourceTextureFormat::BGRA8_UNORM:
+    return "bgra8_unorm";
+  case Render::Ogre14SourceTextureFormat::BGRX8_UNORM:
+    return "bgrx8_unorm";
+  }
+  return "unknown";
+}
+
 // Frozen Q0.32 decode points for the 256 sRGB byte codes. This table is part
 // of modern source-normalization policy v2 and removes libm/compiler drift
 // from generated mip bytes.
@@ -1829,6 +1856,110 @@ Render::ValidationResult BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
                    "ogre_next_demo.material.authenticated.bc1_alpha_mode",
                    "product projection requires the frozen alpha-policy BC1 "
                    "interpretation only for BC1 sources");
+  }
+
+  if (decoded.block_compressed) {
+    Render::TextureResourceFormat block_format =
+        Render::TextureResourceFormat::RGBA8_UNORM;
+    if (!Render::TryMapOgre14SourceTextureFormatToTransport(
+            decoded.source_format, block_format)) {
+      Render::ValidationResult unmapped = Failure(
+          Render::ValidationCode::UNSUPPORTED_FEATURE,
+          "ogre_next_demo.material.authenticated.block_format",
+          "the authored block-compressed format has no exact transport "
+          "format, and re-encoding it into a different block layout would "
+          "not preserve the authored texels");
+      unmapped.field += '.';
+      unmapped.field += DecodedSourceFormatToken(decoded.source_format);
+      return unmapped;
+    }
+    const std::size_t authored_mip_levels = decoded.mip_levels.size();
+    if (authored_mip_levels !=
+        static_cast<std::size_t>(
+            CompleteMipCount(decoded.width, decoded.height))) {
+      return Failure(
+          Render::ValidationCode::SIZE_MISMATCH,
+          "ogre_next_demo.material.authenticated.block_mip_chain",
+          "a block-compressed texture must author its complete mip chain "
+          "because a compressed mip cannot be generated at load time without "
+          "decoding and re-encoding it");
+    }
+
+    Render::TextureResourceDescriptor candidate;
+    candidate.debug_name.assign(debug_name.data(), debug_name.size());
+    candidate.type = Render::TextureResourceType::TEXTURE_2D;
+    candidate.format = block_format;
+    candidate.color_space = Render::TextureColorSpace::SRGB;
+    candidate.width = decoded.width;
+    candidate.height = decoded.height;
+    candidate.array_layers = 1U;
+    candidate.mip_levels.reserve(authored_mip_levels);
+    std::uint32_t block_mip_width = decoded.width;
+    std::uint32_t block_mip_height = decoded.height;
+    for (std::size_t level = 0U; level < authored_mip_levels; ++level) {
+      Render::Ogre14DecodedSourceTextureMip &decoded_mip =
+          decoded.mip_levels[level];
+      const std::uint64_t row_pitch_bytes =
+          Render::MinimumTextureRowPitchBytes(block_format, block_mip_width);
+      const std::uint64_t layer_pitch_bytes =
+          row_pitch_bytes * Render::TextureBlockRowCount(block_format,
+                                                         block_mip_height);
+      if (decoded_mip.version !=
+              Render::kOgre14DecodedSourceTextureMipVersion ||
+          decoded_mip.width != block_mip_width ||
+          decoded_mip.height != block_mip_height ||
+          decoded_mip.row_pitch_bytes != row_pitch_bytes ||
+          decoded_mip.slice_pitch_bytes != layer_pitch_bytes ||
+          !decoded_mip.rgba8_unorm.empty() || row_pitch_bytes == 0U ||
+          layer_pitch_bytes > static_cast<std::uint64_t>(
+                                  (std::numeric_limits<std::size_t>::max)()) ||
+          decoded_mip.block_bytes.size() !=
+              static_cast<std::size_t>(layer_pitch_bytes)) {
+        return Failure(
+            Render::ValidationCode::SIZE_MISMATCH,
+            "ogre_next_demo.material.authenticated.block_mip",
+            "decoded source mip is not an exact tight authored block payload",
+            level);
+      }
+      Render::TextureMipLevelDescriptor mip;
+      mip.width = block_mip_width;
+      mip.height = block_mip_height;
+      mip.row_pitch_bytes = row_pitch_bytes;
+      mip.layer_pitch_bytes = layer_pitch_bytes;
+      mip.bytes = std::move(decoded_mip.block_bytes);
+      candidate.mip_levels.push_back(std::move(mip));
+      block_mip_width = (std::max)(1U, block_mip_width / 2U);
+      block_mip_height = (std::max)(1U, block_mip_height / 2U);
+    }
+
+    Render::ValidationResult block_validation =
+        Render::ValidateTextureResourceDescriptor(candidate);
+    if (!block_validation) {
+      block_validation.field =
+          "ogre_next_demo.material.authenticated.texture." +
+          block_validation.field;
+      return block_validation;
+    }
+    OgreNextDemoTextureNormalizationObservation block_observation;
+    block_observation.policy =
+        alpha_policy == OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE
+            ? OgreNextDemoTextureNormalizationObservation::Policy::
+                  SRGB_OPAQUE_V2
+            : OgreNextDemoTextureNormalizationObservation::Policy::
+                  SRGB_STRAIGHT_ALPHA_V1;
+    block_observation.policy_version =
+        alpha_policy == OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE
+            ? kOgreNextDemoModernSourceNormalizationPolicyVersion
+            : kOgreNextDemoStraightAlphaNormalizationPolicyVersion;
+    // Every level is authored, so the normalization policy's generated tail is
+    // empty rather than merely unreported.
+    block_observation.authored_mip_prefix_levels = authored_mip_levels;
+    block_observation.generated_mip_tail_levels = 0U;
+    output = std::move(candidate);
+    if (observation != nullptr) {
+      *observation = block_observation;
+    }
+    return Render::ValidationResult::Success();
   }
 
   std::uint32_t mip_width = decoded.width;
