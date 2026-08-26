@@ -1,0 +1,84 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Isolated Ogre-Next HLMS proof of the legacy NiceMetal flex-colour contract.
+//
+// VES_DIFFUSE.b is wear/wetness and VES_DIFFUSE.a is damage. Red and green
+// are deliberately ignored. PBSM_DIFFUSE is the undamaged base texture,
+// PBSM_DETAIL0 is the damaged base texture, and PBSM_SPECULAR is the authored
+// specular texture. Reflection remains the stock PBS environment response.
+@property( ror_nice_metal_flex_v1 )
+
+@piece( custom_vs_attributes )
+	@property( syntax == metal )
+		float4 colour [[attribute(VES_DIFFUSE)]];
+	@else
+		@property( syntax == hlsl )
+			float4 colour : COLOR0;
+		@else
+			vulkan_layout( OGRE_DIFFUSE ) in vec4 colour;
+		@end
+	@end
+@end
+
+@piece( custom_VStoPS )
+	INTERPOLANT( midf4 rorNiceMetalFlex, @counter(texcoord) );
+@end
+
+@piece( custom_vs_posExecution )
+	outVs.rorNiceMetalFlex = midf4( inVs_colour );
+@end
+
+@undefpiece( SampleDiffuseMap )
+@piece( SampleDiffuseMap )
+	midf4 rorNiceMetalBase = SampleDiffuse(
+		textureMaps@value( diffuse_map_idx ),
+		samplerState@value( diffuse_map_sampler ),
+		UV_DIFFUSE( inPs.uv@value(uv_diffuse).xy ),
+		texIndex_diffuseIdx );
+	midf4 rorNiceMetalDamaged = SampleDetailCol0(
+		textureMaps@value( detail_map0_idx ),
+		samplerState@value( detail_map0_sampler ),
+		UV_DETAIL0( inPs.uv@value(uv_detail0).xy ),
+		texIndex_detailMapIdx0 );
+	midf rorNiceMetalDamage = clamp(
+		midf_c( inPs.rorNiceMetalFlex.w ), _h( 0.0 ), _h( 1.0 ) );
+	midf rorNiceMetalWear = clamp(
+		midf_c( inPs.rorNiceMetalFlex.z ), _h( 0.0 ), _h( 1.0 ) );
+	pixelData.diffuse = lerp(
+		rorNiceMetalBase, rorNiceMetalDamaged, rorNiceMetalDamage );
+	// Legacy NiceMetal keeps alpha sourced from the base texture.
+	pixelData.diffuse.w = rorNiceMetalBase.w;
+	pixelData.diffuse.xyz *= _h( 1.0 ) - rorNiceMetalWear / _h( 3.0 );
+	pixelData.diffuse.xyz *= midf3_c( material.kD.xyz );
+	@property( alpha_test && (!alpha_test_shadow_caster_only || hlms_shadowcaster) )
+		if( material.kD.w @insertpiece( alpha_test_cmp_func ) pixelData.diffuse.w )
+			discard;
+	@end
+@end
+
+@undefpiece( SampleSpecularMap )
+@piece( SampleSpecularMap )
+	pixelData.specular.xyz = midf3_c( material.kS.xyz );
+	pixelData.F0 = float_fresnel_c( material.F0.@insertpiece( FresnelSwizzle ) );
+	@property( specular_map && !fresnel_workflow )
+		pixelData.specular.xyz *= SampleSpecular(
+			textureMaps@value( specular_map_idx ),
+			samplerState@value( specular_map_sampler ),
+			UV_SPECULAR( inPs.uv@value(uv_specular).xy ),
+			texIndex_specularIdx ).xyz;
+	@end
+	@property( specular_map && fresnel_workflow )
+		pixelData.F0 *= SampleSpecular(
+			textureMaps@value( specular_map_idx ),
+			samplerState@value( specular_map_sampler ),
+			UV_SPECULAR( inPs.uv@value(uv_specular).xy ),
+			texIndex_specularIdx ).@insertpiece( FresnelSwizzle );
+	@end
+	midf rorNiceMetalSpecularOffset =
+		midf_c( inPs.rorNiceMetalFlex.z ) / _h( 3.0 ) -
+		midf_c( inPs.rorNiceMetalFlex.w ) / _h( 2.0 );
+	pixelData.specular.xyz = clamp(
+		pixelData.specular.xyz + rorNiceMetalSpecularOffset,
+		midf3_c( 0.0, 0.0, 0.0 ), midf3_c( 1.0, 1.0, 1.0 ) );
+@end
+
+@end

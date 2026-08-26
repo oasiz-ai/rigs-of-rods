@@ -25,6 +25,10 @@ inline constexpr char kOgreNextThinSlabPbsProperty[] =
     "ror_thin_slab_transmission";
 inline constexpr char kOgreNextIndirectAlphaPbsProperty[] =
     "ror_indirect_alpha";
+inline constexpr char kOgreNextNiceMetalProofDatablockPrefix[] =
+    "RoRNiceMetalProof_";
+inline constexpr char kOgreNextNiceMetalFlexProperty[] =
+    "ror_nice_metal_flex_v1";
 inline constexpr char kOgreNextUvAffinePbsMediaPath[] =
     "Hlms/RoR/UvAffinePbs";
 inline constexpr char kOgreNextIndirectAlphaPbsMediaPath[] =
@@ -41,6 +45,8 @@ public:
   [[nodiscard]] static bool SelectsUv0AffineShader(
       const Ogre::HlmsDatablock *datablock) noexcept;
   [[nodiscard]] static bool SelectsThinSlabTransmissionShader(
+      const Ogre::HlmsDatablock *datablock) noexcept;
+  [[nodiscard]] static bool SelectsNiceMetalFlexShader(
       const Ogre::HlmsDatablock *datablock) noexcept;
 
   /// Stage-3 screen-space shade: when enabled, every opaque RT4/V1 PBS

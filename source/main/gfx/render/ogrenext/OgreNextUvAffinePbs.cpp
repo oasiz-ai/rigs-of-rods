@@ -54,6 +54,16 @@ bool OgreNextUvAffinePbs::SelectsThinSlabTransmissionShader(
                        kOgreNextThinSlabPbsDatablockPrefix) == 0;
 }
 
+bool OgreNextUvAffinePbs::SelectsNiceMetalFlexShader(
+    const Ogre::HlmsDatablock *datablock) noexcept {
+  const Ogre::String *name =
+      datablock != nullptr ? datablock->getNameStr() : nullptr;
+  return name != nullptr &&
+         name->compare(0U,
+                       sizeof(kOgreNextNiceMetalProofDatablockPrefix) - 1U,
+                       kOgreNextNiceMetalProofDatablockPrefix) == 0;
+}
+
 void OgreNextUvAffinePbs::calculateHashForPreCreate(
     Ogre::Renderable *renderable, Ogre::PiecesMap *in_out_pieces) {
   Ogre::HlmsPbs::calculateHashForPreCreate(renderable, in_out_pieces);
@@ -82,6 +92,13 @@ void OgreNextUvAffinePbs::calculateHashForPreCreate(
        !SelectsThinSlabTransmissionShader(indirect_alpha_datablock))
           ? 1
           : 0);
+  setProperty(
+      Ogre::IdString(kOgreNextNiceMetalFlexProperty),
+      SelectsNiceMetalFlexShader(renderable != nullptr
+                                     ? renderable->getDatablock()
+                                     : nullptr)
+          ? 1
+          : 0);
 }
 
 void OgreNextUvAffinePbs::calculateHashForPreCaster(
@@ -103,6 +120,9 @@ void OgreNextUvAffinePbs::calculateHashForPreCaster(
   // The caster body never reaches the colour write the indirect-alpha piece
   // edits; keep the property out of the caster hash entirely.
   setProperty(Ogre::IdString(kOgreNextIndirectAlphaPbsProperty), 0);
+  // The isolated proof is opaque and does not need a vertex-colour attribute
+  // in the reduced shadow-caster shader.
+  setProperty(Ogre::IdString(kOgreNextNiceMetalFlexProperty), 0);
 }
 
 } // namespace RoR::Render

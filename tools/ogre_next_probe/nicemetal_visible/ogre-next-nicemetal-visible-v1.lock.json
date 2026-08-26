@@ -1,0 +1,60 @@
+{
+  "schema_version": "ror.ogre-next.nice-metal-visible-lock@1",
+  "profile_id": "nice-metal-flex-v1",
+  "ogre_next": {
+    "commit": "37149a802de747f6806996fa3067b0748ecc1084",
+    "archive_sha256": "1c0be064474da512606d02543be2630b36cdf99f359a9f23edc97eeb410e25b2",
+    "renderer": "Metal Rendering Subsystem",
+    "platform": "macos-arm64-metal"
+  },
+  "selector": {
+    "datablock_prefix": "RoRNiceMetalProof_",
+    "hlms_property": "ror_nice_metal_flex_v1"
+  },
+  "semantics": {
+    "base_texture_slot": "PBSM_DIFFUSE",
+    "damaged_texture_slot": "PBSM_DETAIL0",
+    "specular_texture_slot": "PBSM_SPECULAR",
+    "vertex_red": "ignored",
+    "vertex_green": "ignored",
+    "vertex_blue": "wear_wetness",
+    "vertex_alpha": "damage",
+    "reflection": "stock_hlms_pbs_environment"
+  },
+  "source_files": [
+    {
+      "path": "source/main/gfx/render/ogrenext/OgreNextUvAffinePbs.cpp",
+      "sha256": "3b86f3005c3cd69bf86de25b6d1d2b7bbd3421d89d457d38cdd1f003635e6f14"
+    },
+    {
+      "path": "source/main/gfx/render/ogrenext/OgreNextUvAffinePbs.h",
+      "sha256": "d21e366d63c030f731d18b41b34754c3a90fcf0ed3c0b3eab82871262f18be63"
+    },
+    {
+      "path": "tools/ogre_next_probe/nicemetal_visible/CMakeLists.txt",
+      "sha256": "6f3224639f855071893b1cfebf6b0e39e861e09e308a5630d3b6ee692ea5eaa3"
+    },
+    {
+      "path": "tools/ogre_next_probe/nicemetal_visible/media/Hlms/RoR/NiceMetal/NiceMetalFlex_piece_vs_piece_ps.any",
+      "sha256": "c58647ddc2fe0a3f628b009d93da6c55be5af72a3515b9e7f60b6d339e286755"
+    },
+    {
+      "path": "tools/ogre_next_probe/nicemetal_visible/run_nicemetal_visible.py",
+      "sha256": "84c0446f2ca5d00b1be4cdcb4b1a7ac39cf864a6e906921b0df4a5ae87ed5744"
+    },
+    {
+      "path": "tools/ogre_next_probe/nicemetal_visible/src/nicemetal_visible_probe.cpp",
+      "sha256": "3aaa5d44681872fe772ba1acebf342a4e70d7a2b96454421e283561de1bd6fb3"
+    },
+    {
+      "path": "tools/ogre_next_probe/nicemetal_visible/verify_nicemetal_visible.py",
+      "sha256": "62e26dbaffea56869cc5545cf9cc9e556f003787f5b354ca46a9268e1010e9ba"
+    }
+  ],
+  "source_closure_sha256": "15af613001317197b9e11609ba39a3de71d3d3340ed0844f03fe72c06c737f98",
+  "claim_limits": {
+    "legacy_renderer_used": false,
+    "product_capture_integrated": false,
+    "playable": false
+  }
+}

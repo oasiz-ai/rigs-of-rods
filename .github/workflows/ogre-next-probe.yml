@@ -493,6 +493,7 @@ jobs:
           python tests/tools/test_ogre_next_linux_static_closure.py
           python tests/tools/test_ogre_next_metal_n3_contract.py
           python tests/tools/test_ogre_next_metal_n4_contract.py
+          python tools/ogre_next_probe/nicemetal_visible/verify_nicemetal_visible.py
           python tests/tools/test_verify_native_visual_showcase.py
           python tests/tools/test_ogre_next_probe_workflow.py
           python tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py
@@ -520,6 +521,7 @@ jobs:
           python -O tests/tools/test_ogre_next_linux_static_closure.py
           python -O tests/tools/test_ogre_next_metal_n3_contract.py
           python -O tests/tools/test_ogre_next_metal_n4_contract.py
+          python -O tools/ogre_next_probe/nicemetal_visible/verify_nicemetal_visible.py
           python -O tests/tools/test_verify_native_visual_showcase.py
           python -O tests/tools/test_ogre_next_probe_workflow.py
           python -O tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py
@@ -538,6 +540,18 @@ jobs:
           --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
           --checkpoint n1
           --jobs ${{ matrix.jobs }}
+
+      - name: Render and verify visible Ogre-Next NiceMetal semantics
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          ogre_root="${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          proof_build="${{ runner.temp }}/ror-ogre-next-nicemetal-visible"
+          evidence="$ogre_root/nicemetal-visible"
+          python tools/ogre_next_probe/nicemetal_visible/run_nicemetal_visible.py \
+            --ogre-build-root "$ogre_root" \
+            --build-dir "$proof_build" \
+            --evidence-dir "$evidence"
 
       - name: Require directional PSSM native pass
         shell: bash
@@ -1206,6 +1220,19 @@ jobs:
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-linux-static-closure.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-n1-package/provenance/
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-n1-package/licenses/
+
+      - name: Upload visible Ogre-Next NiceMetal evidence
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: OGRE-Next-NiceMetal-visible-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/nicemetal-visible/nicemetal-visible-receipt.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/nicemetal-visible/nicemetal-visible-readback.ppm
+            ${{ runner.temp }}/ror-ogre-next-nicemetal-visible/ror_ogre_next_nicemetal_visible_probe
+            tools/ogre_next_probe/nicemetal_visible/ogre-next-nicemetal-visible-v1.lock.json
 
       - name: Upload attested Apple Metal N2 capability evidence
         if: always() && runner.os == 'macOS'
