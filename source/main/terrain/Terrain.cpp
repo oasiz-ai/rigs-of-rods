@@ -65,7 +65,7 @@ namespace {
 void PrepareCombinedRuntimeRoadMaterial(
     const std::string& terrain_resource_group)
 {
-    const char* const road_texture_name = "cityworld_road2_basecolor.png";
+    const char* const road_texture_name = "cityworld_road2_basecolor.dds";
     const Ogre::MaterialPtr road_material =
         Ogre::MaterialManager::getSingleton().getByName(
             "road2", "MaterialsRG");
