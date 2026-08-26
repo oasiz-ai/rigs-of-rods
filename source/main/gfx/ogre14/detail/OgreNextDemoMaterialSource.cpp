@@ -1720,6 +1720,15 @@ bool IsExactAlexisDiffuseProjection(
   const std::string_view base = exact_material_name.substr(0U, separator);
   std::string_view expected_diffuse;
   std::string_view expected_specular;
+  // Both accepted families are RTSS-compatible managed-material templates:
+  // an unshaded `BaseRender` carrying one `Diffuse_Map` unit, plus a
+  // `SpecularMapping1` overlay. The `*_nicemetal` templates are the same
+  // declaration realised differently -- a shaded, alpha-blended BaseRender
+  // with a second `Specular_Map` unit and a `Specular` overlay -- and this
+  // predicate refuses them, because an authored-program pass is not something
+  // the exact projection can lower. ActorSpawner::ProcessManagedMaterial()
+  // therefore selects the presentable family when the combined runtime is the
+  // renderer; keep the two ends of that contract in step.
   // The two managed families this predicate accepts differ in exactly three
   // authored pass states, and they differ in all three together: the
   // `managed/*_transparent/*` templates declare `scene_blend alpha_blend`,
