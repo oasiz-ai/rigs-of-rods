@@ -2755,6 +2755,41 @@ void ActorSpawner::ProcessManagedMaterial(RigDef::ManagedMaterial & source_def)
         }
     }
 
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    // The combined runtime never shows the OGRE14 scene. It projects each
+    // native material into the modern renderer's own PBS pipeline, and that
+    // projection has no route for a pass carrying an authored GPU program: a
+    // `*_nicemetal` template's BaseRender is a shaded, alpha-blended,
+    // vertex-colour-tracking pass with a second texture unit, and the exact
+    // projection refuses it. The vehicle then draws matte, however well the
+    // NiceMetal programs compile.
+    //
+    // Until the Cg retirement nothing had to say this out loud. The NiceMetal
+    // programs were Cg-only, IsManagedMaterialTemplateSupported() refused them
+    // on every OGRE 14 render system, and every vehicle silently took the
+    // RTSS-compatible family the projection was built around. Porting them to
+    // GLSL/HLSL made the templates supported, and the Alexis Saber went from
+    // 45 of 46 sections projected to 4 in one step, with 41 sections refused
+    // under ALEXIS_APPROXIMATION_UNSAFE. Template support is a fact about the
+    // resource host; template PRESENTABILITY is a separate fact about the
+    // renderer that actually draws, and only the second one may pick.
+    //
+    // Deliberately placed after the support check, not instead of it, so the
+    // NiceMetal programs are still compiled and loaded on the hidden host and
+    // the shader qualification gate keeps its evidence.
+    if (!use_alt_actor_materials && !nice_metal_template_name.empty())
+    {
+        use_alt_actor_materials = true;
+        LOG(fmt::format(
+            "[RoR|ActorSpawner] Managed material '{}': template '{}' carries "
+            "authored GPU programs, which the OgreNext presenter cannot "
+            "project; selecting the presentable managed-material family "
+            "(NiceMetal shader qualification is unaffected)",
+            def.name,
+            nice_metal_template_name));
+    }
+#endif
+
     // Create fallback placeholders
     // This is necessary to load meshes with original material names (= unchanged managed mat names)
     // - if not found, OGRE substitutes them with 'BaseWhite' which breaks subsequent processing.
