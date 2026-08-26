@@ -137,6 +137,32 @@ class PinnedDependencyRecipeTests(unittest.TestCase):
             2,
         )
 
+    def test_build_game_linux_installs_ogre_next_vulkan_prerequisites(
+        self,
+    ) -> None:
+        workflow = BUILD_GAME_WORKFLOW_PATH.read_text(encoding="utf-8")
+        linux_job = workflow.split("  build-gcc:\n", 1)[1].split(
+            "  build-msvc:\n", 1
+        )[0]
+        install_step = linux_job.split(
+            "      - name: Install dependencies\n", 1
+        )[1].split("\n      - name: Configure\n", 1)[0]
+        installed_packages = {
+            line.strip().removesuffix("\\").strip()
+            for line in install_step.splitlines()
+        }
+
+        self.assertRegex(workflow, r"(?m)^on: \[ push, pull_request \]$")
+        self.assertEqual(
+            {
+                "libvulkan-dev",
+                "mesa-vulkan-drivers",
+                "vulkan-tools",
+            }
+            - installed_packages,
+            set(),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

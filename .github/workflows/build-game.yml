@@ -32,11 +32,14 @@ jobs:
                   libois-dev \
                   libgl1-mesa-dev \
                   libglu1-mesa-dev \
+                  libvulkan-dev \
                   libx11-dev \
                   libxt-dev \
                   libxaw7-dev \
                   libxrandr-dev \
-                  libopenjp2-7-dev
+                  libopenjp2-7-dev \
+                  mesa-vulkan-drivers \
+                  vulkan-tools
 
         shell: bash
 
