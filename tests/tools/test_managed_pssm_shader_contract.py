@@ -72,12 +72,12 @@ RECEIVER_FRAGMENT_PARAMS = {
     "param_named_auto invShadowMapSize2 inverse_texture_size 2",
 }
 GLSL_RECEIVER_SAMPLERS = {
-    "param_named diffuse int 0",
-    "param_named specular int 1",
-    "param_named normalMap int 2",
-    "param_named shadowMap0 int 3",
-    "param_named shadowMap1 int 4",
-    "param_named shadowMap2 int 5",
+    "param_named shadowMap0 int 0",
+    "param_named shadowMap1 int 1",
+    "param_named shadowMap2 int 2",
+    "param_named diffuse int 3",
+    "param_named specular int 4",
+    "param_named normalMap int 5",
 }
 
 DECLARATION = re.compile(
@@ -260,8 +260,10 @@ class ManagedPssmShaderContractTests(unittest.TestCase):
             set(),
         )
 
-        samplers = ("diffuse", "specular", "normalMap") + tuple(
-            f"shadowMap{index}" for index in range(3)
+        samplers = tuple(f"shadowMap{index}" for index in range(3)) + (
+            "diffuse",
+            "specular",
+            "normalMap",
         )
         for slot, sampler in enumerate(samplers):
             with self.subTest(sampler=sampler):
@@ -354,7 +356,7 @@ class ManagedPssmShaderContractTests(unittest.TestCase):
         # intentionally never sampled by this receiver implementation.
         self.assertIn("uniform sampler2D normalMap;", GLSL)
         self.assertNotIn("texture(normalMap", GLSL)
-        self.assertIn("Texture2D normalMap : register(t2);", HLSL)
+        self.assertIn("Texture2D normalMap : register(t5);", HLSL)
         self.assertNotIn("normalMap.Sample", HLSL)
 
     def test_material_and_shared_parameter_references_are_unchanged(self) -> None:

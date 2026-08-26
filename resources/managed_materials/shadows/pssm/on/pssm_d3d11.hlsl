@@ -118,18 +118,18 @@ float4 lightDiffuse;
 float4 lightSpecular;
 float4 ambient;
 
-Texture2D diffuse : register(t0);
-SamplerState diffuseSampler : register(s0);
-Texture2D specular : register(t1);
-SamplerState specularSampler : register(s1);
-Texture2D normalMap : register(t2);
-SamplerState normalMapSampler : register(s2);
-Texture2D shadowMap0 : register(t3);
-SamplerState shadowMap0Sampler : register(s3);
-Texture2D shadowMap1 : register(t4);
-SamplerState shadowMap1Sampler : register(s4);
-Texture2D shadowMap2 : register(t5);
-SamplerState shadowMap2Sampler : register(s5);
+Texture2D shadowMap0 : register(t0);
+SamplerState shadowMap0Sampler : register(s0);
+Texture2D shadowMap1 : register(t1);
+SamplerState shadowMap1Sampler : register(s1);
+Texture2D shadowMap2 : register(t2);
+SamplerState shadowMap2Sampler : register(s2);
+Texture2D diffuse : register(t3);
+SamplerState diffuseSampler : register(s3);
+Texture2D specular : register(t4);
+SamplerState specularSampler : register(s4);
+Texture2D normalMap : register(t5);
+SamplerState normalMapSampler : register(s5);
 
 struct PssmReceiverVertexOutput
 {
