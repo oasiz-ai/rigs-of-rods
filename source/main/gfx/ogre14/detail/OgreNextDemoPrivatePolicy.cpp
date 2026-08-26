@@ -2046,11 +2046,14 @@ Render::ValidationResult BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
 }
 
 Render::ValidationResult
-BuildOgreNextDemoLinearSpecularTextureFromDecodedSource(
+BuildOgreNextDemoLinearTextureFromDecodedSource(
     Render::Ogre14DecodedSourceTexture decoded,
     std::uint32_t expected_native_width, std::uint32_t expected_native_height,
-    std::string_view debug_name, Render::TextureResourceDescriptor &output,
+    std::string_view debug_name, OgreNextDemoTextureAlphaPolicy alpha_policy,
+    Render::TextureResourceDescriptor &output,
     OgreNextDemoTextureNormalizationObservation *observation) {
+  const bool preserve_alpha =
+      alpha_policy == OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT;
   if (decoded.version != Render::kOgre14DecodedSourceTextureVersion ||
       decoded.width == 0U || decoded.height == 0U ||
       decoded.width != expected_native_width ||
@@ -2062,8 +2065,8 @@ BuildOgreNextDemoLinearSpecularTextureFromDecodedSource(
           CompleteMipCount(decoded.width, decoded.height)) {
     return Failure(
         Render::ValidationCode::REVISION_MISMATCH,
-        "ogre_next_demo.material.specular.decoded_identity",
-        "decoded specular schema, dimensions, linear semantic, or mip count disagrees with the loaded source");
+        "ogre_next_demo.material.linear.decoded_identity",
+        "decoded linear schema, dimensions, semantic, or mip count disagrees with the loaded source");
   }
   if ((decoded.source_format == Render::Ogre14SourceTextureFormat::BC1_UNORM &&
        decoded.bc1_alpha_mode !=
@@ -2072,8 +2075,8 @@ BuildOgreNextDemoLinearSpecularTextureFromDecodedSource(
        decoded.bc1_alpha_mode !=
            Render::Ogre14SourceTextureBc1AlphaMode::NOT_APPLICABLE)) {
     return Failure(Render::ValidationCode::INVALID_ENUM,
-                   "ogre_next_demo.material.specular.bc1_alpha_mode",
-                   "linear specular projection requires opaque BC1 interpretation only for BC1 sources");
+                   "ogre_next_demo.material.linear.bc1_alpha_mode",
+                   "linear projection requires opaque BC1 interpretation only for BC1 sources");
   }
 
   Render::TextureResourceDescriptor candidate;
@@ -2106,8 +2109,8 @@ BuildOgreNextDemoLinearSpecularTextureFromDecodedSource(
         decoded_mip.rgba8_unorm.size() !=
             static_cast<std::size_t>(slice_bytes)) {
       return Failure(Render::ValidationCode::SIZE_MISMATCH,
-                     "ogre_next_demo.material.specular.decoded_mip",
-                     "decoded linear specular mip prefix is not canonical tight RGBA8 geometry",
+                     "ogre_next_demo.material.linear.decoded_mip",
+                     "decoded linear mip prefix is not canonical tight RGBA8 geometry",
                      level);
     }
     Render::TextureMipLevelDescriptor mip;
@@ -2116,8 +2119,10 @@ BuildOgreNextDemoLinearSpecularTextureFromDecodedSource(
     mip.row_pitch_bytes = row_bytes;
     mip.layer_pitch_bytes = slice_bytes;
     mip.bytes = std::move(decoded_mip.rgba8_unorm);
-    for (std::size_t alpha = 3U; alpha < mip.bytes.size(); alpha += 4U) {
-      mip.bytes[alpha] = 255U;
+    if (!preserve_alpha) {
+      for (std::size_t alpha = 3U; alpha < mip.bytes.size(); alpha += 4U) {
+        mip.bytes[alpha] = 255U;
+      }
     }
     candidate.mip_levels.push_back(std::move(mip));
     mip_width = (std::max)(1U, mip_width / 2U);
@@ -2139,8 +2144,8 @@ BuildOgreNextDemoLinearSpecularTextureFromDecodedSource(
     if (destination.layer_pitch_bytes > static_cast<std::uint64_t>(
                                             (std::numeric_limits<std::size_t>::max)())) {
       return Failure(Render::ValidationCode::SIZE_MISMATCH,
-                     "ogre_next_demo.material.specular.generated_mip",
-                     "generated linear specular mip exceeds host address space");
+                     "ogre_next_demo.material.linear.generated_mip",
+                     "generated linear mip exceeds host address space");
     }
     destination.bytes.resize(
         static_cast<std::size_t>(destination.layer_pitch_bytes));
@@ -2165,7 +2170,8 @@ BuildOgreNextDemoLinearSpecularTextureFromDecodedSource(
         const std::size_t output_offset =
             static_cast<std::size_t>(y) * destination.row_pitch_bytes +
             static_cast<std::size_t>(x) * 4U;
-        for (std::size_t channel = 0U; channel < 3U; ++channel) {
+        const std::size_t filtered_channels = preserve_alpha ? 4U : 3U;
+        for (std::size_t channel = 0U; channel < filtered_channels; ++channel) {
           const std::uint32_t sum =
               static_cast<std::uint32_t>(source.bytes[offsets[0U] + channel]) +
               static_cast<std::uint32_t>(source.bytes[offsets[1U] + channel]) +
@@ -2174,7 +2180,9 @@ BuildOgreNextDemoLinearSpecularTextureFromDecodedSource(
           destination.bytes[output_offset + channel] =
               static_cast<std::uint8_t>((sum + 2U) / 4U);
         }
-        destination.bytes[output_offset + 3U] = 255U;
+        if (!preserve_alpha) {
+          destination.bytes[output_offset + 3U] = 255U;
+        }
       }
     }
     candidate.mip_levels.push_back(std::move(destination));
@@ -2184,15 +2192,18 @@ BuildOgreNextDemoLinearSpecularTextureFromDecodedSource(
       Render::ValidateTextureResourceDescriptor(candidate);
   if (!validation) {
     validation.field =
-        "ogre_next_demo.material.specular.texture." + validation.field;
+        "ogre_next_demo.material.linear.texture." + validation.field;
     return validation;
   }
   OgreNextDemoTextureNormalizationObservation candidate_observation;
   candidate_observation.policy =
-      OgreNextDemoTextureNormalizationObservation::Policy::
-          LINEAR_SPECULAR_V1;
+      preserve_alpha ? OgreNextDemoTextureNormalizationObservation::Policy::
+                           LINEAR_DATA_RGBA_V1
+                     : OgreNextDemoTextureNormalizationObservation::Policy::
+                           LINEAR_SPECULAR_V1;
   candidate_observation.policy_version =
-      kOgreNextDemoLinearSpecularNormalizationPolicyVersion;
+      preserve_alpha ? kOgreNextDemoLinearDataRgbaNormalizationPolicyVersion
+                     : kOgreNextDemoLinearSpecularNormalizationPolicyVersion;
   candidate_observation.authored_mip_prefix_levels = authored_mip_count;
   candidate_observation.generated_mip_tail_levels =
       candidate.mip_levels.size() - authored_mip_count;

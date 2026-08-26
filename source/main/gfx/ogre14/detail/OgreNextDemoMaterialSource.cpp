@@ -7,6 +7,8 @@
 
 #include "OgreNextDemoMaterialSource.h"
 
+#include "Ogre14MaterialDetailLayerDeclaration.h"
+
 #include "OgreNextDemoPrivatePolicy.h"
 
 #include "gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.h"
@@ -380,9 +382,11 @@ bool IsLegacyDxt1Source(const std::uint8_t *bytes,
 
 Render::Ogre14SourceTextureDecodeOptions BuildOrdinaryDecodeOptions(
     const Render::Ogre14SelectedTextureSourceReceipt &receipt,
-    OgreNextDemoTextureAlphaPolicy alpha_policy) {
+    OgreNextDemoTextureAlphaPolicy alpha_policy,
+    Render::Ogre14SourceTextureColorSemantic color_semantic =
+        Render::Ogre14SourceTextureColorSemantic::SRGB_COLOR) {
   Render::Ogre14SourceTextureDecodeOptions options;
-  options.color_semantic = Render::Ogre14SourceTextureColorSemantic::SRGB_COLOR;
+  options.color_semantic = color_semantic;
   const std::uint8_t *const bytes = receipt.source_bytes();
   const std::size_t size = receipt.source_size();
   // DDS magic is four bytes and DDS_HEADER::ddspf.dwFourCC is at byte 84.
@@ -2491,6 +2495,38 @@ bool MatchCuratedCityWorldNativeFacts(
   }
 }
 
+/// Quality tier for weighted detail layers.
+///
+/// Layers are never omitted because they cost frame time; an expensive option
+/// ships as a tier that is logged, not as a silent absence. `off` projects
+/// every material without layers, and 1..4 caps how many of an authored
+/// material's layers are admitted (lowest indices first, so a content author
+/// orders layers by importance). `ROR_MATERIAL_DETAIL_NORMALS=0` keeps the
+/// albedo layers but drops their relief, which is the cheaper half-step.
+struct DetailLayerTier final {
+  std::size_t maximum_layers = Render::kMaterialDetailMapCount;
+  bool detail_normals = true;
+};
+
+[[nodiscard]] DetailLayerTier ResolveDetailLayerTier() noexcept {
+  DetailLayerTier tier;
+  const char *const layers = std::getenv("ROR_MATERIAL_DETAIL_LAYERS");
+  if (layers != nullptr) {
+    const std::string_view setting(layers);
+    if (setting == "off" || setting == "0") {
+      tier.maximum_layers = 0U;
+    } else if (setting.size() == 1U && setting[0U] >= '1' &&
+               setting[0U] <= '4') {
+      tier.maximum_layers = static_cast<std::size_t>(setting[0U] - '0');
+    }
+  }
+  const char *const normals = std::getenv("ROR_MATERIAL_DETAIL_NORMALS");
+  if (normals != nullptr && std::string_view(normals) == "0") {
+    tier.detail_normals = false;
+  }
+  return tier;
+}
+
 struct Projection final {
   std::string exact_name;
   std::string texture_key;
@@ -2516,6 +2552,7 @@ struct Projection final {
   Render::ManagedMaterialTextureSourceReceipt curated_specular_receipt;
   Render::Ogre14ManagedMaterialSourceAuthorityBinding
       curated_specular_binding;
+  CapturedDetailLayers detail_layers;
   Render::Ogre14ManagedMaterialDeclarationBinding managed_binding;
   Render::RenderPayloadDigest managed_declaration_digest{};
   std::uintptr_t native_material_pointer_token = 0U;
@@ -2878,7 +2915,9 @@ Render::ValidationResult TryCaptureOrdinaryTextureSource(
     std::string &output_content_decode_key, bool &captured,
     OgreNextDemoTextureProjectionExclusion &exclusion,
     OgreNextDemoTextureAlphaPolicy alpha_policy,
-    OgreNextDemoTextureNormalizationObservation &output_normalization) {
+    OgreNextDemoTextureNormalizationObservation &output_normalization,
+    Render::Ogre14SourceTextureColorSemantic color_semantic =
+        Render::Ogre14SourceTextureColorSemantic::SRGB_COLOR) {
   captured = false;
   exclusion = OgreNextDemoTextureProjectionExclusion::NONE;
   if (!native_texture || !resolution.initialized()) {
@@ -2910,7 +2949,7 @@ Render::ValidationResult TryCaptureOrdinaryTextureSource(
   }
 
   const Render::Ogre14SourceTextureDecodeOptions options =
-      BuildOrdinaryDecodeOptions(*receipt, alpha_policy);
+      BuildOrdinaryDecodeOptions(*receipt, alpha_policy, color_semantic);
   OrdinaryTextureProvenance provenance;
   std::string content_decode_key;
   Render::ValidationResult validation = BuildOrdinaryTextureProvenance(
@@ -2948,12 +2987,21 @@ Render::ValidationResult TryCaptureOrdinaryTextureSource(
 
   Render::TextureResourceDescriptor candidate;
   OgreNextDemoTextureNormalizationObservation normalization;
-  validation = BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
-      std::move(decoded), initial_texture_observation.source_width,
-      initial_texture_observation.source_height,
-      "OgreNextDemoPbrTexture/" + std::string(debug_token), alpha_policy,
-      candidate,
-      &normalization);
+  // A weight mask and a detail normal are data, not artwork: they decode
+  // linear and keep the linear transfer all the way to the GPU. A detail
+  // albedo stays sRGB like every other displayed map.
+  validation =
+      color_semantic == Render::Ogre14SourceTextureColorSemantic::LINEAR_DATA
+          ? BuildOgreNextDemoLinearTextureFromDecodedSource(
+                std::move(decoded), initial_texture_observation.source_width,
+                initial_texture_observation.source_height,
+                "OgreNextDemoLinearTexture/" + std::string(debug_token),
+                alpha_policy, candidate, &normalization)
+          : BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
+                std::move(decoded), initial_texture_observation.source_width,
+                initial_texture_observation.source_height,
+                "OgreNextDemoPbrTexture/" + std::string(debug_token),
+                alpha_policy, candidate, &normalization);
   if (!validation) {
     exclusion = OgreNextDemoTextureProjectionExclusion::SOURCE_DECODE_REJECTED;
     return Render::ValidationResult::Success();
@@ -3685,6 +3733,294 @@ void OgreNextDemoMaterialSource::EnsurePendingCacheWritable() {
   pending_->cache->retained_owner_asset_count = 0U;
 }
 
+bool OgreNextDemoMaterialSource::CaptureDetailLayers(
+    const Ogre::MaterialPtr &native_material, CapturedDetailLayers &layers,
+    Detail::MaterialDetailLayerRefusal &refusal,
+    Render::ValidationResult &failure) {
+  layers = CapturedDetailLayers{};
+  refusal = Detail::MaterialDetailLayerRefusal::ABSENT;
+  if (!native_material || ordinary_texture_source_resolver_ == nullptr) {
+    return true;
+  }
+  static const DetailLayerTier kTier = ResolveDetailLayerTier();
+  if (kTier.maximum_layers == 0U) {
+    return true;
+  }
+
+  Ogre::MaterialPtr companion;
+  Detail::MaterialDetailLayerDeclaration declaration;
+  try {
+    companion = Ogre::MaterialManager::getSingleton().getByName(
+        Detail::BuildMaterialDetailLayerCompanionName(
+            native_material->getName()),
+        native_material->getGroup());
+    if (!companion) {
+      return true;
+    }
+    companion->load();
+  } catch (...) {
+    refusal = Detail::MaterialDetailLayerRefusal::COMPANION_SHAPE_UNSUPPORTED;
+    return true;
+  }
+  if (!Detail::ReadMaterialDetailLayerDeclaration(companion, declaration,
+                                                  refusal)) {
+    return true;
+  }
+
+  const Ogre::Pass *const companion_pass =
+      companion->getTechnique(0U)->getPass(0U);
+
+  // One captured slot. The companion's unit is a live TextureUnitState with a
+  // loaded texture, so the ordinary source path applies unchanged; only the
+  // transfer and the alpha policy differ per role.
+  const auto capture_slot =
+      [&](std::string_view unit_name,
+          Render::Ogre14SourceTextureColorSemantic semantic,
+          OgreNextDemoTextureAlphaPolicy alpha_policy,
+          CapturedDetailSlot &slot) -> bool {
+    const Ogre::TextureUnitState *const unit =
+        companion_pass->getTextureUnitState(std::string(unit_name));
+    if (unit == nullptr) {
+      refusal = Detail::MaterialDetailLayerRefusal::UNIT_TEXTURE_UNSUPPORTED;
+      return false;
+    }
+    const Ogre::TexturePtr native_texture = unit->_getTexturePtr();
+    if (!native_texture || !native_texture->isLoaded()) {
+      refusal = Detail::MaterialDetailLayerRefusal::UNIT_TEXTURE_UNSUPPORTED;
+      return false;
+    }
+    // A detail layer's artwork must be ordinary package content. An
+    // authenticated source would need its own authority plan, which this
+    // path deliberately does not invent.
+    if (texture_resolver_ != nullptr &&
+        texture_resolver_->RequiresAuthenticatedTextureSource(
+            *native_texture)) {
+      refusal = Detail::MaterialDetailLayerRefusal::UNIT_TEXTURE_UNSUPPORTED;
+      return false;
+    }
+    OgreNextDemoExactTextureObservation texture_observation;
+    if (!ObserveExactTexture(*unit, *native_texture, texture_observation)) {
+      refusal = Detail::MaterialDetailLayerRefusal::UNIT_TEXTURE_UNSUPPORTED;
+      return false;
+    }
+    const bool linear =
+        semantic == Render::Ogre14SourceTextureColorSemantic::LINEAR_DATA;
+    std::string texture_key;
+    AppendField(texture_key, native_texture->getGroup());
+    AppendField(texture_key, native_texture->getName());
+    AppendField(texture_key, linear
+                                 ? kOgreNextDemoLinearDataRgbaNormalizationPolicy
+                                 : kOgreNextDemoModernSourceNormalizationPolicy);
+    if (alpha_policy == OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT) {
+      AppendField(texture_key, kOgreNextDemoStraightAlphaNormalizationPolicy);
+      AppendNumber(texture_key,
+                   kOgreNextDemoStraightAlphaNormalizationPolicyVersion);
+    }
+    pending_->eligible_texture_keys.insert(texture_key);
+
+    auto texture = pending_->cache->textures.find(texture_key);
+    if (texture == pending_->cache->textures.end()) {
+      Render::Ogre14SelectedTextureSourceResolution resolution;
+      Render::ValidationResult resolved =
+          ordinary_texture_source_resolver_->ResolveSelectedTextureSource(
+              *native_texture, resolution);
+      if (!resolved || !resolution.initialized()) {
+        refusal = Detail::MaterialDetailLayerRefusal::UNIT_TEXTURE_UNSUPPORTED;
+        return false;
+      }
+      CapturedTexture captured;
+      captured.source =
+          OgreNextDemoTextureSourceMode::ORDINARY_OBSERVED_SOURCE_BYTES;
+      captured.alpha_policy = alpha_policy;
+      Render::ValidationResult validation = DeriveOgreNextDemoSourceId(
+          kTextureIdDomain, texture_key, captured.source_id);
+      if (!validation) {
+        failure = std::move(validation);
+        return false;
+      }
+      Render::TextureResourceDescriptor descriptor;
+      bool ordinary_captured = false;
+      OgreNextDemoTextureProjectionExclusion slot_exclusion =
+          OgreNextDemoTextureProjectionExclusion::NONE;
+      validation = TryCaptureOrdinaryTextureSource(
+          native_texture, *unit, texture_observation,
+          *ordinary_texture_source_resolver_, resolution,
+          HexId(captured.source_id), descriptor, captured.ordinary_receipt,
+          captured.ordinary_provenance, captured.ordinary_content_decode_key,
+          ordinary_captured, slot_exclusion, alpha_policy,
+          captured.normalization_observation, semantic);
+      if (!validation) {
+        failure = std::move(validation);
+        return false;
+      }
+      if (!ordinary_captured) {
+        refusal = Detail::MaterialDetailLayerRefusal::UNIT_TEXTURE_UNSUPPORTED;
+        return false;
+      }
+      captured.native_state_count = native_texture->getStateCount();
+      captured.exact_texture_observation = texture_observation;
+      validation = RecordOgreNextDemoTextureSourceDecode(captured.source,
+                                                         pending_->counters);
+      if (!validation) {
+        failure = std::move(validation);
+        return false;
+      }
+      std::string identity(kTextureIdDomain);
+      identity.push_back('\0');
+      identity.append(texture_key);
+      validation = pending_->cache->identities.Register(std::move(identity),
+                                                        captured.source_id);
+      if (!validation) {
+        failure = std::move(validation);
+        return false;
+      }
+      captured.payload = std::make_shared<const Render::RenderAssetPayload>(
+          std::move(descriptor));
+      texture = pending_->cache->textures
+                    .emplace(texture_key, std::move(captured))
+                    .first;
+    }
+
+    const Ogre::SamplerPtr native_sampler = unit->getSampler();
+    if (!native_sampler) {
+      refusal = Detail::MaterialDetailLayerRefusal::UNIT_TEXTURE_UNSUPPORTED;
+      return false;
+    }
+    const OgreNextDemoExactSamplerObservation sampler_observation =
+        ObserveExactSampler(*native_sampler);
+    std::string sampler_key = texture_key;
+    AppendExactSamplerObservation(sampler_key, sampler_observation);
+    auto sampler = pending_->cache->samplers.find(sampler_key);
+    if (sampler == pending_->cache->samplers.end()) {
+      CapturedSampler captured_sampler;
+      Render::ValidationResult validation = DeriveOgreNextDemoSourceId(
+          kSamplerIdDomain, sampler_key, captured_sampler.source_id);
+      if (!validation) {
+        failure = std::move(validation);
+        return false;
+      }
+      std::string sampler_identity(kSamplerIdDomain);
+      sampler_identity.push_back('\0');
+      sampler_identity.append(sampler_key);
+      validation = pending_->cache->identities.Register(
+          std::move(sampler_identity), captured_sampler.source_id);
+      if (!validation) {
+        failure = std::move(validation);
+        return false;
+      }
+      const auto &texture_descriptor =
+          std::get<Render::TextureResourceDescriptor>(*texture->second.payload);
+      Render::SamplerResourceDescriptor sampler_descriptor;
+      validation = BuildOgreNextDemoSamplerDescriptor(
+          sampler_observation, texture_descriptor.mip_levels.size(),
+          HexId(captured_sampler.source_id), sampler_descriptor);
+      if (!validation) {
+        failure = std::move(validation);
+        return false;
+      }
+      captured_sampler.payload =
+          std::make_shared<const Render::RenderAssetPayload>(
+              std::move(sampler_descriptor));
+      sampler = pending_->cache->samplers
+                    .emplace(sampler_key, std::move(captured_sampler))
+                    .first;
+    }
+    slot.texture_key = texture_key;
+    slot.sampler_key = sampler_key;
+    return true;
+  };
+
+  CapturedDetailLayers candidate;
+  if (!capture_slot(Detail::kMaterialDetailWeightUnitName,
+                    Render::Ogre14SourceTextureColorSemantic::LINEAR_DATA,
+                    OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT,
+                    candidate.weight)) {
+    return failure ? true : true;
+  }
+
+  std::size_t admitted = 0U;
+  for (std::size_t layer = 0U; layer < Render::kMaterialDetailMapCount;
+       ++layer) {
+    const Detail::MaterialDetailLayerRequest &request =
+        declaration.layers[layer];
+    if (!request.declared()) {
+      continue;
+    }
+    if (admitted >= kTier.maximum_layers) {
+      break;
+    }
+    if (!request.albedo_texture_name.empty()) {
+      const std::string unit_name =
+          std::string(Detail::kMaterialDetailUnitNamePrefix) +
+          static_cast<char>('0' + static_cast<char>(layer)) +
+          (request.blend_mode ==
+                   Render::MaterialDetailBlendMode::NORMAL_NON_PREMUL
+               ? std::string()
+               : "_" + std::string(Render::MaterialDetailBlendModeToken(
+                           request.blend_mode)));
+      // The albedo's alpha is this layer's per-texel height weight, which the
+      // pinned PBS shader multiplies into the layer selection. Forcing it
+      // opaque would flatten exactly the signal the layer exists to carry.
+      if (!capture_slot(unit_name,
+                        Render::Ogre14SourceTextureColorSemantic::SRGB_COLOR,
+                        OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT,
+                        candidate.albedo[layer])) {
+        return true;
+      }
+    }
+    if (kTier.detail_normals && !request.normal_texture_name.empty()) {
+      const std::string unit_name =
+          std::string(Detail::kMaterialDetailUnitNamePrefix) +
+          static_cast<char>('0' + static_cast<char>(layer)) + "_nm";
+      if (!capture_slot(unit_name,
+                        Render::Ogre14SourceTextureColorSemantic::LINEAR_DATA,
+                        OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE,
+                        candidate.normal[layer])) {
+        return true;
+      }
+      ++candidate.normal_layer_count;
+    }
+    candidate.blend_modes[layer] = request.blend_mode;
+    candidate.weights[layer] = request.weight;
+    candidate.normal_weights[layer] = request.normal_weight;
+    candidate.scale[layer] = request.scale;
+    candidate.offset[layer] = request.offset;
+    ++admitted;
+  }
+  if (admitted == 0U) {
+    refusal = Detail::MaterialDetailLayerRefusal::NO_LAYER_DECLARED;
+    return true;
+  }
+  candidate.layer_count = admitted;
+
+  // Identity. Everything the projection's detail output depends on enters
+  // here, so editing the companion, retuning a weight, or changing the tier
+  // invalidates the frozen projection instead of silently reusing it.
+  AppendField(candidate.identity, kMaterialDetailLayerPolicy);
+  AppendNumber(candidate.identity, kMaterialDetailLayerPolicyVersion);
+  AppendField(candidate.identity, candidate.weight.texture_key);
+  AppendField(candidate.identity, candidate.weight.sampler_key);
+  for (std::size_t layer = 0U; layer < Render::kMaterialDetailMapCount;
+       ++layer) {
+    AppendField(candidate.identity, candidate.albedo[layer].texture_key);
+    AppendField(candidate.identity, candidate.albedo[layer].sampler_key);
+    AppendField(candidate.identity, candidate.normal[layer].texture_key);
+    AppendField(candidate.identity, candidate.normal[layer].sampler_key);
+    AppendNumber(candidate.identity,
+                 static_cast<std::uint64_t>(candidate.blend_modes[layer]));
+    AppendFloatBits(candidate.identity, candidate.weights[layer]);
+    AppendFloatBits(candidate.identity, candidate.normal_weights[layer]);
+    AppendFloatBits(candidate.identity, candidate.scale[layer].x);
+    AppendFloatBits(candidate.identity, candidate.scale[layer].y);
+    AppendFloatBits(candidate.identity, candidate.offset[layer].x);
+    AppendFloatBits(candidate.identity, candidate.offset[layer].y);
+  }
+  candidate.declared = true;
+  refusal = Detail::MaterialDetailLayerRefusal::NONE;
+  layers = std::move(candidate);
+  return true;
+}
+
 bool OgreNextDemoMaterialSource::TryProjectCurrent(
     const Ogre::MaterialPtr &native_material, bool has_authored_uv0,
     const Render::Ogre14ManagedMaterialDeclarationBinding *managed_binding,
@@ -4039,6 +4375,25 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     AppendFloatBits(projection_key, discarded_opaque_alpha_value);
   }
   AppendNumber(projection_key, static_cast<std::uint64_t>(input.cull));
+  // Weighted detail layers declared by the base material's companion. A
+  // refusal here costs the material its layers, never the material: the base
+  // projection continues and the reason is counted.
+  CapturedDetailLayers detail_layers;
+  Detail::MaterialDetailLayerRefusal detail_refusal =
+      Detail::MaterialDetailLayerRefusal::ABSENT;
+  if (!CaptureDetailLayers(native_material, detail_layers, detail_refusal,
+                           failure)) {
+    return false;
+  }
+  if (detail_layers.declared) {
+    AppendField(projection_key, detail_layers.identity);
+  } else if (detail_refusal != Detail::MaterialDetailLayerRefusal::ABSENT) {
+    // A refused declaration still changes what this projection means, so it
+    // enters identity too; otherwise a fixed companion could never promote.
+    AppendField(projection_key, kMaterialDetailLayerPolicy);
+    AppendField(projection_key,
+                Detail::MaterialDetailLayerRefusalToken(detail_refusal));
+  }
   // A managed declaration with no authored specular output does not change
   // the portable material. Retain the exact opaque-v2 ID/name and keep its
   // declaration receipt as revalidated authority only. The versioned managed
@@ -4779,6 +5134,7 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
                           : preserves_opaque_v2_identity
                               ? "OpaqueTUS0/" + HexId(token) + "/v1"
                               : "AutomaticTUS0/" + HexId(token) + "/v3";
+    captured.detail_layers = detail_layers;
     captured.texture_key = texture_key;
     captured.sampler_key = sampler_key;
     captured.managed_specular_texture_key = managed_specular_texture_key;
@@ -4933,6 +5289,30 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
                                 captured.emissive_factor[2U]};
     material.emissive_strength = 1.0F;
     material.base_color_texture.texture_coordinate_set = 0U;
+    if (detail_layers.declared) {
+      // Detail layers are a native-only profile: the descriptor advertises v6
+      // so the validator applies the detail rules instead of the v4 gate.
+      material.version = Render::kMaterialDescriptorDetailVersion;
+      material.detail_blend_modes = detail_layers.blend_modes;
+      material.detail_weights = detail_layers.weights;
+      material.detail_normal_weights = detail_layers.normal_weights;
+      // Only the transform travels in the binding here; the texture and
+      // sampler identities are producer-owned and ride in material_bindings,
+      // exactly as the base colour does.
+      for (std::size_t layer = 0U; layer < Render::kMaterialDetailMapCount;
+           ++layer) {
+        if (detail_layers.albedo[layer].bound()) {
+          material.detail_textures[layer].scale = detail_layers.scale[layer];
+          material.detail_textures[layer].offset = detail_layers.offset[layer];
+        }
+        if (detail_layers.normal[layer].bound()) {
+          material.detail_normal_textures[layer].scale =
+              detail_layers.scale[layer];
+          material.detail_normal_textures[layer].offset =
+              detail_layers.offset[layer];
+        }
+      }
+    }
     validation = Render::ValidateMaterialDescriptor(material);
     if (!validation) {
       failure = std::move(validation);
@@ -4945,6 +5325,71 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     if (!validation) {
       failure = std::move(validation);
       return false;
+    }
+    if (detail_layers.declared) {
+      bool detail_compatible = true;
+      detail_layers.ForEachBoundSlot(
+          [&](Render::MaterialTextureSlot slot,
+              const CapturedDetailSlot &bound) {
+            if (!detail_compatible) {
+              return;
+            }
+            const auto slot_texture =
+                pending_->cache->textures.find(bound.texture_key);
+            const auto slot_sampler =
+                pending_->cache->samplers.find(bound.sampler_key);
+            if (slot_texture == pending_->cache->textures.end() ||
+                slot_sampler == pending_->cache->samplers.end()) {
+              detail_compatible = false;
+              return;
+            }
+            detail_compatible =
+                static_cast<bool>(Render::ValidateMaterialTextureCompatibility(
+                    slot,
+                    std::get<Render::TextureResourceDescriptor>(
+                        *slot_texture->second.payload),
+                    std::get<Render::SamplerResourceDescriptor>(
+                        *slot_sampler->second.payload)));
+          });
+      if (!detail_compatible) {
+        // The artwork does not satisfy the slot's storage contract. Drop the
+        // layers and keep the base material rather than losing the surface.
+        detail_layers = CapturedDetailLayers{};
+        captured.detail_layers = detail_layers;
+        detail_refusal =
+            Detail::MaterialDetailLayerRefusal::UNIT_TEXTURE_UNSUPPORTED;
+        material.version = Render::kMaterialDescriptorVersion;
+        material.detail_textures = {};
+        material.detail_normal_textures = {};
+        material.detail_blend_modes = {
+            Render::MaterialDetailBlendMode::NORMAL_NON_PREMUL,
+            Render::MaterialDetailBlendMode::NORMAL_NON_PREMUL,
+            Render::MaterialDetailBlendMode::NORMAL_NON_PREMUL,
+            Render::MaterialDetailBlendMode::NORMAL_NON_PREMUL};
+        material.detail_weights = {1.0F, 1.0F, 1.0F, 1.0F};
+        material.detail_normal_weights = {1.0F, 1.0F, 1.0F, 1.0F};
+        validation = Render::ValidateMaterialDescriptor(material);
+        if (!validation) {
+          failure = std::move(validation);
+          return false;
+        }
+      }
+    }
+    if (detail_layers.declared) {
+      pending_->counters.layered_material_projections += 1U;
+      pending_->counters.layered_material_detail_layers +=
+          detail_layers.layer_count;
+      pending_->counters.layered_material_detail_normal_layers +=
+          detail_layers.normal_layer_count;
+      if (detail_layers.layer_count >= 1U &&
+          detail_layers.layer_count <= kMaterialDetailLayerHistogramBuckets) {
+        pending_->counters
+            .layered_material_projections_by_layer_count[detail_layers
+                                                             .layer_count -
+                                                         1U] += 1U;
+      }
+    } else if (detail_refusal != Detail::MaterialDetailLayerRefusal::ABSENT) {
+      pending_->counters.layered_material_refusals += 1U;
     }
     captured.material_payload =
         std::make_shared<const Render::RenderAssetPayload>(std::move(material));
@@ -6125,6 +6570,29 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
         retained_owner_asset_ids.insert(owner.material_source_id);
         retained_owner_asset_ids.insert(owner.texture_source_id);
         retained_owner_asset_ids.insert(owner.sampler_source_id);
+        // Every detail texture/sampler this projection owns. Without this the
+        // layers publish on the frame they are captured and disappear on the
+        // next one, when the retained owner is republished without them.
+        bool detail_owners_resolved = true;
+        projection->second.detail_layers.ForEachBoundSlot(
+            [&](Render::MaterialTextureSlot, const CapturedDetailSlot &bound) {
+              const auto slot_texture =
+                  pending_->cache->textures.find(bound.texture_key);
+              const auto slot_sampler =
+                  pending_->cache->samplers.find(bound.sampler_key);
+              if (slot_texture == pending_->cache->textures.end() ||
+                  slot_sampler == pending_->cache->samplers.end()) {
+                detail_owners_resolved = false;
+                return;
+              }
+              retained_owner_asset_ids.insert(slot_texture->second.source_id);
+              retained_owner_asset_ids.insert(slot_sampler->second.source_id);
+            });
+        if (!detail_owners_resolved) {
+          return Failure(Render::ValidationCode::MISSING_REFERENCE,
+                         "ogre_next_demo.material.detail_dependencies",
+                         "retained detail texture or sampler disappeared");
+        }
         const auto specular_texture =
             projection->second.managed_specular_texture_key.empty()
                 ? pending_->cache->managed_specular_textures.end()
@@ -6162,6 +6630,29 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
               specular_texture->second.source_id,
               specular_sampler->second.source_id};
         }
+        bool detail_slots_resolved = true;
+        projection->second.detail_layers.ForEachBoundSlot(
+            [&](Render::MaterialTextureSlot slot,
+                const CapturedDetailSlot &bound) {
+              const auto slot_texture =
+                  pending_->cache->textures.find(bound.texture_key);
+              const auto slot_sampler =
+                  pending_->cache->samplers.find(bound.sampler_key);
+              if (slot_texture == pending_->cache->textures.end() ||
+                  slot_sampler == pending_->cache->samplers.end()) {
+                detail_slots_resolved = false;
+                return;
+              }
+              projected_material
+                  .material_bindings[static_cast<std::size_t>(slot)] = {
+                  slot_texture->second.source_id,
+                  slot_sampler->second.source_id};
+            });
+        if (!detail_slots_resolved) {
+          return Failure(Render::ValidationCode::MISSING_REFERENCE,
+                         "ogre_next_demo.material.detail_dependencies",
+                         "projected detail texture or sampler disappeared");
+        }
         Render::ValidationResult validation = append_projected_material(
             projection->second, projected_material);
         if (!validation) {
@@ -6196,6 +6687,40 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
           if (!validation) {
             return validation;
           }
+        }
+        Render::ValidationResult detail_dependency =
+            Render::ValidationResult::Success();
+        projection->second.detail_layers.ForEachBoundSlot(
+            [&](Render::MaterialTextureSlot, const CapturedDetailSlot &bound) {
+              if (!detail_dependency) {
+                return;
+              }
+              const auto slot_texture =
+                  pending_->cache->textures.find(bound.texture_key);
+              const auto slot_sampler =
+                  pending_->cache->samplers.find(bound.sampler_key);
+              if (slot_texture == pending_->cache->textures.end() ||
+                  slot_sampler == pending_->cache->samplers.end()) {
+                detail_dependency = Failure(
+                    Render::ValidationCode::MISSING_REFERENCE,
+                    "ogre_next_demo.material.detail_dependencies",
+                    "projected detail texture or sampler disappeared");
+                return;
+              }
+              detail_dependency = append_dependency(
+                  slot_texture->second.source_id,
+                  slot_texture->second.payload,
+                  "ogre_next_demo.material.detail_texture_collision");
+              if (!detail_dependency) {
+                return;
+              }
+              detail_dependency = append_dependency(
+                  slot_sampler->second.source_id,
+                  slot_sampler->second.payload,
+                  "ogre_next_demo.material.detail_sampler_collision");
+            });
+        if (!detail_dependency) {
+          return detail_dependency;
         }
       }
       EnsurePendingCachePrivateForDerivedState();
