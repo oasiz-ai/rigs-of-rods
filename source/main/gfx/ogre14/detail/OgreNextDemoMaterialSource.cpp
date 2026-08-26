@@ -20,6 +20,7 @@
 #include "resources/LegacyMaterialScriptSanitizer.h"
 
 #include <OgreBuildSettings.h>
+#include <OgreLogManager.h>
 #include <OgreMaterialManager.h>
 #include <OgrePass.h>
 #include <OgrePixelFormat.h>
@@ -32,6 +33,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <iomanip>
 #include <limits>
@@ -296,6 +298,27 @@ PreflightTextureIdentity(const Ogre::TexturePtr &native_texture,
                                                           exclusion);
 }
 
+/// Block-compressed textures reach the GPU still compressed unless this is
+/// explicitly disabled. The knob exists so the same binary can be measured
+/// both ways: with it off, every BC source decodes to RGBA8 exactly as it did
+/// before, which makes the resident-byte comparison in the texture allocation
+/// audit a controlled A/B rather than a comparison across two builds.
+///
+/// Set ROR_TEXTURE_BLOCK_PASSTHROUGH=0 to force the legacy decode path.
+[[nodiscard]] bool BlockCompressedPassThroughEnabled() noexcept {
+  static const bool enabled = [] {
+    const char *const value = std::getenv("ROR_TEXTURE_BLOCK_PASSTHROUGH");
+    const bool on = value == nullptr || (value[0] != '0' || value[1] != '\0');
+    Ogre::LogManager::getSingleton().logMessage(
+        on ? "[RoR|OgreNext|TextureCompression] block-compressed pass-through "
+             "ENABLED (ROR_TEXTURE_BLOCK_PASSTHROUGH)"
+           : "[RoR|OgreNext|TextureCompression] block-compressed pass-through "
+             "DISABLED; every BC source will decode to RGBA8");
+    return on;
+  }();
+  return enabled;
+}
+
 Render::Ogre14SourceTextureDecodeOptions BuildAuthenticatedDecodeOptions(
     const Render::Ogre14AuthenticatedTextureReceiptMetadata &metadata,
     OgreNextDemoTextureAlphaPolicy alpha_policy) {
@@ -313,6 +336,7 @@ Render::Ogre14SourceTextureDecodeOptions BuildAuthenticatedDecodeOptions(
   options.maximum_mip_levels = Render::kOgre14SourceTextureHardMaximumMipLevels;
   options.maximum_encoded_bytes = kMaximumTextureBaseBytes;
   options.maximum_decoded_bytes = kMaximumTextureBaseBytes;
+  options.preserve_block_compression = BlockCompressedPassThroughEnabled();
   return options;
 }
 
@@ -367,6 +391,7 @@ Render::Ogre14SourceTextureDecodeOptions BuildOrdinaryDecodeOptions(
   options.maximum_mip_levels = Render::kOgre14SourceTextureHardMaximumMipLevels;
   options.maximum_encoded_bytes = kMaximumTextureBaseBytes;
   options.maximum_decoded_bytes = kMaximumTextureBaseBytes;
+  options.preserve_block_compression = BlockCompressedPassThroughEnabled();
   return options;
 }
 

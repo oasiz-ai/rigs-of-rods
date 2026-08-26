@@ -123,6 +123,8 @@ BytesPerTextureResourceTexel(TextureResourceFormat format) noexcept {
   case TextureResourceFormat::BC4_UNORM:
   case TextureResourceFormat::BC5_UNORM:
   case TextureResourceFormat::BC7_UNORM:
+  case TextureResourceFormat::BC1_UNORM:
+  case TextureResourceFormat::BC3_UNORM:
     // Block-compressed storage has no per-texel byte count. Reporting zero is
     // deliberate: it makes any caller that silently assumed a linear layout
     // divide by zero or fail its own emptiness check rather than compute a
@@ -136,9 +138,11 @@ TextureResourceFormatBlockExtent
 TextureResourceFormatBlockLayout(TextureResourceFormat format) noexcept {
   switch (format) {
   case TextureResourceFormat::BC4_UNORM:
+  case TextureResourceFormat::BC1_UNORM:
     return TextureResourceFormatBlockExtent{4U, 4U, 8U};
   case TextureResourceFormat::BC5_UNORM:
   case TextureResourceFormat::BC7_UNORM:
+  case TextureResourceFormat::BC3_UNORM:
     return TextureResourceFormatBlockExtent{4U, 4U, 16U};
   case TextureResourceFormat::R8_UNORM:
   case TextureResourceFormat::RG8_UNORM:
@@ -510,10 +514,12 @@ ValidateTextureResourceDescriptor(const TextureResourceDescriptor &descriptor) {
   }
   if (descriptor.color_space == TextureColorSpace::SRGB &&
       descriptor.format != TextureResourceFormat::RGBA8_UNORM &&
-      descriptor.format != TextureResourceFormat::BC7_UNORM) {
+      descriptor.format != TextureResourceFormat::BC7_UNORM &&
+      descriptor.format != TextureResourceFormat::BC1_UNORM &&
+      descriptor.format != TextureResourceFormat::BC3_UNORM) {
     return ValidationResult::Failure(
         ValidationCode::VALUE_OUT_OF_RANGE, "color_space",
-        "sRGB transfer is supported only for RGBA8_UNORM or BC7_UNORM storage");
+        "sRGB transfer is supported only for RGBA8, BC1, BC3, or BC7 storage");
   }
   if (descriptor.mip_levels.empty()) {
     return ValidationResult::Failure(ValidationCode::EMPTY_PAYLOAD,

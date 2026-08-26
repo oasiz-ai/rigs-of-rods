@@ -482,7 +482,26 @@ bool IsCanonicalModulate(const Ogre::LayerBlendModeEx &blend,
          blend.source2 == Ogre::LBS_CURRENT;
 }
 
+/// Admit a native OGRE pixel format for readback into an RGBA8 destination.
+///
+/// Block-compressed sources are admitted. That is not an approximation: BC
+/// decode is exactly defined by the format, so reading a BC texture back as
+/// RGBA8 yields the same texels the GPU would sample. The readback below
+/// always writes PF_BYTE_RGBA, and the driver performs the decode.
+///
+/// This path deliberately does NOT carry blocks through. It reads pixels out
+/// of an already-loaded OGRE 1.x texture, and OGRE 1.x's HardwarePixelBuffer
+/// exposes no portable compressed readback, so a pass-through here would mean
+/// a backend-specific path. The archive-bytes path
+/// (Ogre14SourceTextureDecoder with preserve_block_compression) is where
+/// compressed payloads reach the GPU still compressed; this one exists so a
+/// compressed source RENDERS rather than failing its capture. Refusing here
+/// costs a whole frame, not one texture, and a black frame is a worse answer
+/// than a correctly decoded one.
 ValidationResult ValidateNativePixelFormat(Ogre::PixelFormat format) {
+  if (Ogre::PixelUtil::isCompressed(format)) {
+    return ValidationResult::Success();
+  }
   int channels[4] = {0, 0, 0, 0};
   Ogre::PixelUtil::getBitDepths(format, channels);
   const bool exact_rgb8 = channels[0] == 8 && channels[1] == 8 &&
@@ -492,7 +511,6 @@ ValidationResult ValidateNativePixelFormat(Ogre::PixelFormat format) {
       Ogre::PixelUtil::getComponentCount(format);
   const std::size_t element_bytes = Ogre::PixelUtil::getNumElemBytes(format);
   if (!Ogre::PixelUtil::isAccessible(format) ||
-      Ogre::PixelUtil::isCompressed(format) ||
       Ogre::PixelUtil::isFloatingPoint(format) ||
       Ogre::PixelUtil::isInteger(format) || Ogre::PixelUtil::isDepth(format) ||
       Ogre::PixelUtil::isLuminance(format) ||
@@ -501,8 +519,8 @@ ValidationResult ValidateNativePixelFormat(Ogre::PixelFormat format) {
       (element_bytes != 3U && element_bytes != 4U)) {
     return ValidationResult::Failure(
         ValidationCode::UNSUPPORTED_FEATURE, "texture.pixel_format",
-        "native format is not an accessible uncompressed normalized RGB8 or "
-        "RGBA8 format");
+        "native format is neither block-compressed nor an accessible "
+        "uncompressed normalized RGB8 or RGBA8 format");
   }
   return ValidationResult::Success();
 }
@@ -690,7 +708,18 @@ ValidationResult CaptureTexture(Ogre::Texture &native,
     mip.bytes.resize(static_cast<std::size_t>(slice_bytes));
     Ogre::PixelBox destination(mip.width, mip.height, 1U, Ogre::PF_BYTE_RGBA,
                                mip.bytes.data());
-    buffer->blitToMemory(destination);
+    try {
+      buffer->blitToMemory(destination);
+    } catch (const Ogre::Exception &) {
+      // A backend that cannot decompress during readback refuses this one
+      // texture by name. The enclosing extraction already converts Ogre
+      // exceptions into validation failures, but naming the compressed case
+      // here keeps the reason token specific enough to act on.
+      return ValidationResult::Failure(
+          ValidationCode::UNSUPPORTED_FEATURE, "texture.compressed_readback",
+          "native backend cannot read this compressed texture back as RGBA8",
+          level);
+    }
     candidate.mip_levels.push_back(std::move(mip));
     decoded_texture_bytes = next_decoded_texture_bytes;
   }

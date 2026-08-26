@@ -209,6 +209,8 @@ struct MipSpan final {
   std::uint64_t source_offset = 0U;
   std::uint64_t source_bytes = 0U;
   std::uint64_t decoded_bytes = 0U;
+  /// Stride of one authored block row. Only a block-compressed source sets it.
+  std::uint64_t source_row_pitch_bytes = 0U;
 };
 
 struct Pixel final {
@@ -1679,7 +1681,11 @@ ValidationResult BuildMipSpans(
   std::uint32_t width = parsed.width;
   std::uint32_t height = parsed.height;
   std::uint64_t source_offset = kDdsHeaderBytes;
-  std::uint64_t total_decoded_bytes = 0U;
+  // A pass-through decode holds the authored block payload instead of an RGBA8
+  // expansion, so the budget must charge for the bytes actually retained.
+  const bool preserve_blocks =
+      options.preserve_block_compression && parsed.block_compressed;
+  std::uint64_t total_retained_bytes = 0U;
   for (std::uint32_t level = 0U; level < parsed.mip_count; ++level) {
     MipSpan span;
     span.width = width;
@@ -1698,6 +1704,9 @@ ValidationResult BuildMipSpans(
                        "source_texture.dds.mip.source_bytes",
                        "DDS compressed mip byte count overflowed");
       }
+      // One block row divides the block-count product just accepted above, so
+      // it cannot overflow on its own.
+      span.source_row_pitch_bytes = blocks_wide * parsed.block_bytes;
     } else {
       std::uint64_t texel_count = 0U;
       if (!CheckedMultiply(width, height, texel_count) ||
@@ -1736,15 +1745,21 @@ ValidationResult BuildMipSpans(
                      "source_texture.dds.mip.payload",
                      "DDS mip payload is truncated");
     }
-    if (!CheckedAdd(total_decoded_bytes, span.decoded_bytes,
-                    total_decoded_bytes) ||
-        total_decoded_bytes > options.maximum_decoded_bytes ||
-        total_decoded_bytes >
+    const std::uint64_t retained_bytes =
+        preserve_blocks ? span.source_bytes : span.decoded_bytes;
+    if (!CheckedAdd(total_retained_bytes, retained_bytes,
+                    total_retained_bytes) ||
+        total_retained_bytes > options.maximum_decoded_bytes ||
+        total_retained_bytes >
             static_cast<std::uint64_t>(
                 (std::numeric_limits<std::size_t>::max)())) {
-      return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
-                     "source_texture.dds.decoded_bytes",
-                     "canonical RGBA8 mip chain exceeds the decoded-byte cap");
+      return Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE,
+          preserve_blocks ? "source_texture.dds.block_bytes"
+                          : "source_texture.dds.decoded_bytes",
+          preserve_blocks
+              ? "authored block mip chain exceeds the decoded-byte cap"
+              : "canonical RGBA8 mip chain exceeds the decoded-byte cap");
     }
     spans[level] = span;
     source_offset = next_source_offset;
@@ -1760,6 +1775,32 @@ ValidationResult BuildMipSpans(
 }
 
 } // namespace
+
+bool TryMapOgre14SourceTextureFormatToTransport(
+    Ogre14SourceTextureFormat format,
+    TextureResourceFormat &out) noexcept {
+  switch (format) {
+  case Ogre14SourceTextureFormat::BC1_UNORM:
+    out = TextureResourceFormat::BC1_UNORM;
+    return true;
+  case Ogre14SourceTextureFormat::BC3_UNORM:
+    out = TextureResourceFormat::BC3_UNORM;
+    return true;
+  case Ogre14SourceTextureFormat::BC4_UNORM:
+    out = TextureResourceFormat::BC4_UNORM;
+    return true;
+  case Ogre14SourceTextureFormat::BC5_UNORM:
+    out = TextureResourceFormat::BC5_UNORM;
+    return true;
+  case Ogre14SourceTextureFormat::BC2_UNORM:
+  case Ogre14SourceTextureFormat::RGBA8_UNORM:
+  case Ogre14SourceTextureFormat::RGBX8_UNORM:
+  case Ogre14SourceTextureFormat::BGRA8_UNORM:
+  case Ogre14SourceTextureFormat::BGRX8_UNORM:
+    return false;
+  }
+  return false;
+}
 
 ValidationResult ValidateOgre14SourceTextureDecodeOptions(
     const Ogre14SourceTextureDecodeOptions &options) {
@@ -1904,21 +1945,36 @@ ValidationResult DecodeOgre14SourceTextureDds(
             ? options.bc1_alpha_mode
             : Ogre14SourceTextureBc1AlphaMode::NOT_APPLICABLE;
     candidate.source_has_alpha = parsed.source_has_alpha;
+    // Pass-through is only meaningful for a block-compressed container. Asking
+    // for it on any other source is a legitimate request for whatever the
+    // source can offer, which is the canonical RGBA8 decode.
+    const bool preserve_blocks =
+        options.preserve_block_compression && parsed.block_compressed;
+    candidate.block_compressed = preserve_blocks;
     candidate.mip_levels.reserve(parsed.mip_count);
     for (std::uint32_t level = 0U; level < parsed.mip_count; ++level) {
       const MipSpan &span = spans[level];
       Ogre14DecodedSourceTextureMip mip;
       mip.width = span.width;
       mip.height = span.height;
-      mip.row_pitch_bytes = static_cast<std::uint64_t>(span.width) * 4U;
-      mip.slice_pitch_bytes = span.decoded_bytes;
-      mip.rgba8_unorm.resize(static_cast<std::size_t>(span.decoded_bytes));
-      if (parsed.block_compressed) {
-        DecodeBlockCompressedMip(encoded_dds, span, parsed.format,
-                                 options.bc1_alpha_mode, parsed.block_bytes,
-                                 mip);
+      if (preserve_blocks) {
+        mip.row_pitch_bytes = span.source_row_pitch_bytes;
+        mip.slice_pitch_bytes = span.source_bytes;
+        const std::uint8_t *const source =
+            encoded_dds.data() + static_cast<std::size_t>(span.source_offset);
+        mip.block_bytes.assign(
+            source, source + static_cast<std::size_t>(span.source_bytes));
       } else {
-        DecodeUncompressedMip(encoded_dds, span, parsed.format, mip);
+        mip.row_pitch_bytes = static_cast<std::uint64_t>(span.width) * 4U;
+        mip.slice_pitch_bytes = span.decoded_bytes;
+        mip.rgba8_unorm.resize(static_cast<std::size_t>(span.decoded_bytes));
+        if (parsed.block_compressed) {
+          DecodeBlockCompressedMip(encoded_dds, span, parsed.format,
+                                   options.bc1_alpha_mode, parsed.block_bytes,
+                                   mip);
+        } else {
+          DecodeUncompressedMip(encoded_dds, span, parsed.format, mip);
+        }
       }
       candidate.mip_levels.push_back(std::move(mip));
       if (level == 0U && fault_injector != nullptr) {

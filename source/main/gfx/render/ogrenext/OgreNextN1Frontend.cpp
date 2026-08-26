@@ -770,6 +770,14 @@ BlockCompressedPixelFormat(const TextureResourceDescriptor &descriptor) noexcept
     return descriptor.color_space == TextureColorSpace::SRGB
                ? Ogre::PFG_BC7_UNORM_SRGB
                : Ogre::PFG_BC7_UNORM;
+  case TextureResourceFormat::BC1_UNORM:
+    return descriptor.color_space == TextureColorSpace::SRGB
+               ? Ogre::PFG_BC1_UNORM_SRGB
+               : Ogre::PFG_BC1_UNORM;
+  case TextureResourceFormat::BC3_UNORM:
+    return descriptor.color_space == TextureColorSpace::SRGB
+               ? Ogre::PFG_BC3_UNORM_SRGB
+               : Ogre::PFG_BC3_UNORM;
   default:
     return Ogre::PFG_UNKNOWN;
   }

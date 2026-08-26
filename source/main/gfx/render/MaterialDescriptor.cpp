@@ -629,7 +629,23 @@ ValidateMaterialTextureCompatibility(MaterialTextureSlot slot,
   // BC7 carries four channels at one byte per texel and is the only block
   // format that may hold an sRGB transfer, so it substitutes for RGBA8
   // wherever a slot wants displayable colour.
-  const bool bc7_storage = texture.format == TextureResourceFormat::BC7_UNORM;
+  // Block-compressed colour splits by what it does to ALPHA, because in this
+  // material model alpha is never decorative: base colour uses it for
+  // transparency and cutout, and a detail layer uses it to carry the baked
+  // height/coverage curve that drives per-texel layer selection.
+  //
+  // BC3 and BC7 both carry a genuine 8-bit alpha. BC1 carries ONE BIT, so
+  // admitting it would quantise a height ramp to on/off and destroy the
+  // signal silently -- the texture would load, render, and simply be wrong.
+  // No slot here can promise its alpha is insignificant, so BC1 is admitted
+  // nowhere and refused by name. The storage format still exists because
+  // legacy DXT1 archive content must be representable in transport; it just
+  // may not back a material slot.
+  const bool colour_block_storage =
+      texture.format == TextureResourceFormat::BC7_UNORM ||
+      texture.format == TextureResourceFormat::BC3_UNORM;
+  const bool one_bit_alpha_storage =
+      texture.format == TextureResourceFormat::BC1_UNORM;
   // BC5 is two unsigned channels: exactly the tangent-space XY a normal map
   // needs, with Z reconstructed in the shader as it already is for RG8.
   const bool bc5_storage = texture.format == TextureResourceFormat::BC5_UNORM;
@@ -638,11 +654,15 @@ ValidateMaterialTextureCompatibility(MaterialTextureSlot slot,
   switch (slot) {
   case MaterialTextureSlot::BASE_COLOR:
   case MaterialTextureSlot::EMISSIVE:
-    if ((texture.format != TextureResourceFormat::RGBA8_UNORM && !bc7_storage) ||
+    if ((texture.format != TextureResourceFormat::RGBA8_UNORM && !colour_block_storage) ||
         texture.color_space != TextureColorSpace::SRGB) {
       return ValidationResult::Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "texture.format",
-          "base-color and emissive slots require RGBA8 or BC7 sRGB storage");
+          one_bit_alpha_storage
+              ? "base-color and emissive cannot use BC1: its one-bit alpha "
+                "cannot carry transparency or cutout coverage"
+              : "base-color and emissive slots require RGBA8, BC3, or BC7 "
+                "sRGB storage");
     }
     break;
   case MaterialTextureSlot::METALLIC_ROUGHNESS:
@@ -670,11 +690,11 @@ ValidateMaterialTextureCompatibility(MaterialTextureSlot slot,
     }
     break;
   case MaterialTextureSlot::SPECULAR:
-    if ((!rgba_storage && !bc7_storage) ||
+    if ((!rgba_storage && !colour_block_storage) ||
         texture.color_space != TextureColorSpace::LINEAR) {
       return ValidationResult::Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "texture.format",
-          "specular slot requires linear RGBA or BC7 storage");
+          "specular slot requires linear RGBA, BC3, or BC7 storage");
     }
     break;
   case MaterialTextureSlot::OCCLUSION:
@@ -706,11 +726,14 @@ ValidateMaterialTextureCompatibility(MaterialTextureSlot slot,
   case MaterialTextureSlot::DETAIL3:
     // Detail layers are albedo and composite with the base color, so they
     // share the base-color storage rule exactly.
-    if ((texture.format != TextureResourceFormat::RGBA8_UNORM && !bc7_storage) ||
+    if ((texture.format != TextureResourceFormat::RGBA8_UNORM && !colour_block_storage) ||
         texture.color_space != TextureColorSpace::SRGB) {
       return ValidationResult::Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "texture.format",
-          "detail albedo slots require RGBA8 or BC7 sRGB storage");
+          one_bit_alpha_storage
+              ? "detail albedo cannot use BC1: its one-bit alpha would "
+                "quantise the layer's baked height/coverage curve to on/off"
+              : "detail albedo slots require RGBA8, BC3, or BC7 sRGB storage");
     }
     break;
   case MaterialTextureSlot::DETAIL0_NM:
