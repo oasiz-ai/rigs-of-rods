@@ -63,8 +63,8 @@ void FFP_GenerateTexCoord_EnvMap_Normal(in mat4 mWorldIT,
 						   in vec3 vNormal,
 						   out vec3 vOut)
 {
-	vec3 vWorldNormal = (mWorldIT * vec4(vNormal, 1.0)).xyz;
-	vec3 vViewNormal  = (mView, vec4(vWorldNormal, 1.0)).xyz;
+	vec3 vWorldNormal = mat3(mWorldIT) * vNormal;
+	vec3 vViewNormal  = mat3(mView) * vWorldNormal;
 
 	vOut = vViewNormal;
 }
@@ -76,8 +76,8 @@ void FFP_GenerateTexCoord_EnvMap_Normal(in mat4 mWorldIT,
 						   in vec3 vNormal,
 						   out vec3 vOut)
 {
-	vec3 vWorldNormal = (mWorldIT * vec4(vNormal, 1.0)).xyz;
-	vec3 vViewNormal  = (mView, vec4(vWorldNormal, 1.0)).xyz;
+	vec3 vWorldNormal = mat3(mWorldIT) * vNormal;
+	vec3 vViewNormal  = mat3(mView) * vWorldNormal;
 	
 	vOut = (mTexture * vec4(vViewNormal, 1.0)).xyz;
 }
@@ -88,8 +88,8 @@ void FFP_GenerateTexCoord_EnvMap_Sphere(in mat4 mWorld,
 						   in vec3 vNormal,
 						   out vec2 vOut)
 {	
-	vec3 vWorldNormal = (mWorld * vec4(vNormal, 1.0)).xyz;
-	vec3 vViewNormal  = (mView * vec4(vWorldNormal, 1.0)).xyz;
+	vec3 vWorldNormal = mat3(mWorld) * vNormal;
+	vec3 vViewNormal  = mat3(mView) * vWorldNormal;
 
 	vOut.x = vViewNormal.x/2.0 + 0.5;
 	vOut.y = -vViewNormal.y/2.0 + 0.5;
@@ -102,8 +102,8 @@ void FFP_GenerateTexCoord_EnvMap_Sphere(in mat4 mWorld,
 						   in vec3 vNormal,
 						   out vec2 vOut)
 {	
-	vec3 vWorldNormal = (mWorld* vec4(vNormal, 1.0)).xyz;
-	vec3 vViewNormal  = (mView * vec4(vWorldNormal, 1.0)).xyz;
+	vec3 vWorldNormal = mat3(mWorld) * vNormal;
+	vec3 vViewNormal  = mat3(mView) * vWorldNormal;
 
 	vec2 vSphereCoords;
 

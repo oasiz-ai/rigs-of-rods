@@ -179,6 +179,23 @@ class RTShaderModernOnlyContractTests(unittest.TestCase):
         )
         self.assertNotRegex(material, r"(?i)\bsource\s+\S+")
 
+    def test_glsl_environment_mapping_applies_rotation_matrices(self) -> None:
+        texturing = (RTSHADER / "FFPLib_Texturing.glsl").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotRegex(texturing, r"\(\s*mView\s*,")
+        self.assertNotIn("mWorldIT * vec4(vNormal, 1.0)", texturing)
+        self.assertNotRegex(
+            texturing, r"mWorld\s*\*\s*vec4\(vNormal, 1\.0\)"
+        )
+        self.assertEqual(
+            texturing.count("mat3(mWorldIT) * vNormal"), 4
+        )
+        self.assertEqual(texturing.count("mat3(mWorld) * vNormal"), 2)
+        self.assertEqual(
+            texturing.count("mat3(mView) * vWorldNormal"), 6
+        )
+
     def test_live_ogre14_rtshader_route_is_the_pinned_package_media(self) -> None:
         cmake = (ROOT / "source/main/CMakeLists.txt").read_text(
             encoding="utf-8"
