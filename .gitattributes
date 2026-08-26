@@ -67,6 +67,10 @@ resources/materials/ror.material text eol=lf
 resources/postprocess/** text eol=lf
 content-source/cityworld_next/provenance/*.json text eol=lf
 
+# The NiceMetal qualification archive binds every fixture byte. Preserve the
+# authored LF payloads on Windows so its member and archive hashes stay exact.
+tests/fixtures/nicemetal_runtime/** text eol=lf
+
 # OGRE-Next dependency, patch, and shader-license contracts are verified by
 # exact byte hashes. Keep the isolated probe identical on every checkout.
 cmake/RendererLauncherPackageConfig.cmake text eol=lf
