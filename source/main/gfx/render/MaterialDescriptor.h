@@ -123,7 +123,9 @@ enum class MaterialDetailBlendMode : std::uint8_t {
   DARKEN = 9,
   GRAIN_EXTRACT = 10,
   GRAIN_MERGE = 11,
-  DIFFERENCE = 12,
+  // `DIFFERENCE` is a Windows SDK macro. Keep the serialized numeric value
+  // and authoring token stable without exposing a macro-colliding C++ token.
+  DIFFERENCE_BLEND = 12,
 };
 
 enum class MaterialTextureSlot : std::uint8_t {

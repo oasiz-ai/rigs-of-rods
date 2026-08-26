@@ -157,7 +157,7 @@ constexpr DetailBlendModeToken kDetailBlendModeTokens[] = {
     {MaterialDetailBlendMode::DARKEN, "darken"},
     {MaterialDetailBlendMode::GRAIN_EXTRACT, "grain_extract"},
     {MaterialDetailBlendMode::GRAIN_MERGE, "grain_merge"},
-    {MaterialDetailBlendMode::DIFFERENCE, "difference"},
+    {MaterialDetailBlendMode::DIFFERENCE_BLEND, "difference"},
 };
 
 } // namespace

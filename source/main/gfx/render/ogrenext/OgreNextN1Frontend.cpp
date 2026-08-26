@@ -1052,7 +1052,7 @@ ToOgreNextDetailBlendMode(MaterialDetailBlendMode mode) {
     return Ogre::PBSM_BLEND_GRAIN_EXTRACT;
   case MaterialDetailBlendMode::GRAIN_MERGE:
     return Ogre::PBSM_BLEND_GRAIN_MERGE;
-  case MaterialDetailBlendMode::DIFFERENCE:
+  case MaterialDetailBlendMode::DIFFERENCE_BLEND:
     return Ogre::PBSM_BLEND_DIFFERENCE;
   }
   throw std::logic_error(

@@ -186,6 +186,23 @@ void TestInvalidVersionEnumsAndNames() {
               "embedded NUL in debug name was accepted");
 }
 
+void TestDetailBlendVocabularyIsStable() {
+  using namespace RoR::Render;
+
+  static_assert(
+      static_cast<std::uint8_t>(MaterialDetailBlendMode::DIFFERENCE_BLEND) ==
+      12U,
+      "the v6 material wire value for difference blend changed");
+
+  MaterialDetailBlendMode parsed = MaterialDetailBlendMode::NORMAL_NON_PREMUL;
+  Require(ParseMaterialDetailBlendModeToken("difference", parsed),
+          "difference detail blend token was not parsed");
+  Require(parsed == MaterialDetailBlendMode::DIFFERENCE_BLEND,
+          "difference detail blend token changed its wire value");
+  Require(std::string(MaterialDetailBlendModeToken(parsed)) == "difference",
+          "difference detail blend token did not round-trip");
+}
+
 void TestInvalidPhysicalValues() {
   using namespace RoR::Render;
 
@@ -475,6 +492,7 @@ void TestMaterialTextureCompatibility() {
 int main() {
   TestValidPbrAndUnlitMaterials();
   TestInvalidVersionEnumsAndNames();
+  TestDetailBlendVocabularyIsStable();
   TestInvalidPhysicalValues();
   TestVersionedThinSlabTransmission();
   TestTextureBindingValidation();
