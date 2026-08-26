@@ -71,6 +71,11 @@ LEGACY_DIRECTX11_PATCH = (
     / "cmake/conan/recipes/ogre3d-legacy/patches/1.11.6.1"
     / "UseWindowsSDKDirectX11.patch"
 )
+LEGACY_ARM_DETECTION_PATCH = (
+    ROOT
+    / "cmake/conan/recipes/ogre3d-legacy/patches/1.11.6.1"
+    / "DetectArmBeforeAppleX86.patch"
+)
 LEGACY_FUNCTIONAL_ADAPTOR_PATCH = (
     ROOT
     / "cmake/conan/recipes/ogre3d-legacy/patches/1.11.6.1"
@@ -257,6 +262,13 @@ def graph_fixture(platform: str = "linux-x86_64") -> dict:
                     "ref": graph_assertion.PAGED_GEOMETRY_REFERENCE,
                     "context": "host",
                     "recipe": "Cache",
+                    "dependencies": {
+                        "1": {
+                            "ref": graph_assertion.OGRE_BASE_REFERENCE,
+                            "require": graph_assertion.OGRE_BASE_REFERENCE,
+                            "force": False,
+                        }
+                    },
                 },
                 "5": {
                     "ref": graph_assertion.OIS_REFERENCE,
@@ -356,6 +368,9 @@ class LegacyOgreCgFreeRecipeContractTests(unittest.TestCase):
         cls.legacy_directx11_patch = LEGACY_DIRECTX11_PATCH.read_text(
             encoding="utf-8"
         )
+        cls.legacy_arm_detection_patch = (
+            LEGACY_ARM_DETECTION_PATCH.read_text(encoding="utf-8")
+        )
         cls.legacy_functional_adaptor_patch = (
             LEGACY_FUNCTIONAL_ADAPTOR_PATCH.read_text(encoding="utf-8")
         )
@@ -438,6 +453,10 @@ class LegacyOgreCgFreeRecipeContractTests(unittest.TestCase):
             "UseWindowsSDKDirectX11.patch",
             self.legacy_conandata,
         )
+        self.assertIn(
+            "DetectArmBeforeAppleX86.patch",
+            self.legacy_conandata,
+        )
         for retired_fragment in (
             "DXSDK_DIR",
             "DIRECTX_HOME",
@@ -455,6 +474,35 @@ class LegacyOgreCgFreeRecipeContractTests(unittest.TestCase):
                     all(line.startswith("-") for line in matching_lines)
                 )
         self.assertIn("+            NO_DEFAULT_PATH)", self.legacy_directx11_patch)
+        self.assertIn(
+            "+                \"${_DirectX11_kit_root}/Lib/"
+            "${_DirectX11_include_parent_name}/um/x64\")",
+            self.legacy_directx11_patch,
+        )
+        added_directx_lines = [
+            line[1:]
+            for line in self.legacy_directx11_patch.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        ]
+        self.assertNotIn(
+            '                "${_DirectX11_kit_root}/Lib/"',
+            added_directx_lines,
+        )
+        self.assertNotIn(
+            '                "${_DirectX11_include_parent_name}/um/x64")',
+            added_directx_lines,
+        )
+        self.assertIn(
+            '        if(NOT IS_DIRECTORY "${_DirectX11_library_dir}")',
+            added_directx_lines,
+        )
+        for missing_library in ("d3d11.lib", "dxgi.lib", "dxguid.lib"):
+            with self.subTest(missing_library=missing_library):
+                self.assertIn(
+                    "                \"DirectX11 Windows Kit is missing "
+                    f"{missing_library} in: \"",
+                    added_directx_lines,
+                )
         for import_library in (
             "DirectX11_D3D11_LIBRARY",
             "DirectX11_DXGI_LIBRARY",
@@ -525,6 +573,40 @@ class LegacyOgreCgFreeRecipeContractTests(unittest.TestCase):
                 self.assertIn(
                     patch_contract, self.legacy_macos_sdk_patch
                 )
+
+    def test_legacy_arm_detection_precedes_the_apple_x86_fallback(self) -> None:
+        added_lines = [
+            line[1:]
+            for line in self.legacy_arm_detection_patch.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        ]
+        removed_lines = [
+            line[1:]
+            for line in self.legacy_arm_detection_patch.splitlines()
+            if line.startswith("-") and not line.startswith("---")
+        ]
+        arm_branch = (
+            "#elif defined(__arm__) || defined(_M_ARM) || "
+            "defined(__arm64__) || defined(__aarch64__)"
+        )
+        apple_x86_branch = (
+            "#elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE && "
+            "(defined(__i386__) || defined(__x86_64__))"
+        )
+
+        self.assertIn(arm_branch, added_lines)
+        self.assertIn(apple_x86_branch, added_lines)
+        self.assertLess(
+            added_lines.index(arm_branch),
+            added_lines.index(apple_x86_branch),
+        )
+        self.assertIn("#elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE", removed_lines)
+        self.assertIn(arm_branch, removed_lines)
+        self.assertNotIn(
+            "#elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE",
+            added_lines,
+        )
+        self.assertNotIn("OgreOptimisedUtilSSE", self.legacy_arm_detection_patch)
 
     def test_package_audit_covers_plugins_debug_configs_and_frameworks(
         self,
@@ -724,7 +806,7 @@ class LegacyOgreCgFreeRecipeContractTests(unittest.TestCase):
         self,
     ) -> None:
         self.assertIn(
-            '"#14a5ef79ac748a7159824954dc1b8a43"',
+            '"#941abb2273acc4c35eeec8a0e9f30fad"',
             self.legacy_caelum_recipe,
         )
         self.assertNotIn("[~14]", self.legacy_caelum_recipe)
@@ -882,7 +964,7 @@ class LegacyOgreCgFreeRecipeContractTests(unittest.TestCase):
         self,
     ) -> None:
         self.assertIn(
-            '"#14a5ef79ac748a7159824954dc1b8a43"',
+            '"#941abb2273acc4c35eeec8a0e9f30fad"',
             self.legacy_paged_geometry_recipe,
         )
         self.assertNotIn("[~1.11]", self.legacy_paged_geometry_recipe)
@@ -1296,6 +1378,15 @@ class LegacyOgreCgFreeRecipeContractTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             graph_assertion.assert_cg_free_legacy_graph(
                 hostile_caelum_requirement, "linux-x86_64"
+            )
+
+        hostile_paged_requirement = copy.deepcopy(graph)
+        hostile_paged_requirement["graph"]["nodes"]["4"][
+            "dependencies"
+        ]["1"]["require"] = "ogre3d/[~1.11]@anotherfoxguy/stable"
+        with self.assertRaises(AssertionError):
+            graph_assertion.assert_cg_free_legacy_graph(
+                hostile_paged_requirement, "linux-x86_64"
             )
 
         wrong_revision = copy.deepcopy(graph)

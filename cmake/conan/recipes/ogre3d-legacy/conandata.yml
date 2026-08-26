@@ -6,6 +6,7 @@ patches:
     - patch_file: "patches/1.11.6.1/scriptlexer.patch"
     - patch_file: "patches/1.11.6.1/FixMacOSSDKRoot.patch"
     - patch_file: "patches/1.11.6.1/UseWindowsSDKDirectX11.patch"
+    - patch_file: "patches/1.11.6.1/DetectArmBeforeAppleX86.patch"
     - patch_file: "patches/1.11.6.1/ModernizeRemovedFunctionalAdaptors.patch"
 
 sources:

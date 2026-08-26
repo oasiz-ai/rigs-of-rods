@@ -11,12 +11,12 @@ from typing import Any
 
 OGRE_REFERENCE = (
     "ogre3d/1.11.6.1@anotherfoxguy/stable"
-    "#14a5ef79ac748a7159824954dc1b8a43"
+    "#941abb2273acc4c35eeec8a0e9f30fad"
 )
 OGRE_BASE_REFERENCE = "ogre3d/1.11.6.1@anotherfoxguy/stable"
 CAELUM_REFERENCE = (
     "ogre3d-caelum/0.6.3.1@anotherfoxguy/stable"
-    "#3bb39b61a989f2f7deaecbab2d4177db"
+    "#993bb667f47d2f82972d26a8f761da31"
 )
 MYGUI_REFERENCE = (
     "mygui/3.4.0@anotherfoxguy/stable"
@@ -24,7 +24,7 @@ MYGUI_REFERENCE = (
 )
 PAGED_GEOMETRY_REFERENCE = (
     "ogre3d-pagedgeometry/1.2.0@anotherfoxguy/stable"
-    "#f87be81bcfb192a40b575cd651bf516c"
+    "#a87ee215d857da3401cbed5060973b2f"
 )
 OIS_REFERENCE = "ois/1.5.1#d5025190ec611a8e0851cb16a07437a2"
 ANGELSCRIPT_REFERENCE = (
@@ -399,6 +399,17 @@ def assert_cg_free_legacy_graph(
         )
     assert_exact_ogre_dependency(
         caelum_nodes[0], "Caelum", force=False
+    )
+    paged_geometry_nodes = [
+        node for node in nodes if node.get("ref") == PAGED_GEOMETRY_REFERENCE
+    ]
+    if len(paged_geometry_nodes) != 1:
+        raise AssertionError(
+            "legacy graph does not contain exactly "
+            f"{PAGED_GEOMETRY_REFERENCE}"
+        )
+    assert_exact_ogre_dependency(
+        paged_geometry_nodes[0], "PagedGeometry", force=False
     )
 
     for package_prefix, expected_reference in EXACT_LEGACY_REFERENCES.items():

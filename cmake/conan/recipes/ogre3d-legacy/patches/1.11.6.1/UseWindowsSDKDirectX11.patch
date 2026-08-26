@@ -1,6 +1,6 @@
 --- a/CMake/Packages/FindDirectX11.cmake
 +++ b/CMake/Packages/FindDirectX11.cmake
-@@ -8,135 +8,132 @@
+@@ -8,135 +8,151 @@
  #-------------------------------------------------------------------
  
  # -----------------------------------------------------------------------------
@@ -144,8 +144,7 @@
 +            get_filename_component(
 +                _DirectX11_kit_root "${_DirectX11_include_root}" DIRECTORY)
 +            set(_DirectX11_library_dir
-+                "${_DirectX11_kit_root}/Lib/"
-+                "${_DirectX11_include_parent_name}/um/x64")
++                "${_DirectX11_kit_root}/Lib/${_DirectX11_include_parent_name}/um/x64")
 +        elseif(_DirectX11_include_lower MATCHES
 +                "/windows kits/8\\.1/include/um$")
 +            set(_DirectX11_library_dir
@@ -158,6 +157,11 @@
 +            message(FATAL_ERROR
 +                "DirectX11 headers are outside a supported Windows Kit: "
 +                "${DirectX11_INCLUDE_DIR}")
++        endif()
++        if(NOT IS_DIRECTORY "${_DirectX11_library_dir}")
++            message(FATAL_ERROR
++                "DirectX11 Windows Kit library directory does not exist: "
++                "${_DirectX11_library_dir}")
 +        endif()
  
 -		create_search_paths(DirectX11)
@@ -181,6 +185,21 @@
 +            NAMES dxguid
 +            PATHS "${_DirectX11_library_dir}"
 +            NO_DEFAULT_PATH)
++        if(NOT DirectX11_D3D11_LIBRARY)
++            message(FATAL_ERROR
++                "DirectX11 Windows Kit is missing d3d11.lib in: "
++                "${_DirectX11_library_dir}")
++        endif()
++        if(NOT DirectX11_DXGI_LIBRARY)
++            message(FATAL_ERROR
++                "DirectX11 Windows Kit is missing dxgi.lib in: "
++                "${_DirectX11_library_dir}")
++        endif()
++        if(NOT DirectX11_DXGUID_LIBRARY)
++            message(FATAL_ERROR
++                "DirectX11 Windows Kit is missing dxguid.lib in: "
++                "${_DirectX11_library_dir}")
++        endif()
  
 -		# dlls are in DirectX11_ROOT_DIR/Developer Runtime/x64|x86
 -		# lib files are in DirectX11_ROOT_DIR/Lib/x64|x86

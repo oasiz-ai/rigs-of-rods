@@ -1,0 +1,11 @@
+--- a/OgreMain/include/OgrePlatformInformation.h
++++ b/OgreMain/include/OgrePlatformInformation.h
+@@ -51,0 +52,2 @@
++#elif defined(__arm__) || defined(_M_ARM) || defined(__arm64__) || defined(__aarch64__)
++#   define OGRE_CPU OGRE_CPU_ARM
+@@ -54 +56 @@
+-#elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE
++#elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE && (defined(__i386__) || defined(__x86_64__))
+@@ -58,2 +59,0 @@
+-#elif defined(__arm__) || defined(_M_ARM) || defined(__arm64__) || defined(__aarch64__)
+-#   define OGRE_CPU OGRE_CPU_ARM
