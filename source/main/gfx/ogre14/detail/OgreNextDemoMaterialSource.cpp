@@ -40,6 +40,7 @@
 #include <iomanip>
 #include <limits>
 #include <map>
+#include <mutex>
 #include <new>
 #include <set>
 #include <sstream>
@@ -1810,6 +1811,126 @@ bool IsExactAlexisDiffuseProjection(
          IsExactManagedEnvironmentUnit(*environment);
 }
 
+/// TEMPORARY DIAGNOSTIC (ROR_ALEXIS_GATE_DIAG=1).
+///
+/// The Alexis TUS0 approximation gate refuses under one token,
+/// ALEXIS_APPROXIMATION_UNSAFE, for two independent reasons: the resolved
+/// texture no longer belongs to the material's resource group, or the
+/// authored two-pass shape no longer matches. The token cannot tell them
+/// apart, so this prints both answers plus every field the structural
+/// predicate reads, once per (site, material, texture).
+[[nodiscard]] bool AlexisGateDiagnosticsEnabled() noexcept {
+  static const bool enabled = [] {
+    const char *const value = std::getenv("ROR_ALEXIS_GATE_DIAG");
+    return value != nullptr && value[0] != '0';
+  }();
+  return enabled;
+}
+
+void LogAlexisGateDiagnostic(const char *site,
+                             const Ogre::Material &material,
+                             const Ogre::Technique &technique,
+                             const Ogre::Pass &base_pass,
+                             const Ogre::TextureUnitState &unit,
+                             const Ogre::Texture &texture) noexcept {
+  if (!AlexisGateDiagnosticsEnabled()) {
+    return;
+  }
+  try {
+    static std::mutex mutex;
+    static std::set<std::string> seen;
+    std::string key(site);
+    key.push_back('\x1f');
+    key.append(material.getName());
+    key.push_back('\x1f');
+    key.append(texture.getName());
+    {
+      const std::lock_guard<std::mutex> lock(mutex);
+      if (!seen.insert(key).second) {
+        return;
+      }
+    }
+    const bool group_match = texture.getGroup() == material.getGroup();
+    const bool exact = IsExactAlexisDiffuseProjection(
+        technique, base_pass, material.getName(), texture.getName());
+    const bool exact_by_declared_name = IsExactAlexisDiffuseProjection(
+        technique, base_pass, material.getName(), unit.getTextureName());
+    std::ostringstream out;
+    out << "[RoR|OgreNext|AlexisGateDiag] site=" << site
+        << " material='" << material.getName() << "'"
+        << " material_group='" << material.getGroup() << "'"
+        << " texture='" << texture.getName() << "'"
+        << " texture_group='" << texture.getGroup() << "'"
+        << " unit_texture_name='" << unit.getTextureName() << "'"
+        << " unit_name='" << unit.getName() << "'"
+        << " group_match=" << (group_match ? 1 : 0)
+        << " exact=" << (exact ? 1 : 0)
+        << " exact_by_declared_name=" << (exact_by_declared_name ? 1 : 0)
+        << " texture_loaded=" << (texture.isLoaded() ? 1 : 0)
+        << " technique_passes=" << technique.getNumPasses()
+        << " base_pass_name='" << base_pass.getName() << "'"
+        << " base_pass_units=" << base_pass.getNumTextureUnitStates()
+        << " base_pass_program=" << (HasAuthoredProgram(base_pass) ? 1 : 0)
+        << " depth_write=" << (base_pass.getDepthWriteEnabled() ? 1 : 0)
+        << " src_blend=" << static_cast<int>(base_pass.getSourceBlendFactor())
+        << " dst_blend=" << static_cast<int>(base_pass.getDestBlendFactor())
+        << " alpha_reject_fn="
+        << static_cast<int>(base_pass.getAlphaRejectFunction())
+        << " alpha_reject_value="
+        << static_cast<unsigned>(base_pass.getAlphaRejectValue());
+    if (technique.getNumPasses() > 1U) {
+      const Ogre::Pass *const specular =
+          const_cast<Ogre::Technique &>(technique).getPass(1U);
+      if (specular != nullptr) {
+        out << " specular_pass_name='" << specular->getName() << "'"
+            << " specular_units=" << specular->getNumTextureUnitStates()
+            << " specular_program="
+            << (HasAuthoredProgram(*specular) ? 1 : 0)
+            << " specular_src="
+            << static_cast<int>(specular->getSourceBlendFactor())
+            << " specular_dst="
+            << static_cast<int>(specular->getDestBlendFactor());
+        if (specular->getNumTextureUnitStates() != 0U) {
+          const Ogre::TextureUnitState *const specular_unit =
+              const_cast<Ogre::Pass *>(specular)->getTextureUnitState(0U);
+          if (specular_unit != nullptr) {
+            out << " specular_unit_name='" << specular_unit->getName() << "'"
+                << " specular_unit_texture='"
+                << specular_unit->getTextureName() << "'";
+            const Ogre::TexturePtr specular_texture =
+                specular_unit->_getTexturePtr();
+            out << " specular_texture='"
+                << (specular_texture ? specular_texture->getName()
+                                     : std::string("<null>"))
+                << "'"
+                << " specular_texture_group='"
+                << (specular_texture ? specular_texture->getGroup()
+                                     : std::string("<null>"))
+                << "'";
+          }
+        }
+        if (specular->getNumTextureUnitStates() > 1U) {
+          const Ogre::TextureUnitState *const environment =
+              const_cast<Ogre::Pass *>(specular)->getTextureUnitState(1U);
+          if (environment != nullptr) {
+            out << " env_unit_name='" << environment->getName() << "'"
+                << " env_unit_texture='" << environment->getTextureName()
+                << "'";
+            const Ogre::TexturePtr environment_texture =
+                environment->_getTexturePtr();
+            out << " env_texture_group='"
+                << (environment_texture ? environment_texture->getGroup()
+                                        : std::string("<null>"))
+                << "'";
+          }
+        }
+      }
+    }
+    Ogre::LogManager::getSingleton().logMessage(out.str());
+  } catch (...) {
+  }
+}
+
 OgreNextDemoObservedSamplerFilter
 ObserveFilter(Ogre::FilterOptions native) noexcept {
   switch (native) {
@@ -3404,7 +3525,10 @@ Render::ValidationResult RevalidatePendingNativeTextureOwners(
         (owner.allow_alexis_approximation &&
          !IsExactAlexisDiffuseProjection(*technique, *pass,
                                          owner.native_material->getName(),
-                                         native_texture->getName())) ||
+                                         native_texture->getName()) &&
+         (LogAlexisGateDiagnostic("revalidate", *owner.native_material,
+                                  *technique, *pass, *unit, *native_texture),
+          true)) ||
         !MatchExactPassObservation(owner.pass_observation,
                                    ObserveExactPass(*pass)) ||
         !MatchOgreNextDemoExactSamplerObservation(
@@ -4341,10 +4465,15 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
        !IsExactAlexisDiffuseProjection(*technique, *pass,
                                        native_material->getName(),
                                        native_texture->getName()))) {
+    LogAlexisGateDiagnostic("admission", *native_material, *technique, *pass,
+                            *unit, *native_texture);
     exclusion =
         OgreNextDemoTextureProjectionExclusion::ALEXIS_APPROXIMATION_UNSAFE;
     return false;
   }
+  LogAlexisGateDiagnostic(
+      allow_alexis_approximation ? "admission_ok" : "admission_not_alexis",
+      *native_material, *technique, *pass, *unit, *native_texture);
   Render::ValidationResult texture_preflight_validation =
       PreflightTextureIdentity(native_texture, exclusion);
   if (!texture_preflight_validation) {
