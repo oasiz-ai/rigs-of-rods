@@ -41,6 +41,15 @@ _NATIVE_ROUGHNESS = re.compile(
 )
 _FIELD = re.compile(r"(?P<key>[a-z0-9_]+)=(?P<value>\d+)")
 _REASONS = re.compile(r"matte_by_reason=\[(?P<body>[^\]]*)\]")
+#: A rejected capture breaks the scene lineage and freezes the session while it
+#: keeps presenting the last good frame. Any perf or visual number read from a
+#: frozen session is an artefact, so the rejection field histogram is reported
+#: whether or not the census appeared.
+_REJECTION = re.compile(
+    r"status='capture_rejected'[^\n]*?field='(?P<field>[^']*)'"
+    r"[^\n]*?detail='(?P<detail>[^']*)'"
+)
+_FRAMES_DROPPED = re.compile(r"\((?:x\d+, )?(?P<dropped>\d+) frames dropped this session\)")
 
 
 def build_search_roots(layout: Layout) -> list[Path]:
@@ -184,6 +193,17 @@ def parse_log(text: str) -> dict[str, object]:
         }
         for m in _NATIVE_ROUGHNESS.finditer(text)
     ]
+    rejection_fields: dict[str, int] = {}
+    rejection_details: list[str] = []
+    for match in _REJECTION.finditer(text):
+        field = match.group("field")
+        rejection_fields[field] = rejection_fields.get(field, 0) + 1
+        detail = match.group("detail")
+        if detail and detail not in rejection_details and len(rejection_details) < 5:
+            rejection_details.append(detail)
+    frames_dropped = max(
+        (int(m.group("dropped")) for m in _FRAMES_DROPPED.finditer(text)), default=0
+    )
     bins: dict[str, int] = {}
     for row in roughness:
         key = f"{min(9, int(row['roughness'] * 10)) / 10:.1f}"
@@ -210,6 +230,9 @@ def parse_log(text: str) -> dict[str, object]:
         "native_roughness_samples": len(roughness),
         "native_roughness_bins": dict(sorted(bins.items())),
         "capture_rejected": text.count("capture_rejected"),
+        "capture_rejection_fields": rejection_fields,
+        "capture_rejection_details": rejection_details,
+        "frames_dropped_max": frames_dropped,
         "mounted_exact_primary": text.count("Mounted exact primary"),
     }
 
@@ -353,6 +376,13 @@ def verify_live(
         "stdio_bytes": len(stdio_text),
         **parsed,
     }
+    if parsed["capture_rejected"]:
+        result["frozen_scene_warning"] = (
+            "this session rejected captures; a rejected capture breaks the "
+            "scene lineage and the session keeps presenting the last good "
+            "frame. Every number below describes a frozen scene and must not "
+            "be quoted as a verification."
+        )
     if not census_seen:
         result["refusal"] = {
             "reason": "census_not_observed",

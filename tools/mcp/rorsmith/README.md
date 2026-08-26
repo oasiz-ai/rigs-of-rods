@@ -79,3 +79,19 @@ uv run --directory tools/mcp/rorsmith rorsmith --call renderer_policy '{}'
   digest pins, read and repinned.
 
 See `THIRD_PARTY_NOTICES.md` for the Material Maker (MIT) attribution.
+
+## Reading a `verify_live` result
+
+`census_observed: false` means the session did not emit both the
+`MaterialSectionCensus` and `MaterialSource` lines before the timeout. The
+counters in that result are incomplete and must not be quoted as verification;
+the `refusal` block says so and carries the tail of the runtime's own output.
+
+`capture_rejected > 0` means the session rejected at least one whole-frame
+capture. A rejected capture breaks the scene/catalog lineage and the runtime
+keeps presenting the last good frame, so the session looks alive while it is
+frozen. Frame times measured on a frozen session are an artefact (a short-
+circuited CPU scene phase reads as a large speed-up) and screenshots show a
+frame captured before lighting settled (which reads as an exposure crush).
+`capture_rejection_fields` names what was refused. Check it before believing
+any number.
