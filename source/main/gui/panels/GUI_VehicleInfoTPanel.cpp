@@ -958,7 +958,7 @@ void VehicleInfoTPanel::DrawWarnBlinkerButton(RoR::GfxActor* actorx)
 
 void VehicleInfoTPanel::DrawHornButton(RoR::GfxActor* actorx)
 {
-    if (actorx->GetActor()->ar_is_police) // Police siren
+    if (actorx->GetSimDataBuffer().simbuf_is_police) // Police siren
     {
         if (DrawSingleButtonRow(SOUND_GET_STATE(actorx->GetActor()->ar_instance_id, SS_TRIG_HORN), m_horn_icon, "Horn", EV_TRUCK_HORN))
         {

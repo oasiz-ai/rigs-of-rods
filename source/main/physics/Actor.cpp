@@ -80,9 +80,17 @@
 
 #include <sstream>
 #include <iomanip>
+#include <type_traits>
 
 using namespace Ogre;
 using namespace RoR;
+
+static_assert(
+    std::is_same<
+        decltype(&Actor::ar_collision_relevant),
+        bool Actor::*>::value,
+    "Actor::ar_collision_relevant must remain independent non-bitfield "
+    "physics storage");
 
 static const Ogre::Vector3 BOUNDING_BOX_PADDING(0.05f, 0.05f, 0.05f);
 
@@ -5499,7 +5507,6 @@ Actor::Actor(
     , ar_hydro_speed_coupling_active(false)
     , ar_hydro_speed_coupling_enabled(false)
     , ar_arcade_controls(false)
-    , ar_collision_relevant(false)
     , ar_is_police(false)
     , ar_rescuer_flag(false)
     , ar_forward_commands(false)

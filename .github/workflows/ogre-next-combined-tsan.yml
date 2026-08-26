@@ -16,6 +16,9 @@ on:
       - source/main/gfx/GfxActor.cpp
       - source/main/gfx/GfxActor.h
       - source/main/gfx/SimBuffers.h
+      - source/main/gui/panels/GUI_VehicleInfoTPanel.cpp
+      - source/main/physics/Actor.cpp
+      - source/main/physics/Actor.h
       - source/main/gfx/render/NativeRenderAssetPackage.cpp
       - source/main/gfx/render/NativeRenderAssetPackage.h
       - source/main/gfx/render/NativeVisualShowcaseSceneSource.cpp
@@ -171,6 +174,7 @@ jobs:
           python tests/tools/test_ogre_next_combined_provider_contract.py
           python tests/tools/test_ogre_next_embedded_namespace_contract.py
           python tests/tools/test_renderer_combined_game_wiring_contract.py
+          python -O tests/tools/test_renderer_combined_game_wiring_contract.py
           python tests/tools/test_run_playable_performance_scene.py
           python -O tests/tools/test_run_playable_performance_scene.py
 

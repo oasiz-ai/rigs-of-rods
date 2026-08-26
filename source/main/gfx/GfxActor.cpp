@@ -1753,6 +1753,7 @@ void RoR::GfxActor::UpdateSimDataBuffer()
     m_simbuf.simbuf_net_username = m_actor->m_net_username;
     m_simbuf.simbuf_net_colornum = m_actor->m_net_color_num;
     m_simbuf.simbuf_driveable = m_actor->ar_driveable;
+    m_simbuf.simbuf_is_police = m_actor->ar_is_police;
 
     // Movement
     m_simbuf.simbuf_pos = m_actor->getRotationCenter();

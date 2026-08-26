@@ -34,6 +34,20 @@ add_test(
         "${Python3_EXECUTABLE}"
         "${ROR_REPOSITORY_ROOT}/tests/tools/test_renderer_combined_game_wiring_contract.py"
 )
+add_test(
+    NAME renderer_combined_game_wiring_contract_optimized
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        -O
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_renderer_combined_game_wiring_contract.py"
+)
+set_tests_properties(
+    renderer_combined_game_wiring_contract
+    renderer_combined_game_wiring_contract_optimized
+    PROPERTIES
+        LABELS "renderer;integration;python"
+        TIMEOUT 120
+)
 
 add_test(
     NAME deterministic_input_live_runtime_contract

@@ -127,6 +127,7 @@ struct ActorSB
     std::string       simbuf_net_username;
     int               simbuf_net_colornum;
     int               simbuf_driveable                = ActorType::NOT_DRIVEABLE;
+    bool              simbuf_is_police                = false;
 
     // Movement
     Ogre::Vector3     simbuf_pos                      = Ogre::Vector3::ZERO;
@@ -229,4 +230,3 @@ struct GameContextSB
 };
 
 } // namespace RoR
-

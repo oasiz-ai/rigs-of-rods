@@ -527,6 +527,10 @@ public:
     collcab_rate_t    ar_inter_collcabrate[MAX_CABS] = {};
     collcab_rate_t    ar_intra_collcabrate[MAX_CABS] = {};
     int               ar_num_collcabs = 0;
+    // Physics-worker-owned collision scheduling state. This must remain an
+    // independently addressable bool: packing it with presentation metadata
+    // makes the worker's read-modify-write race buffered GUI readers.
+    bool              ar_collision_relevant = false;
     int               ar_buoycabs[MAX_CABS] = {};
     int               ar_buoycab_types[MAX_CABS] = {};
     int               ar_num_buoycabs = 0;
@@ -694,7 +698,6 @@ public:
     bool ar_engine_hydraulics_ready:1; //!< Sim state; does engine have enough RPM to power hydraulics?
     bool ar_hydro_speed_coupling_active:1;
     bool ar_hydro_speed_coupling_enabled:1; //!< Should we use hydro coupling? This gets updated for the player actor according to 'io_hydro_coupling' CVar. For other actors, it's false.
-    bool ar_collision_relevant:1;      //!< Physics state;
     bool ar_is_police:1;        //!< Gfx/sfx attr
     bool ar_rescuer_flag:1;     //!< Gameplay attr; defined in truckfile. TODO: Does anybody use this anymore?
     bool ar_forward_commands:1; //!< Sim state

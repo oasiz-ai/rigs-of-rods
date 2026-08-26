@@ -57,6 +57,93 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         cls.sim_buffers = (
             ROOT / "source/main/gfx/SimBuffers.h"
         ).read_text(encoding="utf-8")
+        cls.vehicle_info_panel = (
+            ROOT / "source/main/gui/panels/GUI_VehicleInfoTPanel.cpp"
+        ).read_text(encoding="utf-8")
+        cls.actor_h = (
+            ROOT / "source/main/physics/Actor.h"
+        ).read_text(encoding="utf-8")
+        cls.actor_cpp = (
+            ROOT / "source/main/physics/Actor.cpp"
+        ).read_text(encoding="utf-8")
+        cls.point_col_detector = (
+            ROOT
+            / "source/main/physics/collision/PointColDetectorActorSource.cpp"
+        ).read_text(encoding="utf-8")
+        cls.savegame = (
+            ROOT / "source/main/physics/Savegame.cpp"
+        ).read_text(encoding="utf-8")
+        cls.actor_state_digest = (
+            ROOT / "source/main/physics/ActorStateDigestAdapter.cpp"
+        ).read_text(encoding="utf-8")
+
+    def test_buffered_horn_uses_owned_police_metadata_snapshot(self) -> None:
+        self.assertIn(
+            "bool              ar_collision_relevant = false;",
+            self.actor_h,
+        )
+        self.assertNotRegex(
+            self.actor_h,
+            r"\bar_collision_relevant\s*:\s*[0-9]+",
+        )
+        self.assertIn(
+            "decltype(&Actor::ar_collision_relevant)",
+            self.actor_cpp,
+        )
+        self.assertIn("bool Actor::*>::value", self.actor_cpp)
+        self.assertIn(
+            "m_actor->ar_collision_relevant = !points.empty() &&",
+            self.point_col_detector,
+        )
+
+        self.assertIn(
+            "bool              simbuf_is_police                = false;",
+            self.sim_buffers,
+        )
+        self.assertIn(
+            "m_simbuf.simbuf_is_police = m_actor->ar_is_police;",
+            self.gfx_actor,
+        )
+        horn_start = self.vehicle_info_panel.index(
+            "void VehicleInfoTPanel::DrawHornButton"
+        )
+        horn_end = self.vehicle_info_panel.index(
+            "void VehicleInfoTPanel::DrawBeaconButton", horn_start
+        )
+        horn = self.vehicle_info_panel[horn_start:horn_end]
+        self.assertIn(
+            "if (actorx->GetSimDataBuffer().simbuf_is_police)", horn
+        )
+        self.assertNotIn("GetActor()->ar_is_police", horn)
+
+        join = self.main.index(
+            "App::GetGameContext()->GetActorManager()->SyncWithSimThread();"
+        )
+        snapshot = self.main.index(
+            "App::GetGfxScene()->BufferSimulationData();", join
+        )
+        resume = self.main.index(
+            "App::GetGameContext()->UpdateActors();", snapshot
+        )
+        self.assertLess(join, snapshot)
+        self.assertLess(snapshot, resume)
+
+        self.assertIn(
+            '"collision_relevant",\n'
+            "                actor->ar_collision_relevant,",
+            self.savegame,
+        )
+        self.assertIn(
+            'actor->ar_collision_relevant = '
+            'flags["collision_relevant"].GetBool();',
+            self.savegame,
+        )
+        self.assertIn(
+            "if (actor->ar_collision_relevant)\n"
+            "            snapshot.actor.flags |= "
+            "ACTOR_FLAG_COLLISION_RELEVANT;",
+            self.actor_state_digest,
+        )
 
     def test_particle_updates_consume_the_joined_node_snapshot(self) -> None:
         update_particles_start = self.gfx_actor.index(
