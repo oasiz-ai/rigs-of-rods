@@ -94,6 +94,143 @@ class FrameTimeBudgetContractTests(unittest.TestCase):
         self.assertEqual(self.main.count("record_frame_budget(dt);"), 2)
         self.assertNotIn("std::chrono", self.source)
 
+    def test_combined_measurement_starts_after_exact_native_scene(self) -> None:
+        self.assertIn(
+            "bool frame_budget_combined_native_scene_ready = false;",
+            self.main,
+        )
+        readiness_anchor = (
+            "const auto observe_frame_budget_native_scene_ready =")
+        self.assertEqual(self.main.count(readiness_anchor), 1)
+        readiness = self.main[
+            self.main.index(readiness_anchor)
+            : self.main.index(
+                "// Capture first:", self.main.index(readiness_anchor))
+        ]
+        for proof in (
+            "retained_scene_audit.available",
+            "retained_scene_audit.version >= 6U",
+            "retained_scene_audit.last_native_renderer_frame_id ==",
+            "retained_scene_audit.last_native_pass_metrics_exact",
+            "retained_scene_audit.last_native_scene_draws > 0U",
+            "frame_budget_native_readiness_minimum_frame_id == 0U",
+            "frontend_frame_id <\n"
+            "                        frame_budget_native_readiness_minimum_frame_id",
+            "frame_budget_authoritative_scene_ready()",
+        ):
+            self.assertIn(proof, readiness)
+        self.assertIn(
+            "[RoR|Perf] Native scene measurement ready:", readiness)
+        self.assertIn(
+            "kFrameBudgetNativeReadinessMaxFrames = 8U", self.main)
+        self.assertIn(
+            "frame_budget_native_readiness_completed_frames >=\n"
+            "                        kFrameBudgetNativeReadinessMaxFrames",
+            readiness,
+        )
+        self.assertIn(
+            "[RoR|Perf] Refusing frame budget: no exact ", readiness)
+        self.assertIn("MSG_APP_SHUTDOWN_REQUESTED", readiness)
+        self.assertIn(
+            "if (frame_budget_combined_native_scene_failed)\n"
+            "            application_exit_code = "
+            "kFrameTimeBudgetFailureExitCode;",
+            self.main,
+        )
+
+        combined_interval = self.main[
+            self.main.index("const auto combined_frame_now")
+            : self.main.index("#else", self.main.index(
+                "const auto combined_frame_now"))
+        ]
+        observe = combined_interval.index(
+            "observe_frame_budget_native_scene_ready(")
+        record = combined_interval.index("record_frame_budget(dt);")
+        self.assertLess(observe, record)
+        self.assertIn(
+            "if (!frame_budget_native_readiness_crossed)\n"
+            "                record_frame_budget(dt);",
+            combined_interval,
+        )
+        # A synchronously completed native frame owns the same arming seam.
+        post = self.main[
+            self.main.index("renderer_combined_session->PostUpdatedScene(")
+            : self.main.index(
+                "if (frame_budget_session != nullptr)",
+                self.main.index("renderer_combined_session->PostUpdatedScene("),
+            )
+        ]
+        self.assertIn("observe_frame_budget_native_scene_ready(", post)
+        self.assertIn(
+            "frame_budget_native_readiness_minimum_frame_id =\n"
+            "                                scene_result.frontend_frame_id;",
+            post,
+        )
+        self.assertLess(
+            post.index("frame_budget_native_readiness_minimum_frame_id ="),
+            post.index("observe_frame_budget_native_scene_ready("),
+        )
+        # Startup exclusion is a boundary, not a relaxed malformed-sample
+        # rule: the ten-second ceiling remains exact and fail-closed.
+        self.assertIn(
+            "kFrameTimeBudgetMaximumSampleNs =\n"
+            "    10ULL * 1000ULL * 1000ULL * 1000ULL;",
+            self.header,
+        )
+
+    def test_rejected_interval_receipt_is_attributable(self) -> None:
+        for field in (
+            "rejected_frame_intervals_nan",
+            "rejected_frame_intervals_positive_infinity",
+            "rejected_frame_intervals_negative_infinity",
+            "rejected_frame_intervals_non_positive",
+            "rejected_frame_intervals_below_minimum",
+            "rejected_frame_intervals_above_maximum",
+            "first_rejected_frame_interval_reason",
+            "first_rejected_frame_interval_seconds",
+            "first_rejected_frame_interval_ieee754",
+        ):
+            self.assertIn(field, self.source)
+        self.assertIn("RejectFrameInterval(", self.source)
+        self.assertIn("DoubleBits(seconds)", self.source)
+        self.assertNotIn("rejected_frames_ = 0", self.source)
+
+    def test_tsan_scene_proves_readiness_without_relaxing_warmup(self) -> None:
+        workflow = (
+            ROOT / ".github/workflows/ogre-next-combined-tsan.yml"
+        ).read_text()
+        for trigger in (
+            "source/main/main.cpp",
+            "source/main/system/FrameTimeBudget.cpp",
+            "source/main/system/FrameTimeBudget.h",
+            "tests/tools/test_frame_time_budget_contract.py",
+        ):
+            self.assertIn(f"      - {trigger}\n", workflow)
+        self.assertIn("--warmup-frames 2", workflow)
+        self.assertIn(
+            "readiness_marker='[RoR|Perf] Native scene measurement ready:'",
+            workflow,
+        )
+        self.assertIn(
+            'readiness_count=$(grep -Fc "$readiness_marker" '
+            '"$runtime_log" || true)',
+            workflow,
+        )
+        self.assertIn("if (( readiness_count != 1 )); then", workflow)
+        self.assertIn("if (( readiness_status != 0 )); then", workflow)
+        for receipt_field in (
+            "rejected_frame_intervals_nan",
+            "rejected_frame_intervals_positive_infinity",
+            "rejected_frame_intervals_negative_infinity",
+            "rejected_frame_intervals_non_positive",
+            "rejected_frame_intervals_below_minimum",
+            "rejected_frame_intervals_above_maximum",
+            "first_rejected_frame_interval_reason",
+            "first_rejected_frame_interval_seconds",
+            "first_rejected_frame_interval_ieee754",
+        ):
+            self.assertIn(f'              "{receipt_field}":', workflow)
+
     def test_presentation_fact_distinguishes_bridge_from_combined(
         self,
     ) -> None:

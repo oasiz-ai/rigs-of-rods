@@ -13,8 +13,14 @@ on:
       - resources/nextgen/native/**
       - resources/mygui/**
       - resources/SkyX/**
+      - resources/OgreCore/StdQuad_vp.glsl
+      - resources/OgreCore/StdQuad_vp.program
+      - resources/rtshader/**
       - resources/scripts/example_jbeam_multi_actor_tsan_soak.as
       - source/main/CMakeLists.txt
+      - source/main/main.cpp
+      - source/main/system/FrameTimeBudget.cpp
+      - source/main/system/FrameTimeBudget.h
       - source/main/gfx/GfxActor.cpp
       - source/main/gfx/GfxActor.h
       - source/main/gfx/SimBuffers.h
@@ -30,8 +36,10 @@ on:
       - tests/tools/test_openal_tsan_dependency_contract.py
       - tests/tools/test_run_jbeam_multi_actor_tsan_soak.py
       - tests/tools/test_run_playable_performance_scene.py
+      - tests/tools/test_frame_time_budget_contract.py
       - tests/tools/test_mygui_glsl_contract.py
       - tests/tools/test_skyx_glsl_contract.py
+      - tests/tools/test_ogre14_remaining_glsl_contract.py
       - tools/run_jbeam_multi_actor_tsan_soak.py
       - tools/run_playable_performance_scene.py
       - tools/audit_openal_tsan_package.py
@@ -183,6 +191,8 @@ jobs:
           python -O tests/tools/test_mygui_glsl_contract.py
           python tests/tools/test_skyx_glsl_contract.py
           python -O tests/tools/test_skyx_glsl_contract.py
+          python tests/tools/test_ogre14_remaining_glsl_contract.py
+          python -O tests/tools/test_ogre14_remaining_glsl_contract.py
           python tests/tools/test_run_playable_performance_scene.py
           python -O tests/tools/test_run_playable_performance_scene.py
 
@@ -292,11 +302,25 @@ jobs:
               -type f -exec cp {} "$ROR_TSAN_ARTIFACTS_DIR/" \;
           fi
           shader_status=0
-          if grep -Eq "Program '[^']+\\.(glsl|glsles)' is not supported|Program 'SkyX_[^']+' is not supported|Error: ScriptCompiler .*SkyX\\.material" \
+          if grep -Eq "Program '[^']+\\.(glsl|glsles)' is not supported|Program 'SkyX_[^']+' is not supported|Program 'Ogre/Compositor/StdQuad_[^']+' is not supported|Error: ScriptCompiler .*SkyX\\.material|Error: ScriptCompiler .*StdQuad_vp\\.program" \
               "$evidence/RoR.log" "$evidence/console.txt"; then
-            echo 'MyGUI GLSL compilation failed or SkyX shader/material compilation failed in the packaged combined runtime' >&2
+            echo 'MyGUI GLSL compilation failed, or SkyX/StdQuad shader or material compilation failed in the packaged combined runtime' >&2
             shader_status=1
           fi
+          readiness_status=0
+          readiness_marker='[RoR|Perf] Native scene measurement ready:'
+          for runtime_log in "$evidence/RoR.log" "$evidence/console.txt"; do
+            if [[ ! -f "$runtime_log" || -L "$runtime_log" ]]; then
+              echo "Packaged TSan scene did not retain a regular runtime log: $runtime_log" >&2
+              readiness_status=1
+              continue
+            fi
+            readiness_count=$(grep -Fc "$readiness_marker" "$runtime_log" || true)
+            if (( readiness_count != 1 )); then
+              echo "Packaged TSan scene did not cross exactly one native measurement readiness boundary in $runtime_log" >&2
+              readiness_status=1
+            fi
+          done
           audio_status=0
           python - \
             "$evidence/RoR.log" \
@@ -412,6 +436,9 @@ jobs:
           if (( shader_status != 0 )); then
             exit "$shader_status"
           fi
+          if (( readiness_status != 0 )); then
+            exit "$readiness_status"
+          fi
           if (( audio_status != 0 )); then
             echo 'Packaged TSan scene did not prove OpenAL initialization and null-device creation' >&2
             exit "$audio_status"
@@ -431,6 +458,15 @@ jobs:
               "presents_frames": True,
               "accepted_frames": 24,
               "rejected_frames": 0,
+              "rejected_frame_intervals_nan": 0,
+              "rejected_frame_intervals_positive_infinity": 0,
+              "rejected_frame_intervals_negative_infinity": 0,
+              "rejected_frame_intervals_non_positive": 0,
+              "rejected_frame_intervals_below_minimum": 0,
+              "rejected_frame_intervals_above_maximum": 0,
+              "first_rejected_frame_interval_reason": "none",
+              "first_rejected_frame_interval_seconds": "none",
+              "first_rejected_frame_interval_ieee754": "0x0000000000000000",
               "native_scene_draw_exact_samples": 24,
               "native_scene_draw_rejected_samples": 0,
           }

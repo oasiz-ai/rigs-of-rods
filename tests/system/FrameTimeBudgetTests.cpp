@@ -37,6 +37,13 @@ bool NearlyEqual(double left, double right, double tolerance)
     return std::fabs(left - right) <= tolerance;
 }
 
+std::uint64_t DoubleBits(double value)
+{
+    std::uint64_t bits = 0U;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
 RoR::FrameTimeBudgetLimits DefaultLimits()
 {
     RoR::FrameTimeBudgetLimits limits;
@@ -170,33 +177,65 @@ void TestWarmupFramesAreExcluded()
 /// rejection permanently fails a gated run.
 void TestRejectedSamplesFailClosed()
 {
-    const double malformed[] = {
-        0.0,
-        -0.001,
-        std::nan(""),
-        std::numeric_limits<double>::infinity(),
-        -std::numeric_limits<double>::infinity(),
+    struct RejectedSample {
+        double value;
+        RoR::FrameTimeBudgetRejectionReason reason;
+    };
+    const RejectedSample malformed[] = {
+        {0.0, RoR::FrameTimeBudgetRejectionReason::NON_POSITIVE},
+        {-0.001, RoR::FrameTimeBudgetRejectionReason::NON_POSITIVE},
+        {std::numeric_limits<double>::denorm_min(),
+            RoR::FrameTimeBudgetRejectionReason::BELOW_MINIMUM},
+        {std::nan(""), RoR::FrameTimeBudgetRejectionReason::NAN_VALUE},
+        {std::numeric_limits<double>::infinity(),
+            RoR::FrameTimeBudgetRejectionReason::POSITIVE_INFINITY},
+        {-std::numeric_limits<double>::infinity(),
+            RoR::FrameTimeBudgetRejectionReason::NEGATIVE_INFINITY},
         // Just inside and far beyond the ten-second ceiling.
-        10.000001,
-        1.0e9,
+        {10.000001, RoR::FrameTimeBudgetRejectionReason::ABOVE_MAXIMUM},
+        {1.0e9, RoR::FrameTimeBudgetRejectionReason::ABOVE_MAXIMUM},
     };
 
-    for (const double sample : malformed)
+    for (const RejectedSample& sample : malformed)
     {
         RoR::FrameTimeBudgetSession session(
             RoR::FrameTimeBudgetMode::GATE, DefaultLimits(), DefaultContext());
         for (int frame = 0; frame < 100; ++frame)
             CHECK(session.RecordFrame(0.008));
-        CHECK(!session.RecordFrame(sample));
+        CHECK(!session.RecordFrame(sample.value));
         for (int frame = 0; frame < 100; ++frame)
             CHECK(session.RecordFrame(0.008));
 
         const RoR::FrameTimeBudgetReport report = session.Finalize();
         CHECK(report.accepted_frames == 200U);
         CHECK(report.rejected_frames == 1U);
+        CHECK(report.rejected_intervals.first_reason == sample.reason);
+        CHECK(report.rejected_intervals.first_interval_ieee754 ==
+            DoubleBits(sample.value));
+        CHECK(
+            report.rejected_intervals.nan_value +
+                report.rejected_intervals.positive_infinity +
+                report.rejected_intervals.negative_infinity +
+                report.rejected_intervals.non_positive +
+                report.rejected_intervals.below_minimum +
+                report.rejected_intervals.above_maximum ==
+            1U);
         CHECK(NearlyEqual(report.maximum_ms, 8.0, 1e-6));
         CHECK(report.verdict ==
             RoR::FrameTimeBudgetVerdict::FAIL_REJECTED_SAMPLE);
+
+        const std::string document =
+            RoR::SerializeFrameTimeBudgetReport(report);
+        CHECK(document.find(
+            std::string("\"first_rejected_frame_interval_reason\": \"") +
+                RoR::ToString(sample.reason) + "\"") != std::string::npos);
+        CHECK(document.find(
+            "\"first_rejected_frame_interval_ieee754\": \"0x") !=
+            std::string::npos);
+        const std::string summary = RoR::FormatFrameTimeBudgetSummary(report);
+        CHECK(summary.find(
+            std::string("first_rejection=") +
+                RoR::ToString(sample.reason)) != std::string::npos);
     }
 }
 
@@ -660,6 +699,15 @@ void TestSerializationIsCompleteAndEscaped()
     CHECK(document.find("\"width\": 1920") != std::string::npos);
     CHECK(document.find("\"height\": 1080") != std::string::npos);
     CHECK(document.find("\"fps_limit\": 0") != std::string::npos);
+    CHECK(document.find(
+        "\"first_rejected_frame_interval_reason\": \"none\"") !=
+        std::string::npos);
+    CHECK(document.find(
+        "\"first_rejected_frame_interval_seconds\": \"none\"") !=
+        std::string::npos);
+    CHECK(document.find(
+        "\"first_rejected_frame_interval_ieee754\": "
+        "\"0x0000000000000000\"") != std::string::npos);
     CHECK(document.find("\"bin_width_ns\": 15625") != std::string::npos);
     CHECK(document.find("cityworld\\\"\\n\\\\playable") != std::string::npos);
     // The escaped payload must not terminate its own string.

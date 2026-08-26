@@ -35,15 +35,21 @@ constexpr double kNanosecondsPerMillisecond = 1000000.0;
 /// true. This file is compiled strictly, but the classification below does not
 /// rely on that: it inspects the IEEE-754 bit pattern directly, so a malformed
 /// frame interval is rejected under either floating-point mode.
-bool IsFiniteBits(double value) noexcept
+std::uint64_t DoubleBits(double value) noexcept
 {
     static_assert(
         sizeof(double) == sizeof(std::uint64_t),
         "the frame-time budget requires a 64-bit IEEE-754 double");
     std::uint64_t bits = 0U;
     std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+bool IsFiniteBits(double value) noexcept
+{
     // Exponent all ones selects both infinity and NaN.
-    return (bits & 0x7FF0000000000000ULL) != 0x7FF0000000000000ULL;
+    return (DoubleBits(value) & 0x7FF0000000000000ULL) !=
+        0x7FF0000000000000ULL;
 }
 
 /// Convert a whole number of nanoseconds to milliseconds. Every frame interval
@@ -97,6 +103,46 @@ std::string FormatUnsigned(std::uint64_t value)
         static_cast<unsigned long long>(value));
     if (written <= 0 || static_cast<std::size_t>(written) >= sizeof(buffer))
         return "0";
+    return std::string(buffer, static_cast<std::size_t>(written));
+}
+
+std::string FormatIeee754(std::uint64_t value)
+{
+    char buffer[32];
+    const int written = std::snprintf(
+        buffer, sizeof(buffer), "0x%016llx",
+        static_cast<unsigned long long>(value));
+    if (written <= 0 || static_cast<std::size_t>(written) >= sizeof(buffer))
+        return "0x0000000000000000";
+    return std::string(buffer, static_cast<std::size_t>(written));
+}
+
+std::string FormatRejectedInterval(
+    std::uint64_t ieee754_bits,
+    FrameTimeBudgetRejectionReason reason)
+{
+    switch (reason)
+    {
+    case FrameTimeBudgetRejectionReason::NONE: return "none";
+    case FrameTimeBudgetRejectionReason::NAN_VALUE: return "nan";
+    case FrameTimeBudgetRejectionReason::POSITIVE_INFINITY: return "+inf";
+    case FrameTimeBudgetRejectionReason::NEGATIVE_INFINITY: return "-inf";
+    case FrameTimeBudgetRejectionReason::NON_POSITIVE:
+    case FrameTimeBudgetRejectionReason::BELOW_MINIMUM:
+    case FrameTimeBudgetRejectionReason::ABOVE_MAXIMUM:
+        break;
+    }
+
+    double value = 0.0;
+    std::memcpy(&value, &ieee754_bits, sizeof(value));
+    char buffer[64];
+    // Seventeen significant decimal digits round-trip every finite binary64
+    // value. The adjacent fixed-width bit pattern remains the canonical raw
+    // value if a consumer does not trust locale-sensitive decimal parsing.
+    const int written =
+        std::snprintf(buffer, sizeof(buffer), "%.17g", value);
+    if (written <= 0 || static_cast<std::size_t>(written) >= sizeof(buffer))
+        return "unavailable";
     return std::string(buffer, static_cast<std::size_t>(written));
 }
 
@@ -227,9 +273,27 @@ bool FrameTimeBudgetSession::RecordFrame(double seconds)
         return true;
     }
 
-    if (!IsFiniteBits(seconds) || !(seconds > 0.0))
+    const std::uint64_t interval_bits = DoubleBits(seconds);
+    if (!IsFiniteBits(seconds))
     {
-        ++rejected_frames_;
+        const bool has_fraction =
+            (interval_bits & 0x000FFFFFFFFFFFFFULL) != 0U;
+        const bool negative =
+            (interval_bits & 0x8000000000000000ULL) != 0U;
+        RejectFrameInterval(
+            has_fraction
+                ? FrameTimeBudgetRejectionReason::NAN_VALUE
+                : negative
+                    ? FrameTimeBudgetRejectionReason::NEGATIVE_INFINITY
+                    : FrameTimeBudgetRejectionReason::POSITIVE_INFINITY,
+            interval_bits);
+        last_frame_retained_ = false;
+        return false;
+    }
+    if (!(seconds > 0.0))
+    {
+        RejectFrameInterval(
+            FrameTimeBudgetRejectionReason::NON_POSITIVE, interval_bits);
         last_frame_retained_ = false;
         return false;
     }
@@ -240,9 +304,17 @@ bool FrameTimeBudgetSession::RecordFrame(double seconds)
     constexpr double kMaximumSeconds =
         static_cast<double>(kFrameTimeBudgetMaximumSampleNs) / 1000000000.0;
     constexpr double kMinimumSeconds = 1.0 / 1000000000.0;
-    if (seconds < kMinimumSeconds || seconds > kMaximumSeconds)
+    if (seconds < kMinimumSeconds)
     {
-        ++rejected_frames_;
+        RejectFrameInterval(
+            FrameTimeBudgetRejectionReason::BELOW_MINIMUM, interval_bits);
+        last_frame_retained_ = false;
+        return false;
+    }
+    if (seconds > kMaximumSeconds)
+    {
+        RejectFrameInterval(
+            FrameTimeBudgetRejectionReason::ABOVE_MAXIMUM, interval_bits);
         last_frame_retained_ = false;
         return false;
     }
@@ -274,6 +346,42 @@ bool FrameTimeBudgetSession::RecordFrame(double seconds)
         ++over_budget_frames_;
     }
     return true;
+}
+
+void FrameTimeBudgetSession::RejectFrameInterval(
+    FrameTimeBudgetRejectionReason reason,
+    std::uint64_t ieee754_bits) noexcept
+{
+    ++rejected_frames_;
+    switch (reason)
+    {
+    case FrameTimeBudgetRejectionReason::NAN_VALUE:
+        ++rejected_intervals_.nan_value;
+        break;
+    case FrameTimeBudgetRejectionReason::POSITIVE_INFINITY:
+        ++rejected_intervals_.positive_infinity;
+        break;
+    case FrameTimeBudgetRejectionReason::NEGATIVE_INFINITY:
+        ++rejected_intervals_.negative_infinity;
+        break;
+    case FrameTimeBudgetRejectionReason::NON_POSITIVE:
+        ++rejected_intervals_.non_positive;
+        break;
+    case FrameTimeBudgetRejectionReason::BELOW_MINIMUM:
+        ++rejected_intervals_.below_minimum;
+        break;
+    case FrameTimeBudgetRejectionReason::ABOVE_MAXIMUM:
+        ++rejected_intervals_.above_maximum;
+        break;
+    case FrameTimeBudgetRejectionReason::NONE:
+        break;
+    }
+    if (rejected_intervals_.first_reason ==
+            FrameTimeBudgetRejectionReason::NONE)
+    {
+        rejected_intervals_.first_reason = reason;
+        rejected_intervals_.first_interval_ieee754 = ieee754_bits;
+    }
 }
 
 void FrameTimeBudgetSession::RecordPhase(
@@ -484,6 +592,7 @@ FrameTimeBudgetReport FrameTimeBudgetSession::Finalize() const
     report.warmup_frames = warmup_frames_;
     report.accepted_frames = accepted_frames_;
     report.rejected_frames = rejected_frames_;
+    report.rejected_intervals = rejected_intervals_;
     report.saturated_frames = saturated_frames_;
     report.over_budget_frames = over_budget_frames_;
     report.native_scene_draws.exact_samples =
@@ -677,6 +786,26 @@ const char* ToString(FrameTimeBudgetPhase phase) noexcept
     return "unknown";
 }
 
+const char* ToString(FrameTimeBudgetRejectionReason reason) noexcept
+{
+    switch (reason)
+    {
+    case FrameTimeBudgetRejectionReason::NONE: return "none";
+    case FrameTimeBudgetRejectionReason::NAN_VALUE: return "nan";
+    case FrameTimeBudgetRejectionReason::POSITIVE_INFINITY:
+        return "positive-infinity";
+    case FrameTimeBudgetRejectionReason::NEGATIVE_INFINITY:
+        return "negative-infinity";
+    case FrameTimeBudgetRejectionReason::NON_POSITIVE:
+        return "non-positive";
+    case FrameTimeBudgetRejectionReason::BELOW_MINIMUM:
+        return "below-minimum";
+    case FrameTimeBudgetRejectionReason::ABOVE_MAXIMUM:
+        return "above-maximum";
+    }
+    return "none";
+}
+
 const char* ToString(FrameTimeBudgetVerdict verdict) noexcept
 {
     switch (verdict)
@@ -713,6 +842,16 @@ std::string FormatFrameTimeBudgetSummary(const FrameTimeBudgetReport& report)
     summary += " frames=" + FormatUnsigned(report.accepted_frames);
     summary += " warmup=" + FormatUnsigned(report.warmup_frames);
     summary += " rejected=" + FormatUnsigned(report.rejected_frames);
+    if (report.rejected_frames != 0U)
+    {
+        summary += " first_rejection=" +
+            std::string(ToString(report.rejected_intervals.first_reason));
+        summary += " first_rejected_seconds=" + FormatRejectedInterval(
+            report.rejected_intervals.first_interval_ieee754,
+            report.rejected_intervals.first_reason);
+        summary += " first_rejected_ieee754=" + FormatIeee754(
+            report.rejected_intervals.first_interval_ieee754);
+    }
     summary += " mean_ms=" + FormatDouble(report.mean_ms, 4);
     summary += " mean_fps=" + FormatDouble(report.mean_fps, 3);
     summary += " p50_ms=" + FormatDouble(report.p50_ms, 4);
@@ -801,6 +940,36 @@ std::string SerializeFrameTimeBudgetReport(const FrameTimeBudgetReport& report)
         "accepted_frames", FormatUnsigned(report.accepted_frames)));
     fields.push_back(JsonRaw(
         "rejected_frames", FormatUnsigned(report.rejected_frames)));
+    fields.push_back(JsonRaw(
+        "rejected_frame_intervals_nan",
+        FormatUnsigned(report.rejected_intervals.nan_value)));
+    fields.push_back(JsonRaw(
+        "rejected_frame_intervals_positive_infinity",
+        FormatUnsigned(report.rejected_intervals.positive_infinity)));
+    fields.push_back(JsonRaw(
+        "rejected_frame_intervals_negative_infinity",
+        FormatUnsigned(report.rejected_intervals.negative_infinity)));
+    fields.push_back(JsonRaw(
+        "rejected_frame_intervals_non_positive",
+        FormatUnsigned(report.rejected_intervals.non_positive)));
+    fields.push_back(JsonRaw(
+        "rejected_frame_intervals_below_minimum",
+        FormatUnsigned(report.rejected_intervals.below_minimum)));
+    fields.push_back(JsonRaw(
+        "rejected_frame_intervals_above_maximum",
+        FormatUnsigned(report.rejected_intervals.above_maximum)));
+    fields.push_back(JsonField(
+        "first_rejected_frame_interval_reason",
+        ToString(report.rejected_intervals.first_reason)));
+    fields.push_back(JsonField(
+        "first_rejected_frame_interval_seconds",
+        FormatRejectedInterval(
+            report.rejected_intervals.first_interval_ieee754,
+            report.rejected_intervals.first_reason)));
+    fields.push_back(JsonField(
+        "first_rejected_frame_interval_ieee754",
+        FormatIeee754(
+            report.rejected_intervals.first_interval_ieee754)));
     fields.push_back(JsonRaw(
         "saturated_frames", FormatUnsigned(report.saturated_frames)));
     fields.push_back(JsonRaw(

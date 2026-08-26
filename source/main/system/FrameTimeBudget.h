@@ -210,7 +210,33 @@ struct FrameTimeBudgetNativeSceneDrawStats {
     std::uint64_t p99 = 0U;
 };
 
+/// Why an inter-frame interval was refused. The first refusal is retained in
+/// the receipt together with its exact IEEE-754 payload so a failed run is
+/// attributable without an unbounded sample trace.
+enum class FrameTimeBudgetRejectionReason : std::uint8_t {
+    NONE = 0U,
+    NAN_VALUE,
+    POSITIVE_INFINITY,
+    NEGATIVE_INFINITY,
+    NON_POSITIVE,
+    BELOW_MINIMUM,
+    ABOVE_MAXIMUM,
+};
+
+struct FrameTimeBudgetRejectionStats {
+    std::uint64_t nan_value = 0U;
+    std::uint64_t positive_infinity = 0U;
+    std::uint64_t negative_infinity = 0U;
+    std::uint64_t non_positive = 0U;
+    std::uint64_t below_minimum = 0U;
+    std::uint64_t above_maximum = 0U;
+    FrameTimeBudgetRejectionReason first_reason =
+        FrameTimeBudgetRejectionReason::NONE;
+    std::uint64_t first_interval_ieee754 = 0U;
+};
+
 const char* ToString(FrameTimeBudgetPhase phase) noexcept;
+const char* ToString(FrameTimeBudgetRejectionReason reason) noexcept;
 
 struct FrameTimeBudgetReport {
     FrameTimeBudgetMode mode = FrameTimeBudgetMode::OFF;
@@ -239,6 +265,7 @@ struct FrameTimeBudgetReport {
     /// Accepted frame time attributed to no declared phase.
     FrameTimeBudgetPhaseStats remainder;
     FrameTimeBudgetNativeSceneDrawStats native_scene_draws;
+    FrameTimeBudgetRejectionStats rejected_intervals;
 
     [[nodiscard]] bool passed() const noexcept {
         return verdict == FrameTimeBudgetVerdict::PASS;
@@ -316,6 +343,9 @@ public:
     [[nodiscard]] FrameTimeBudgetReport Finalize() const;
 
 private:
+    void RejectFrameInterval(
+        FrameTimeBudgetRejectionReason reason,
+        std::uint64_t ieee754_bits) noexcept;
     [[nodiscard]] double RankedMilliseconds(std::uint32_t percentile) const;
     [[nodiscard]] double RankedPhaseMilliseconds(
         std::size_t phase_index, std::uint32_t percentile) const;
@@ -340,6 +370,7 @@ private:
     std::uint64_t warmup_frames_ = 0U;
     std::uint64_t accepted_frames_ = 0U;
     std::uint64_t rejected_frames_ = 0U;
+    FrameTimeBudgetRejectionStats rejected_intervals_;
     std::uint64_t saturated_frames_ = 0U;
     std::uint64_t over_budget_frames_ = 0U;
     std::uint64_t minimum_ns_ = 0U;

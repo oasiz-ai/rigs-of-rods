@@ -26,6 +26,7 @@ from pathlib import Path
 import platform
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -45,6 +46,21 @@ NATIVE_PHASE_NAMES = (
     "native_publication",
 )
 REPORT_FORMAT = "ror-playable-performance-run-v1"
+
+REJECTION_COUNT_FIELDS = {
+    "nan": "rejected_frame_intervals_nan",
+    "positive-infinity": "rejected_frame_intervals_positive_infinity",
+    "negative-infinity": "rejected_frame_intervals_negative_infinity",
+    "non-positive": "rejected_frame_intervals_non_positive",
+    "below-minimum": "rejected_frame_intervals_below_minimum",
+    "above-maximum": "rejected_frame_intervals_above_maximum",
+}
+REJECTION_DETAIL_FIELDS = (
+    *REJECTION_COUNT_FIELDS.values(),
+    "first_rejected_frame_interval_reason",
+    "first_rejected_frame_interval_seconds",
+    "first_rejected_frame_interval_ieee754",
+)
 
 #: Reserved by `kFrameTimeBudgetFailureExitCode`; 73/74 belong to the renderer
 #: child contract.
@@ -1100,9 +1116,119 @@ def validate_receipt(
     rejected = int(document["rejected_frames"])
     observed = int(document["observed_frames"])
     warmup = int(document["warmup_frames"])
+    detail_presence = [field in document for field in REJECTION_DETAIL_FIELDS]
+    if any(detail_presence) and not all(detail_presence):
+        raise PerformanceSceneFailure(
+            "the rejected-frame attribution fields are only partially present")
+    if not any(detail_presence):
+        # Attribution is an additive v1 extension. A clean archived v1 receipt
+        # remains readable; a rejected legacy receipt was already
+        # non-qualifying and cannot be diagnosed precisely, so fail it closed.
+        if rejected != 0:
+            raise PerformanceSceneFailure(
+                "the rejected legacy v1 receipt has no interval attribution")
+        rejection_counts = {reason: 0 for reason in REJECTION_COUNT_FIELDS}
+        first_rejection = "none"
+        rejected_seconds = "none"
+        rejected_ieee754 = "0x0000000000000000"
+    else:
+        rejection_counts = {}
+        for reason, field in REJECTION_COUNT_FIELDS.items():
+            count = document[field]
+            if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+                raise PerformanceSceneFailure(
+                    f"the rejected-frame count {field!r} is not a "
+                    "non-negative integer")
+            rejection_counts[reason] = count
+        first_rejection = document.get(
+            "first_rejected_frame_interval_reason")
+        rejected_seconds = document.get(
+            "first_rejected_frame_interval_seconds")
+        rejected_ieee754 = document.get(
+            "first_rejected_frame_interval_ieee754")
+    if sum(rejection_counts.values()) != rejected:
+        raise PerformanceSceneFailure(
+            "the rejected-frame categories do not sum to rejected_frames"
+        )
+    if not isinstance(first_rejection, str):
+        raise PerformanceSceneFailure(
+            "the first rejected-frame reason is not a string")
+    if not isinstance(rejected_seconds, str):
+        raise PerformanceSceneFailure(
+            "the first rejected-frame interval is not a string")
+    if (
+        not isinstance(rejected_ieee754, str)
+        or re.fullmatch(r"0x[0-9a-f]{16}", rejected_ieee754) is None
+    ):
+        raise PerformanceSceneFailure(
+            "the first rejected-frame IEEE-754 payload is malformed")
+    rejected_bits = int(rejected_ieee754[2:], 16)
+    exponent = rejected_bits & 0x7FF0000000000000
+    fraction = rejected_bits & 0x000FFFFFFFFFFFFF
+    negative = bool(rejected_bits & 0x8000000000000000)
+    if rejected == 0:
+        if (
+            first_rejection != "none"
+            or rejected_seconds != "none"
+            or rejected_bits != 0
+        ):
+            raise PerformanceSceneFailure(
+                "a clean receipt retained contradictory rejected-frame data")
+    else:
+        if first_rejection not in rejection_counts:
+            raise PerformanceSceneFailure(
+                f"unknown first rejected-frame reason: {first_rejection!r}")
+        if rejection_counts[first_rejection] == 0:
+            raise PerformanceSceneFailure(
+                "the first rejected-frame reason has no matching count")
+        if first_rejection == "nan":
+            raw_matches = (
+                rejected_seconds == "nan"
+                and exponent == 0x7FF0000000000000
+                and fraction != 0
+            )
+        elif first_rejection == "positive-infinity":
+            raw_matches = (
+                rejected_seconds == "+inf"
+                and exponent == 0x7FF0000000000000
+                and fraction == 0
+                and not negative
+            )
+        elif first_rejection == "negative-infinity":
+            raw_matches = (
+                rejected_seconds == "-inf"
+                and exponent == 0x7FF0000000000000
+                and fraction == 0
+                and negative
+            )
+        else:
+            try:
+                finite_value = float(rejected_seconds)
+            except ValueError:
+                raw_matches = False
+            else:
+                round_trip_bits = struct.unpack(
+                    ">Q", struct.pack(">d", finite_value))[0]
+                raw_matches = (
+                    math.isfinite(finite_value)
+                    and round_trip_bits == rejected_bits
+                    and (
+                        (first_rejection == "non-positive"
+                         and finite_value <= 0.0)
+                        or (first_rejection == "below-minimum"
+                            and 0.0 < finite_value < 1.0e-9)
+                        or (first_rejection == "above-maximum"
+                            and finite_value > 10.0)
+                    )
+                )
+        if not raw_matches:
+            raise PerformanceSceneFailure(
+                "the first rejected-frame category and raw interval disagree")
     if rejected != 0:
         raise PerformanceSceneFailure(
-            f"the run rejected {rejected} malformed frame interval(s)"
+            f"the run rejected {rejected} malformed frame interval(s): "
+            f"first={first_rejection}, seconds={rejected_seconds}, "
+            f"ieee754={rejected_ieee754}"
         )
     if warmup != request.warmup_frames:
         raise PerformanceSceneFailure(

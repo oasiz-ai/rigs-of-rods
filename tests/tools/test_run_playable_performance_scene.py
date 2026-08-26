@@ -71,6 +71,15 @@ def make_receipt(request, **overrides):
         "warmup_frames": request.warmup_frames,
         "accepted_frames": request.requested_frames,
         "rejected_frames": 0,
+        "rejected_frame_intervals_nan": 0,
+        "rejected_frame_intervals_positive_infinity": 0,
+        "rejected_frame_intervals_negative_infinity": 0,
+        "rejected_frame_intervals_non_positive": 0,
+        "rejected_frame_intervals_below_minimum": 0,
+        "rejected_frame_intervals_above_maximum": 0,
+        "first_rejected_frame_interval_reason": "none",
+        "first_rejected_frame_interval_seconds": "none",
+        "first_rejected_frame_interval_ieee754": "0x0000000000000000",
         "saturated_frames": 0,
         "over_budget_frames": 12,
         "minimum_ms": 6.5,
@@ -223,6 +232,74 @@ class ReceiptValidationTests(unittest.TestCase):
                 with self.assertRaises(runner.PerformanceSceneFailure):
                     runner.validate_receipt(
                         make_receipt(request, **overrides), request)
+
+    def test_rejected_interval_failure_retains_exact_category_and_bits(
+        self,
+    ) -> None:
+        request = make_request()
+        document = make_receipt(
+            request,
+            rejected_frames=1,
+            rejected_frame_intervals_above_maximum=1,
+            first_rejected_frame_interval_reason="above-maximum",
+            first_rejected_frame_interval_seconds="24.666580000000001",
+            first_rejected_frame_interval_ieee754="0x4038aaa4fca42aed",
+        )
+        with self.assertRaises(runner.PerformanceSceneFailure) as caught:
+            runner.validate_receipt(document, request)
+        message = str(caught.exception)
+        self.assertIn("first=above-maximum", message)
+        self.assertIn("24.666580000000001", message)
+        self.assertIn("0x4038aaa4fca42aed", message)
+
+    def test_rejected_interval_category_or_raw_payload_cannot_conflict(
+        self,
+    ) -> None:
+        request = make_request()
+        base = {
+            "rejected_frames": 1,
+            "rejected_frame_intervals_above_maximum": 1,
+            "first_rejected_frame_interval_reason": "above-maximum",
+            "first_rejected_frame_interval_seconds": "24.666580000000001",
+            "first_rejected_frame_interval_ieee754": "0x4038aaa4fca42aed",
+        }
+        conflicts = (
+            {"rejected_frame_intervals_above_maximum": 0},
+            {"first_rejected_frame_interval_reason": "below-minimum"},
+            {"first_rejected_frame_interval_seconds": "11"},
+            {"first_rejected_frame_interval_ieee754": "0x0000000000000000"},
+            {"first_rejected_frame_interval_ieee754": "not-bits"},
+        )
+        for conflict in conflicts:
+            with self.subTest(conflict=conflict):
+                overrides = dict(base)
+                overrides.update(conflict)
+                with self.assertRaises(runner.PerformanceSceneFailure):
+                    runner.validate_receipt(
+                        make_receipt(request, **overrides), request)
+
+    def test_additive_v1_attribution_preserves_clean_legacy_receipts(
+        self,
+    ) -> None:
+        request = make_request()
+        clean_legacy = make_receipt(request)
+        for field in runner.REJECTION_DETAIL_FIELDS:
+            clean_legacy.pop(field)
+        runner.validate_receipt(clean_legacy, request)
+
+        rejected_legacy = dict(clean_legacy)
+        rejected_legacy["rejected_frames"] = 1
+        with self.assertRaises(runner.PerformanceSceneFailure) as caught:
+            runner.validate_receipt(rejected_legacy, request)
+        self.assertIn("legacy v1", str(caught.exception))
+
+    def test_partial_additive_v1_attribution_is_refused(self) -> None:
+        request = make_request()
+        document = make_receipt(request)
+        document.pop("first_rejected_frame_interval_ieee754")
+        with self.assertRaises(runner.PerformanceSceneFailure) as caught:
+            runner.validate_receipt(document, request)
+        self.assertIn("partially present", str(caught.exception))
 
     def test_upper_edge_within_one_bin_is_accepted(self) -> None:
         # A ranked value may exceed the exact maximum by at most one bin width.

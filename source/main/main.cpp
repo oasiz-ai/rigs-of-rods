@@ -2014,6 +2014,19 @@ int main(int argc, char *argv[])
                 Message(MSG_APP_SHUTDOWN_REQUESTED));
         }
         bool frame_budget_shutdown_requested = false;
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+        // The actor becoming authoritative does not mean its first native
+        // frame has completed. Shader/material residency under sanitizers can
+        // make that first presentation tens of seconds long. It is startup,
+        // not a playable interval, and must not consume configured warm-up or
+        // enter the measured distribution.
+        bool frame_budget_combined_native_scene_ready = false;
+        bool frame_budget_combined_native_scene_failed = false;
+        std::uint64_t frame_budget_native_readiness_completed_frames = 0U;
+        std::uint64_t frame_budget_native_readiness_last_frame_id = 0U;
+        std::uint64_t frame_budget_native_readiness_minimum_frame_id = 0U;
+        constexpr std::uint64_t kFrameBudgetNativeReadinessMaxFrames = 8U;
+#endif
 
         while (App::app_state->getEnum<AppState>() != AppState::SHUTDOWN)
         {
@@ -4020,35 +4033,37 @@ int main(int argc, char *argv[])
             } // Check FPS limit block
 
             OgreProfileBegin("RoR Main Loop");
-            const auto record_frame_budget = [&](float frame_dt)
+            const auto frame_budget_authoritative_scene_ready = [&]()
             {
-                if (frame_budget_session == nullptr)
-                    return;
                 // Loading screens and GUI-only grants are not world frames.
                 // The explicit forward-native showcase is the one MAIN_MENU
                 // exception: its authenticated package is already the whole
                 // presented scene and the hidden producer does no rendering.
-                bool frame_budget_scene_ready = false;
 #if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
-                frame_budget_scene_ready =
-                    renderer_combined_native_visual_showcase;
+                if (renderer_combined_native_visual_showcase)
+                    return true;
 #endif
-                if (!frame_budget_scene_ready)
-                {
-                    // Start warm-up only after the requested terrain is
-                    // authoritative and the requested startup vehicle is
-                    // seated. This keeps the receipt tied to the exact scene
-                    // it names.
-                    const bool requested_actor_ready =
-                        App::cli_preset_vehicle->getStr().empty() ||
-                        App::GetGameContext()->GetPlayerActor() != nullptr;
-                    frame_budget_scene_ready =
-                        App::app_state->getEnum<AppState>() ==
-                            AppState::SIMULATION &&
-                        !App::sim_terrain_name->getStr().empty() &&
-                        requested_actor_ready;
-                }
-                if (!frame_budget_scene_ready)
+                const bool requested_actor_ready =
+                    App::cli_preset_vehicle->getStr().empty() ||
+                    App::GetGameContext()->GetPlayerActor() != nullptr;
+                return App::app_state->getEnum<AppState>() ==
+                        AppState::SIMULATION &&
+                    !App::sim_terrain_name->getStr().empty() &&
+                    requested_actor_ready;
+            };
+            const auto record_frame_budget = [&](float frame_dt)
+            {
+                if (frame_budget_session == nullptr)
+                    return;
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+                if (!frame_budget_combined_native_scene_ready)
+                    return;
+#endif
+                // Start configured warm-up only after the requested terrain
+                // is authoritative and the requested startup vehicle is
+                // seated. Combined mode additionally waits for an exact
+                // completed native frame, proven below.
+                if (!frame_budget_authoritative_scene_ready())
                     return;
                 frame_budget_session->RecordFrame(
                     static_cast<double>(frame_dt));
@@ -4208,6 +4223,63 @@ int main(int argc, char *argv[])
                 }
                 frame_budget_native_draw_recorded = true;
             };
+            const auto observe_frame_budget_native_scene_ready =
+                [&](std::uint64_t frontend_frame_id)
+            {
+                if (frame_budget_session == nullptr ||
+                    frame_budget_combined_native_scene_ready ||
+                    frame_budget_combined_native_scene_failed ||
+                    !frame_budget_authoritative_scene_ready())
+                {
+                    return false;
+                }
+                if (frontend_frame_id == 0U ||
+                    frame_budget_native_readiness_minimum_frame_id == 0U ||
+                    frontend_frame_id <
+                        frame_budget_native_readiness_minimum_frame_id ||
+                    frontend_frame_id ==
+                        frame_budget_native_readiness_last_frame_id)
+                {
+                    return false;
+                }
+                frame_budget_native_readiness_last_frame_id =
+                    frontend_frame_id;
+                ++frame_budget_native_readiness_completed_frames;
+                const RendererRetainedSceneAudit retained_scene_audit =
+                    renderer_combined_presenter.RetainedSceneAudit();
+                const bool exact_completed_native_scene =
+                    retained_scene_audit.available &&
+                    retained_scene_audit.version >= 6U &&
+                    retained_scene_audit.last_native_renderer_frame_id ==
+                        frontend_frame_id &&
+                    retained_scene_audit.last_native_pass_metrics_exact &&
+                    retained_scene_audit.last_native_scene_draws > 0U;
+                if (!exact_completed_native_scene)
+                {
+                    if (frame_budget_native_readiness_completed_frames >=
+                        kFrameBudgetNativeReadinessMaxFrames)
+                    {
+                        frame_budget_combined_native_scene_failed = true;
+                        LogFormat(
+                            "[RoR|Perf] Refusing frame budget: no exact "
+                            "completed native scene after %llu authoritative "
+                            "frontend frames",
+                            static_cast<unsigned long long>(
+                                frame_budget_native_readiness_completed_frames));
+                        App::GetGameContext()->PushMessage(
+                            Message(MSG_APP_SHUTDOWN_REQUESTED));
+                    }
+                    return false;
+                }
+
+                frame_budget_combined_native_scene_ready = true;
+                LogFormat(
+                    "[RoR|Perf] Native scene measurement ready: "
+                    "frontend_frame_id=%llu; configured warm-up begins with "
+                    "the next completed frame interval",
+                    static_cast<unsigned long long>(frontend_frame_id));
+                return true;
+            };
             // Capture first: it clears prior relative deltas. The presenter's
             // sole SDL drain then installs this frame's ordered transitions,
             // before any gameplay/GUI consumer observes InputEngine state.
@@ -4295,7 +4367,20 @@ int main(int argc, char *argv[])
             dt = std::chrono::duration<float>(
                 combined_frame_now - start_time).count();
             start_time = combined_frame_now;
-            record_frame_budget(dt);
+            bool frame_budget_native_readiness_crossed = false;
+            if (renderer_combined_events_available &&
+                renderer_combined_events.status ==
+                    RendererInProcessSessionStatus::FRAME_COMPLETED)
+            {
+                frame_budget_native_readiness_crossed =
+                    observe_frame_budget_native_scene_ready(
+                        renderer_combined_events.frontend_frame_id);
+            }
+            // The interval ending at the readiness frame contains native
+            // shader/material startup. The next interval is the first one
+            // eligible for configured warm-up and eventual measurement.
+            if (!frame_budget_native_readiness_crossed)
+                record_frame_budget(dt);
             if (renderer_combined_events_available &&
                 renderer_combined_events.status ==
                     RendererInProcessSessionStatus::FRAME_COMPLETED)
@@ -4643,6 +4728,20 @@ int main(int argc, char *argv[])
                         scene_result.frontend_frame_id > 0U &&
                         !scene_result.terminal)
                     {
+                        if (frame_budget_session != nullptr &&
+                            !frame_budget_combined_native_scene_ready &&
+                            !frame_budget_combined_native_scene_failed &&
+                            frame_budget_native_readiness_minimum_frame_id ==
+                                0U &&
+                            frame_budget_authoritative_scene_ready())
+                        {
+                            // Bind readiness to a frame produced from the
+                            // authoritative terrain/actor snapshot. A menu or
+                            // loading frame that happens to complete after the
+                            // actor was seated cannot arm measurement.
+                            frame_budget_native_readiness_minimum_frame_id =
+                                scene_result.frontend_frame_id;
+                        }
                         renderer_combined_actor_control_qualification.
                             ObserveSceneSubmission(
                                 scene_result.frontend_frame_id);
@@ -4650,6 +4749,8 @@ int main(int argc, char *argv[])
                     if (scene_result.status ==
                         RendererInProcessSessionStatus::FRAME_COMPLETED)
                     {
+                        observe_frame_budget_native_scene_ready(
+                            scene_result.frontend_frame_id);
                         renderer_combined_actor_control_qualification.
                             ObserveCompletedFrame(
                                 scene_result.frontend_frame_id,
@@ -5882,6 +5983,10 @@ int main(int argc, char *argv[])
         {
             application_exit_code = kFrameTimeBudgetFailureExitCode;
         }
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+        if (frame_budget_combined_native_scene_failed)
+            application_exit_code = kFrameTimeBudgetFailureExitCode;
+#endif
 
 #if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
         if (renderer_combined_session != nullptr)
