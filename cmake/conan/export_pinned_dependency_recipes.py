@@ -47,6 +47,12 @@ RECIPES = (
         "freeimage/3.18.0@anotherfoxguy/stable"
         "#8b69961fa00ad36b37d77dd40502fcbf",
     ),
+    (
+        "mygui/all",
+        "3.4.0",
+        "mygui/3.4.0@anotherfoxguy/stable"
+        "#d544e344e389c9b287124fea8b567d01",
+    ),
 )
 
 

@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = ROOT / "cmake/conan/export_pinned_dependency_recipes.py"
 WORKFLOW_PATH = ROOT / ".github/workflows/ogre14-native.yml"
 BUILD_GAME_WORKFLOW_PATH = ROOT / ".github/workflows/build-game.yml"
+MACOS_WORKFLOW_PATH = ROOT / ".github/workflows/macos-native.yml"
 
 SPEC = importlib.util.spec_from_file_location(
     "export_pinned_dependency_recipes", SCRIPT_PATH
@@ -71,6 +72,8 @@ class PinnedDependencyRecipeTests(unittest.TestCase):
                 "#6630840d3f73fb6d6e60f6f88132d40a",
                 "freeimage/3.18.0@anotherfoxguy/stable"
                 "#8b69961fa00ad36b37d77dd40502fcbf",
+                "mygui/3.4.0@anotherfoxguy/stable"
+                "#d544e344e389c9b287124fea8b567d01",
             ],
         )
 
@@ -113,6 +116,23 @@ class PinnedDependencyRecipeTests(unittest.TestCase):
             workflow,
         )
         self.assertIn("pinned-conan-recipes.json", workflow)
+        self.assertNotIn("nexus.anotherfoxguy.com", workflow)
+        self.assertNotIn("rigs-of-rods-deps", workflow)
+
+    def test_macos_workflow_bootstraps_pinned_recipes_without_private_remote(
+        self,
+    ) -> None:
+        workflow = MACOS_WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertEqual(
+            workflow.count(
+                "python3 cmake/conan/export_pinned_dependency_recipes.py"
+            ),
+            1,
+        )
+        self.assertIn(
+            "'cmake/conan/export_pinned_dependency_recipes.py'",
+            workflow,
+        )
         self.assertNotIn("nexus.anotherfoxguy.com", workflow)
         self.assertNotIn("rigs-of-rods-deps", workflow)
 

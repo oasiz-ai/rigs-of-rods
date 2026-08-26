@@ -1,0 +1,51 @@
+--- a/OgreMain/src/OgreLodStrategy.cpp
++++ b/OgreMain/src/OgreLodStrategy.cpp
+@@ -85,10 +85,9 @@ namespace Ogre
+         return true;
+     }
+     //---------------------------------------------------------------------
+-    struct LodUsageSortLess :
+-    public std::binary_function<const MeshLodUsage&, const MeshLodUsage&, bool>
++    struct LodUsageSortLess
+     {
+-        bool operator() (const MeshLodUsage& mesh1, const MeshLodUsage& mesh2)
++        bool operator() (const MeshLodUsage& mesh1, const MeshLodUsage& mesh2) const
+         {
+             // Sort ascending
+             return mesh1.value < mesh2.value;
+@@ -100,10 +99,9 @@ namespace Ogre
+         std::sort(meshLodUsageList.begin(), meshLodUsageList.end(), LodUsageSortLess());
+     }
+     //---------------------------------------------------------------------
+-    struct LodUsageSortGreater :
+-    public std::binary_function<const MeshLodUsage&, const MeshLodUsage&, bool>
++    struct LodUsageSortGreater
+     {
+-        bool operator() (const MeshLodUsage& mesh1, const MeshLodUsage& mesh2)
++        bool operator() (const MeshLodUsage& mesh1, const MeshLodUsage& mesh2) const
+         {
+             // Sort descending
+             return mesh1.value > mesh2.value;
+--- a/OgreMain/src/OgreZip.cpp
++++ b/OgreMain/src/OgreZip.cpp
+@@ -364,7 +364,0 @@
+-    struct FileNameCompare : public std::binary_function<FileInfo, String, bool>
+-    {
+-        bool operator()(const Ogre::FileInfo& lhs, const String& filename) const
+-        {
+-            return lhs.filename == filename;
+-        }
+-    };
+@@ -381,7 +374,11 @@
+         }
+ #endif
+ 
+-        return std::find_if (mFileList.begin(), mFileList.end(), std::bind2nd<FileNameCompare>(FileNameCompare(), cleanName)) != mFileList.end();
++        return std::find_if(
++            mFileList.begin(), mFileList.end(),
++            [&cleanName](const FileInfo& fileInfo) {
++                return fileInfo.filename == cleanName;
++            }) != mFileList.end();
+     }
+     //---------------------------------------------------------------------
+     time_t ZipArchive::getModifiedTime(const String& filename) const

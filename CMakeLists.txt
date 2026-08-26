@@ -73,11 +73,19 @@ option(
     OFF)
 set(ROR_DEPENDENCY_DIR "${CMAKE_SOURCE_DIR}/dependencies" CACHE PATH "Path to the dependencies")
 
+include(OgreLegacyPlatform)
+if (NOT ROR_OGRE14)
+    # ROR_OGRE14=OFF is the complete legacy-lane selector. The public
+    # launcher and Ogre-Next product targets cannot be built against that
+    # dependency graph, so do not require three additional opt-out flags.
+    ror_disable_ogre14_dependent_options()
+endif ()
+
 if (ROR_RENDERER_PUBLIC_LAUNCHER AND NOT ROR_OGRE14)
     message(FATAL_ERROR
         "ROR_RENDERER_PUBLIC_LAUNCHER requires ROR_OGRE14 because the "
-        "Ogre-Next presentation child uses RoR-Ogre14 as its simulation "
-        "host and bounded compatibility fallback")
+        "Ogre-Next presentation child uses RoR-Ogre14 only as its hidden "
+        "simulation and content host, never as a visible fallback")
 endif ()
 if (ROR_OGRE_NEXT_PRODUCTION_PACKAGE AND
         NOT ROR_RENDERER_PUBLIC_LAUNCHER)
@@ -168,6 +176,12 @@ if (APPLE AND ROR_RENDERER_PUBLIC_LAUNCHER)
     set(CMAKE_SKIP_INSTALL_RULES ON)
 endif ()
 
+ror_sanitize_ogre_graph_conan_install_args(
+    _ror_graph_neutral_conan_install_args
+    ${CONAN_INSTALL_ARGS})
+set(CONAN_INSTALL_ARGS "${_ror_graph_neutral_conan_install_args}")
+unset(_ror_graph_neutral_conan_install_args)
+
 if (ROR_OGRE14)
     include(Ogre14Platform)
     get_property(
@@ -250,6 +264,100 @@ if (ROR_OGRE14)
     unset(_ror_conan_arg)
     unset(_ror_conan_arg_index)
     unset(_ror_ogre14_lockfile)
+else ()
+    # The Ogre 1.11 developer opt-out keeps the namespace expected by the
+    # legacy MyGUI/Caelum/PagedGeometry recipes, but the exact recipe bytes are
+    # exported from this repository and revision-pinned by conanfile.py.
+    get_property(
+        _ror_legacy_multi_config
+        GLOBAL
+        PROPERTY GENERATOR_IS_MULTI_CONFIG)
+    ror_validate_ogre_legacy_configuration(
+        "${_ror_legacy_multi_config}"
+        "${CMAKE_BUILD_TYPE}")
+    ror_select_ogre_legacy_lockfile(
+        _ror_legacy_lockfile
+        "${CMAKE_SYSTEM_NAME}"
+        "${CMAKE_SYSTEM_PROCESSOR}")
+    if (NOT EXISTS "${CMAKE_SOURCE_DIR}/${_ror_legacy_lockfile}")
+        message(FATAL_ERROR
+            "Pinned Ogre 1.11 lockfile is missing: ${_ror_legacy_lockfile}")
+    endif ()
+    find_program(CONAN_COMMAND "conan" REQUIRED)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    execute_process(
+        COMMAND
+            ${Python3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/cmake/conan/export_pinned_dependency_recipes.py"
+            "--archive=${CMAKE_BINARY_DIR}/pinned-conan-recipes/ror-conan-recipes.tar.gz"
+            "--extract-root=${CMAKE_BINARY_DIR}/pinned-conan-recipes/source"
+            "--conan=${CONAN_COMMAND}"
+        RESULT_VARIABLE _ror_legacy_public_recipe_export_result
+    )
+    if (NOT _ror_legacy_public_recipe_export_result EQUAL 0)
+        message(FATAL_ERROR
+            "Failed to export the exact public Ogre 1.11 dependency recipes")
+    endif ()
+    execute_process(
+        COMMAND
+            ${CONAN_COMMAND} export
+            "${CMAKE_SOURCE_DIR}/cmake/conan/recipes/ogre3d-legacy"
+            "--version=1.11.6.1"
+            "--user=anotherfoxguy"
+            "--channel=stable"
+        RESULT_VARIABLE _ror_legacy_recipe_export_result
+    )
+    if (NOT _ror_legacy_recipe_export_result EQUAL 0)
+        message(FATAL_ERROR
+            "Failed to export the pinned Cg-free Ogre 1.11 recipe")
+    endif ()
+    execute_process(
+        COMMAND
+            ${CONAN_COMMAND} export
+            "${CMAKE_SOURCE_DIR}/cmake/conan/recipes/ogre3d-caelum-legacy"
+            "--user=anotherfoxguy"
+            "--channel=stable"
+        RESULT_VARIABLE _ror_legacy_caelum_recipe_export_result
+    )
+    if (NOT _ror_legacy_caelum_recipe_export_result EQUAL 0)
+        message(FATAL_ERROR
+            "Failed to export the pinned Ogre 1.11 Caelum recipe")
+    endif ()
+    execute_process(
+        COMMAND
+            ${CONAN_COMMAND} export
+            "${CMAKE_SOURCE_DIR}/cmake/conan/recipes/ogre3d-pagedgeometry-legacy"
+            "--user=anotherfoxguy"
+            "--channel=stable"
+        RESULT_VARIABLE _ror_legacy_paged_geometry_recipe_export_result
+    )
+    if (NOT _ror_legacy_paged_geometry_recipe_export_result EQUAL 0)
+        message(FATAL_ERROR
+            "Failed to export the pinned Ogre 1.11 PagedGeometry recipe")
+    endif ()
+    set(_ror_legacy_conan_args
+        "-o=&:ogre14=False"
+        "--lockfile=${CMAKE_SOURCE_DIR}/${_ror_legacy_lockfile}"
+        "-c:h=tools.cmake:configure_args=[\"-DCMAKE_POLICY_VERSION_MINIMUM=3.5\"]")
+    foreach (_ror_legacy_conan_arg IN LISTS _ror_legacy_conan_args)
+        list(FIND CONAN_INSTALL_ARGS
+            "${_ror_legacy_conan_arg}"
+            _ror_legacy_conan_arg_index)
+        if (_ror_legacy_conan_arg_index EQUAL -1)
+            list(APPEND CONAN_INSTALL_ARGS "${_ror_legacy_conan_arg}")
+        endif ()
+    endforeach ()
+    set(CONAN_INSTALL_ARGS "${CONAN_INSTALL_ARGS}" CACHE STRING
+        "Command line arguments for conan install" FORCE)
+    unset(_ror_legacy_recipe_export_result)
+    unset(_ror_legacy_caelum_recipe_export_result)
+    unset(_ror_legacy_paged_geometry_recipe_export_result)
+    unset(_ror_legacy_public_recipe_export_result)
+    unset(_ror_legacy_conan_args)
+    unset(_ror_legacy_conan_arg)
+    unset(_ror_legacy_conan_arg_index)
+    unset(_ror_legacy_lockfile)
+    unset(_ror_legacy_multi_config)
 endif ()
 
 set(ROR_BUILD_INSTALLER "Off" CACHE STRING
@@ -320,8 +428,6 @@ if (WIN32)
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}          /MP /Od /Zi /RTC1 /Gy /fp:except /GF- /GS /Ob0")
     # some general flags
     add_definitions("-D_CRT_SECURE_NO_WARNINGS")
-    include_directories(${DirectX_INCLUDE_DIR})
-
     set(CMAKE_EXE_LINKER_FLAGS_DEBUG "${CMAKE_EXE_LINKER_FLAGS_DEBUG}          /DEBUG /LARGEADDRESSAWARE ")
     set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE}        /DEBUG /LARGEADDRESSAWARE /OPT:REF /RELEASE /LTCG ")
     set(CMAKE_EXE_LINKER_FLAGS_MINSIZEREL "${CMAKE_EXE_LINKER_FLAGS_MINSIZEREL}     /DEBUG /LARGEADDRESSAWARE /OPT:REF /LTCG ")

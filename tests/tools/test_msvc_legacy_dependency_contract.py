@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Contract tests for the narrow MSVC legacy-header compatibility switch."""
+"""Contracts for modernized legacy dependencies on MSVC."""
 
 from __future__ import annotations
 
@@ -14,22 +14,12 @@ DEPENDENCY_CMAKE = REPOSITORY_ROOT / "cmake" / "DependenciesConfig.cmake"
 
 
 class MsvcLegacyDependencyContractTests(unittest.TestCase):
-    def test_auto_ptr_transition_switch_is_target_private_and_guarded(
+    def test_removed_auto_ptr_transition_switch_is_not_reintroduced(
         self,
     ) -> None:
         source = MAIN_CMAKE.read_text(encoding="utf-8")
-        guarded_definition = re.compile(
-            r"if \(MSVC AND \(ROR_USE_CAELUM OR ROR_USE_PAGED\)\)\s+"
-            r"target_compile_definitions\(\$\{BINNAME\} PRIVATE "
-            r"_HAS_AUTO_PTR_ETC=1\)\s+"
-            r"endif \(\)",
-            re.MULTILINE,
-        )
-
-        self.assertRegex(source, guarded_definition)
-        self.assertEqual(source.count("_HAS_AUTO_PTR_ETC"), 1)
-        self.assertNotIn("add_compile_definitions(_HAS_AUTO_PTR_ETC", source)
-        self.assertNotIn("add_definitions(-D_HAS_AUTO_PTR_ETC", source)
+        self.assertNotIn("_HAS_AUTO_PTR_ETC", source)
+        self.assertNotIn("std::auto_ptr", source)
 
     def test_ogre14_keeps_affected_legacy_dependencies_disabled(
         self,

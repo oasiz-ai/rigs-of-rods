@@ -1,0 +1,46 @@
+diff --git a/include/ImpostorPage.h b/include/ImpostorPage.h
+index d560e01..502ddf9 100644
+--- a/include/ImpostorPage.h
++++ b/include/ImpostorPage.h
+@@ -23,10 +23,7 @@ Permission is granted to anyone to use this software for any purpose, including
+ #include <OgreTextureManager.h>
+ #include <OgreRenderTexture.h>
+ 
+-#if OGRE_PLATFORM == OGRE_PLATFORM_LINUX
+-// linux memory fix
+ #include <memory>
+-#endif
+ 
+ //The number of angle increments around the yaw axis to render impostor "snapshots" of trees
+ #define IMPOSTOR_YAW_ANGLES 8
+@@ -377,7 +374,7 @@ namespace Forests
+       }
+ 
+       //This will only be used when IMPOSTOR_FILE_SAVE is set to 0
+-      std::auto_ptr<ImpostorTextureResourceLoader> loader;
++      std::unique_ptr<ImpostorTextureResourceLoader> loader;
+    };
+ 
+ 
+diff --git a/source/ImpostorPage.cpp b/source/ImpostorPage.cpp
+index 756ac10..83517f2 100644
+--- a/source/ImpostorPage.cpp
++++ b/source/ImpostorPage.cpp
+@@ -379,7 +379,7 @@ unsigned long ImpostorTexture::GUID = 0;
+ //Do not use this constructor yourself - instead, call getTexture()
+ //to get/create an ImpostorTexture for an Entity.
+ ImpostorTexture::ImpostorTexture(ImpostorPage *group, Entity *entity) :
+-loader(0)
++loader(nullptr)
+ {
+ 	//Store scene manager and entity
+    ImpostorTexture::sceneMgr = group->getParentPagedGeometry()->getSceneManager();
+@@ -486,7 +486,7 @@ void ImpostorTexture::renderTextures(bool force)
+ #else
+ 	TexturePtr renderTexture(texture);
+ 	//if we're not using a file image we need to set up a resource loader, so that the texture is regenerated if it's ever unloaded (such as switching between fullscreen and the desktop in win32)
+-	loader = std::auto_ptr<ImpostorTextureResourceLoader>(new ImpostorTextureResourceLoader(*this));
++	loader.reset(new ImpostorTextureResourceLoader(*this));
+ #endif
+ 	RenderTexture *renderTarget;
+ 	Camera *renderCamera;

@@ -1,0 +1,353 @@
+name: Ogre 1.11 Cg-free compatibility Release
+
+on:
+  push:
+    branches: [master, nextgen/playable-performance-gate]
+    paths:
+      - .github/workflows/ogre11-compat-native.yml
+      - CMakeLists.txt
+      - conanfile.py
+      - cmake/DependenciesConfig.cmake
+      - cmake/OgreLegacyPlatform.cmake
+      - cmake/conan/**
+      - source/main/**
+      - tools/linux/RunRoR
+      - tools/ogre11_compat_runtime_audit.py
+      - tests/tools/assert_ogre11_app_graph.py
+      - tests/tools/test_legacy_ogre_cgfree_recipe_contract.py
+      - tests/tools/test_ogre11_compat_native_workflow_contract.py
+  pull_request:
+    paths:
+      - .github/workflows/ogre11-compat-native.yml
+      - CMakeLists.txt
+      - conanfile.py
+      - cmake/DependenciesConfig.cmake
+      - cmake/OgreLegacyPlatform.cmake
+      - cmake/conan/**
+      - source/main/**
+      - tools/linux/RunRoR
+      - tools/ogre11_compat_runtime_audit.py
+      - tests/tools/assert_ogre11_app_graph.py
+      - tests/tools/test_legacy_ogre_cgfree_recipe_contract.py
+      - tests/tools/test_ogre11_compat_native_workflow_contract.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ogre11-compat-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compatibility-release:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64 Ogre 1.11 compatibility (GCC 11)
+            runner: ubuntu-22.04
+            platform: linux-x86_64
+            profile: cmake/conan/profiles/linux-x86_64-release
+            compiler: gcc11
+            cc: gcc-11
+            cxx: g++-11
+          - name: Windows x64 Ogre 1.11 compatibility (MSVC 19.44)
+            runner: windows-2022
+            platform: windows-x86_64
+            profile: cmake/conan/profiles/windows-x86_64-release
+            compiler: msvc1944
+            cc: cl
+            cxx: cl
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+      CMAKE_BUILD_PARALLEL_LEVEL: "3"
+      CONAN_HOME: ${{ github.workspace }}/.ci-conan/ogre11-${{ matrix.platform }}
+      PYTHONDONTWRITEBYTECODE: "1"
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Select isolated compatibility paths
+        shell: bash
+        run: |
+          {
+            echo "ROR_OGRE11_BUILD_DIR=$RUNNER_TEMP/ror-ogre11-build-${{ matrix.platform }}"
+            echo "ROR_OGRE11_INSTALL_DIR=$RUNNER_TEMP/ror-ogre11-install-${{ matrix.platform }}"
+            echo "ROR_OGRE11_ARTIFACT_DIR=$RUNNER_TEMP/ror-ogre11-compat-${{ matrix.platform }}"
+            echo "ROR_OGRE11_DIAGNOSTICS_DIR=$RUNNER_TEMP/ror-ogre11-diagnostics-${{ matrix.platform }}"
+          } >> "$GITHUB_ENV"
+
+      - name: Enable the pinned MSVC x64 toolset
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+          toolset: "14.44"
+
+      - name: Install Linux compatibility build prerequisites
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            binutils \
+            file \
+            gcc-11 \
+            g++-11 \
+            libgl1-mesa-dev \
+            libglu1-mesa-dev \
+            libx11-dev \
+            libxaw7-dev \
+            libxrandr-dev \
+            libxt-dev \
+            pkg-config
+
+      - name: Install pinned Conan and Ninja clients
+        shell: bash
+        run: >-
+          python -m pip install
+          --disable-pip-version-check
+          conan==2.31.1
+          ninja==1.13.0
+
+      - name: Restore isolated compatibility dependencies
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.CONAN_HOME }}
+          key: ogre11-compat-${{ runner.os }}-${{ matrix.compiler }}-${{ matrix.platform }}-release-conan-2.31.1-${{ hashFiles('conanfile.py', 'cmake/OgreLegacyPlatform.cmake', 'cmake/conan/locks/ror-ogre11-*.lock', 'cmake/conan/profiles/*', 'cmake/conan/recipes/ogre3d-legacy/**', 'cmake/conan/recipes/ogre3d-caelum-legacy/**', 'cmake/conan/recipes/ogre3d-pagedgeometry-legacy/**', 'cmake/conan/export_pinned_dependency_recipes.py') }}
+
+      - name: Configure isolated Conan client
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          home = Path(os.environ["CONAN_HOME"])
+          home.mkdir(parents=True, exist_ok=True)
+          (home / "global.conf").write_text(
+              "tools.system.package_manager:mode=install\n"
+              "tools.system.package_manager:sudo=True\n"
+              'core.sources:download_urls=["origin", "https://c3i.jfrog.io/artifactory/conan-center-backup-sources/"]\n',
+              encoding="utf-8",
+          )
+          PY
+          conan remote add conancenter https://center2.conan.io --force
+          conan --version
+          ninja --version
+
+      - name: Verify exact native compiler identity
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          test "$(uname -m)" = "x86_64"
+          test "$(gcc-11 -dumpfullversion | cut -d. -f1)" = "11"
+          test "$(g++-11 -dumpfullversion | cut -d. -f1)" = "11"
+          gcc-11 --version
+          g++-11 --version
+
+      - name: Verify exact native compiler identity
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cmake -E make_directory "$ROR_OGRE11_DIAGNOSTICS_DIR"
+          cl 2>&1 | tee "$ROR_OGRE11_DIAGNOSTICS_DIR/msvc-version.txt" || true
+          grep -E "Version 19\\.44\\." "$ROR_OGRE11_DIAGNOSTICS_DIR/msvc-version.txt"
+
+      - name: Run fail-closed compatibility contracts
+        shell: bash
+        run: |
+          python tests/tools/test_ogre11_compat_native_workflow_contract.py
+          python -O tests/tools/test_ogre11_compat_native_workflow_contract.py
+          python tests/tools/test_legacy_ogre_cgfree_recipe_contract.py
+          python -O tests/tools/test_legacy_ogre_cgfree_recipe_contract.py
+
+      - name: Export and verify the exact locked compatibility graph
+        shell: bash
+        run: |
+          cmake -E make_directory "$ROR_OGRE11_DIAGNOSTICS_DIR"
+          python cmake/conan/export_pinned_dependency_recipes.py \
+            --archive "$RUNNER_TEMP/ror-ogre11-public-recipes.tar.gz" \
+            --extract-root "$RUNNER_TEMP/ror-ogre11-public-recipes" \
+            | tee "$ROR_OGRE11_DIAGNOSTICS_DIR/pinned-conan-recipes.json"
+          conan export \
+            cmake/conan/recipes/ogre3d-legacy \
+            --version=1.11.6.1 \
+            --user=anotherfoxguy \
+            --channel=stable
+          conan export \
+            cmake/conan/recipes/ogre3d-caelum-legacy \
+            --user=anotherfoxguy \
+            --channel=stable
+          conan export \
+            cmake/conan/recipes/ogre3d-pagedgeometry-legacy \
+            --user=anotherfoxguy \
+            --channel=stable
+          graph="$ROR_OGRE11_DIAGNOSTICS_DIR/${{ matrix.platform }}-conan-graph.json"
+          receipt="$ROR_OGRE11_DIAGNOSTICS_DIR/${{ matrix.platform }}-conan-graph-receipt.json"
+          conan graph info . \
+            --profile:host="${GITHUB_WORKSPACE}/${{ matrix.profile }}" \
+            --profile:build="${GITHUB_WORKSPACE}/${{ matrix.profile }}" \
+            --lockfile="${GITHUB_WORKSPACE}/cmake/conan/locks/ror-ogre11-${{ matrix.platform }}-release.lock" \
+            -o='&:ogre14=False' \
+            --build='*' \
+            -c:h='tools.cmake:configure_args=["-DCMAKE_POLICY_VERSION_MINIMUM=3.5"]' \
+            --format=json \
+            > "$graph"
+          python tests/tools/assert_ogre11_app_graph.py \
+            "$graph" \
+            --platform "${{ matrix.platform }}" \
+            | tee "$receipt"
+
+      - name: Configure isolated Ogre 1.11 compatibility application
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          cmake \
+            -S . \
+            -B "$ROR_OGRE11_BUILD_DIR" \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$ROR_OGRE11_INSTALL_DIR" \
+            -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake \
+            -DCONAN_HOST_PROFILE="${GITHUB_WORKSPACE}/${{ matrix.profile }}" \
+            -DCONAN_BUILD_PROFILE="${GITHUB_WORKSPACE}/${{ matrix.profile }}" \
+            "-DCONAN_INSTALL_ARGS=--build=missing;--build=ogre3d/*;--build=ogre3d-caelum/*;--build=ogre3d-pagedgeometry/*" \
+            -DROR_BUILD_TESTS=ON \
+            -DROR_BUILD_QUALIFICATION_TOOLS=OFF \
+            -DROR_CREATE_CONTENT_FOLDER=OFF \
+            -DROR_OGRE14=OFF \
+            -DROR_RENDERER_PUBLIC_LAUNCHER=OFF \
+            -DROR_OGRE_NEXT_PRODUCTION_PACKAGE=OFF \
+            -DROR_OGRE_NEXT_DEMO_ADMISSION=OFF
+          cache="$ROR_OGRE11_BUILD_DIR/CMakeCache.txt"
+          grep -Fx 'ROR_OGRE14:BOOL=OFF' "$cache"
+          grep -Fx 'ROR_RENDERER_PUBLIC_LAUNCHER:BOOL=OFF' "$cache"
+          grep -Fx 'ROR_OGRE_NEXT_PRODUCTION_PACKAGE:BOOL=OFF' "$cache"
+          grep -Fx 'ROR_OGRE_NEXT_DEMO_ADMISSION:BOOL=OFF' "$cache"
+          grep -F -- "ror-ogre11-${{ matrix.platform }}-release.lock" "$cache"
+          grep -F -- '-o=&:ogre14=False' "$cache"
+
+      - name: Build the native compatibility application and tests
+        shell: bash
+        run: >-
+          cmake
+          --build "$ROR_OGRE11_BUILD_DIR"
+          --target all
+          --config Release
+
+      - name: Run the complete configured compatibility test suite
+        shell: bash
+        run: >-
+          ctest
+          --test-dir "$ROR_OGRE11_BUILD_DIR"
+          --build-config Release
+          --output-on-failure
+          --no-tests=error
+
+      - name: Install and relocate the compatibility artifact
+        shell: bash
+        run: |
+          test ! -e "$ROR_OGRE11_INSTALL_DIR"
+          test ! -e "$ROR_OGRE11_ARTIFACT_DIR"
+          cmake --install \
+            "$ROR_OGRE11_BUILD_DIR" \
+            --config Release \
+            --prefix "$ROR_OGRE11_INSTALL_DIR"
+          cmake -E rename "$ROR_OGRE11_INSTALL_DIR" "$ROR_OGRE11_ARTIFACT_DIR"
+          test ! -e "$ROR_OGRE11_INSTALL_DIR"
+          test -f "$ROR_OGRE11_ARTIFACT_DIR/plugins.cfg"
+          cmake -E make_directory "$ROR_OGRE11_ARTIFACT_DIR/qualification"
+          cmake -E copy \
+            "$ROR_OGRE11_DIAGNOSTICS_DIR/${{ matrix.platform }}-conan-graph.json" \
+            "$ROR_OGRE11_ARTIFACT_DIR/qualification/conan-graph.json"
+          cmake -E copy \
+            "$ROR_OGRE11_DIAGNOSTICS_DIR/${{ matrix.platform }}-conan-graph-receipt.json" \
+            "$ROR_OGRE11_ARTIFACT_DIR/qualification/conan-graph-receipt.json"
+          cmake -E copy \
+            "$ROR_OGRE11_DIAGNOSTICS_DIR/pinned-conan-recipes.json" \
+            "$ROR_OGRE11_ARTIFACT_DIR/qualification/pinned-conan-recipes.json"
+
+      - name: Audit relocated compatibility closure without renderer claims
+        shell: bash
+        run: |
+          report="$ROR_OGRE11_ARTIFACT_DIR/qualification/compatibility-audit.json"
+          python tools/ogre11_compat_runtime_audit.py \
+            --root "$ROR_OGRE11_ARTIFACT_DIR" \
+            --platform "${{ matrix.platform }}" \
+            --forbidden-prefix "$GITHUB_WORKSPACE" \
+            --forbidden-prefix "$CONAN_HOME" \
+            --source-commit "$GITHUB_SHA" \
+            --report "$report"
+          python - "$report" "${{ matrix.platform }}" "$GITHUB_SHA" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+
+          document = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          expected = {
+              "schema": "ror.ogre11_compatibility_audit.v1",
+              "status": "passed",
+              "source_commit": sys.argv[3],
+              "platform": sys.argv[2],
+              "qualification_scope": "ogre11-cgfree-build-install-relocation-closure",
+              "compatibility_artifact": True,
+              "product_runtime": False,
+              "ogre_next_visible_frames_proven": False,
+              "renderer_runtime_smoke_proven": False,
+              "playability_proven": False,
+              "cg_source_files_present": False,
+              "active_cg_routes_present": False,
+          }
+          for field, value in expected.items():
+              if document.get(field) != value:
+                  raise SystemExit(
+                      f"compatibility audit field changed: {field}={document.get(field)!r}"
+                  )
+          if not document.get("audited_binaries"):
+              raise SystemExit("compatibility audit contains no native binaries")
+          PY
+
+      - name: Upload passed Ogre 1.11 compatibility artifact
+        id: compatibility-artifact
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: RoR-Ogre11-CgFree-compat-${{ matrix.platform }}-${{ github.sha }}
+          path: ${{ env.ROR_OGRE11_ARTIFACT_DIR }}/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 14
+
+      - name: Upload failed compatibility diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: RoR-Ogre11-CgFree-compat-diagnostics-${{ matrix.platform }}-${{ github.sha }}
+          path: |
+            ${{ env.ROR_OGRE11_DIAGNOSTICS_DIR }}/
+            ${{ env.ROR_OGRE11_BUILD_DIR }}/CMakeCache.txt
+            ${{ env.ROR_OGRE11_BUILD_DIR }}/CMakeFiles/CMakeConfigureLog.yaml
+            ${{ env.ROR_OGRE11_BUILD_DIR }}/Testing/Temporary/
+            ${{ env.ROR_OGRE11_INSTALL_DIR }}/
+            ${{ env.ROR_OGRE11_ARTIFACT_DIR }}/qualification/
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
+
+      - name: Remove transient Conan build material
+        if: always()
+        shell: bash
+        run: conan cache clean "*" --source --build --download

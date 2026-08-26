@@ -1,0 +1,333 @@
+diff --git a/main/include/CaelumSystem.h b/main/include/CaelumSystem.h
+index ffa74c7..a92156c 100644
+--- a/main/include/CaelumSystem.h
++++ b/main/include/CaelumSystem.h
+@@ -35,7 +35,7 @@ namespace Caelum
+      *  connected through this class. This class is responsible for tracking and
+      *  updating sub-components.
+      *
+-     *  This class "owns" all of the subcomponents, using std::auto_ptr members.
++     *  This class "owns" all of the subcomponents, using std::unique_ptr members.
+      *  When you call functions like setXxx(new Xxx()) this class takes
+      *  ownership of the object's lifetime and will try to update it as
+      *  appropriate. All components are optional; disable one component should
+@@ -154,10 +154,10 @@ namespace Caelum
+         bool mEnsureSingleShadowSource;
+ 
+ 		/// The sky gradients image (for lookups).
+-        std::auto_ptr<Ogre::Image> mSkyGradientsImage;
++        std::unique_ptr<Ogre::Image> mSkyGradientsImage;
+ 
+         /// The sun gradients image (for lookups).
+-        std::auto_ptr<Ogre::Image> mSunColoursImage;
++        std::unique_ptr<Ogre::Image> mSunColoursImage;
+ 
+         /// Observer Latitude (on the earth).
+         Ogre::Degree mObserverLatitude;
+@@ -168,16 +168,16 @@ namespace Caelum
+                 Ogre::Degree azimuth, Ogre::Degree altitude);
+ 		
+ 		// References to sub-components
+-        std::auto_ptr<UniversalClock> mUniversalClock;
+-        std::auto_ptr<SkyDome> mSkyDome;
+-        std::auto_ptr<BaseSkyLight> mSun;
+-        std::auto_ptr<Moon> mMoon;
+-        std::auto_ptr<ImageStarfield> mImageStarfield;
+-        std::auto_ptr<PointStarfield> mPointStarfield;
+-        std::auto_ptr<GroundFog> mGroundFog;
+-        std::auto_ptr<CloudSystem> mCloudSystem;
+-		std::auto_ptr<PrecipitationController> mPrecipitationController;
+-		std::auto_ptr<DepthComposer> mDepthComposer;
++        std::unique_ptr<UniversalClock> mUniversalClock;
++        std::unique_ptr<SkyDome> mSkyDome;
++        std::unique_ptr<BaseSkyLight> mSun;
++        std::unique_ptr<Moon> mMoon;
++        std::unique_ptr<ImageStarfield> mImageStarfield;
++        std::unique_ptr<PointStarfield> mPointStarfield;
++        std::unique_ptr<GroundFog> mGroundFog;
++        std::unique_ptr<CloudSystem> mCloudSystem;
++		std::unique_ptr<PrecipitationController> mPrecipitationController;
++		std::unique_ptr<DepthComposer> mDepthComposer;
+ 
+     public:
+         typedef std::set<Ogre::Viewport*> AttachedViewportSet;
+diff --git a/main/include/DepthComposer.h b/main/include/DepthComposer.h
+index 4a7f25f..a3224ca 100644
+--- a/main/include/DepthComposer.h
++++ b/main/include/DepthComposer.h
+@@ -116,7 +116,7 @@ namespace Caelum
+         DepthComposer* mParent;
+         Ogre::Viewport* mViewport;
+         Ogre::CompositorInstance* mCompInst;
+-        std::auto_ptr<DepthRenderer> mDepthRenderer;
++        std::unique_ptr<DepthRenderer> mDepthRenderer;
+ 
+         virtual void notifyMaterialSetup(uint pass_id, Ogre::MaterialPtr &mat);
+         virtual void notifyMaterialRender(uint pass_id, Ogre::MaterialPtr &mat);
+diff --git a/main/include/FlatCloudLayer.h b/main/include/FlatCloudLayer.h
+index 2f7c2bb..128ce87 100644
+--- a/main/include/FlatCloudLayer.h
++++ b/main/include/FlatCloudLayer.h
+@@ -159,7 +159,7 @@ namespace Caelum
+ 
+     private:
+         /// Lookup used for cloud coverage, @see setCloudCoverLookup.
+-        std::auto_ptr<Ogre::Image> mCloudCoverLookup;
++        std::unique_ptr<Ogre::Image> mCloudCoverLookup;
+ 
+         /// Filename of mCloudCoverLookup
+         Ogre::String mCloudCoverLookupFileName;
+diff --git a/main/include/PrivatePtr.h b/main/include/PrivatePtr.h
+index c213f79..9d1be2a 100644
+--- a/main/include/PrivatePtr.h
++++ b/main/include/PrivatePtr.h
+@@ -11,7 +11,7 @@ namespace Caelum
+ {
+     /** Default traits for Caelum::PrivatePtr.
+      *
+-     *  This default traits class make PrivatePtr work like std::auto_ptr.
++     *  This default traits class gives PrivatePtr single-owner semantics.
+      *  Other Traits classes can derive from this and only customize some of
+      *  the functions.
+      *
+@@ -46,7 +46,7 @@ namespace Caelum
+      *  "Manager" objects. Even though the memory for such objects is never
+      *  actually leaked better lifetime control is frequently useful.
+      *
+-     *  PrivatePtr is very similar in behaviour to std::auto_ptr but tries
++     *  PrivatePtr is a legacy single-owner smart pointer which tries
+      *  to mimic Ogre::SharedPtr method names. Only one PrivatePtr must exist to
+      *  a certain object at any one time. Assignment and copy  construction will
+      *  in fact pass away ownership and set the original PrivatePtr to null.
+diff --git a/main/src/CaelumDefaultTypeDescriptorData.cpp b/main/src/CaelumDefaultTypeDescriptorData.cpp
+index cbed686..6f43696 100644
+--- a/main/src/CaelumDefaultTypeDescriptorData.cpp
++++ b/main/src/CaelumDefaultTypeDescriptorData.cpp
+@@ -61,7 +61,7 @@ namespace Caelum
+     {
+         if (!CaelumSystemTypeDescriptor)
+         {
+-            std::auto_ptr<DefaultTypeDescriptor> td (new DefaultTypeDescriptor ());
++            std::unique_ptr<DefaultTypeDescriptor> td (new DefaultTypeDescriptor ());
+ 
+             // Timing settings.
+             td->add("time_scale",
+@@ -144,7 +144,7 @@ namespace Caelum
+ 
+         if (!PointStarfieldTypeDescriptor)
+         {
+-            std::auto_ptr<DefaultTypeDescriptor> td (new DefaultTypeDescriptor ());
++            std::unique_ptr<DefaultTypeDescriptor> td (new DefaultTypeDescriptor ());
+             td->add("magnitude_scale",
+                     new AccesorPropertyDescriptor<Caelum::PointStarfield, Real, Real, Real>(
+                             &Caelum::PointStarfield::getMagnitudeScale,
+@@ -178,7 +178,7 @@ namespace Caelum
+ 
+         if (!BaseSkyLightTypeDescriptor)
+         {
+-            std::auto_ptr<DefaultTypeDescriptor> td (new DefaultTypeDescriptor ());
++            std::unique_ptr<DefaultTypeDescriptor> td (new DefaultTypeDescriptor ());
+             td->add("ambient_multiplier",
+                     new AccesorPropertyDescriptor<Caelum::BaseSkyLight, ColourValue>(
+                             &Caelum::BaseSkyLight::getAmbientMultiplier,
+@@ -212,7 +212,7 @@ namespace Caelum
+ 
+         if (!GroundFogTypeDescriptor)
+         {
+-            std::auto_ptr<DefaultTypeDescriptor> td (new DefaultTypeDescriptor ());
++            std::unique_ptr<DefaultTypeDescriptor> td (new DefaultTypeDescriptor ());
+             td->add("density",
+                     new AccesorPropertyDescriptor<Caelum::GroundFog, Real, Real, Real>(
+                             &Caelum::GroundFog::getDensity,
+@@ -234,7 +234,7 @@ namespace Caelum
+ 
+         if (!DepthComposerTypeDescriptor)
+         {
+-            std::auto_ptr<DefaultTypeDescriptor> td (new DefaultTypeDescriptor ());
++            std::unique_ptr<DefaultTypeDescriptor> td (new DefaultTypeDescriptor ());
+             td->add("debug_depth_render",
+                     new AccesorPropertyDescriptor<Caelum::DepthComposer, bool, bool, bool>(
+                             &Caelum::DepthComposer::getDebugDepthRender,
+@@ -281,7 +281,7 @@ namespace Caelum
+ 
+         if (!PrecipitationTypeDescriptor)
+         {
+-            std::auto_ptr<DefaultTypeDescriptor> td (new DefaultTypeDescriptor ());
++            std::unique_ptr<DefaultTypeDescriptor> td (new DefaultTypeDescriptor ());
+ 
+             td->add("texture",
+                     new AccesorPropertyDescriptor<Caelum::PrecipitationController, String>(
+@@ -321,7 +321,7 @@ namespace Caelum
+ 
+         if (!FlatCloudLayerTypeDescriptor)
+         {
+-            std::auto_ptr<DefaultTypeDescriptor> td (new DefaultTypeDescriptor ());
++            std::unique_ptr<DefaultTypeDescriptor> td (new DefaultTypeDescriptor ());
+ 
+             // Height.
+             td->add("height",
+@@ -420,7 +420,7 @@ namespace Caelum
+ 
+         if (!SkyDomeTypeDescriptor)
+         {
+-            std::auto_ptr<DefaultTypeDescriptor> td (new DefaultTypeDescriptor ());
++            std::unique_ptr<DefaultTypeDescriptor> td (new DefaultTypeDescriptor ());
+ 
+             // SkyDome is slightly special because most properties are write-only.
+ 
+diff --git a/main/src/CaelumSystem.cpp b/main/src/CaelumSystem.cpp
+index 0f304d9..dc411c7 100644
+--- a/main/src/CaelumSystem.cpp
++++ b/main/src/CaelumSystem.cpp
+@@ -308,31 +308,45 @@ namespace Caelum
+     }
+ 
+     void CaelumSystem::setSkyDome (SkyDome *obj) {
+-        mSkyDome.reset (obj);
++        if (mSkyDome.get () != obj) {
++            mSkyDome.reset (obj);
++        }
+     }
+ 
+     void CaelumSystem::setSun (BaseSkyLight* obj) {
+-        mSun.reset (obj);
++        if (mSun.get () != obj) {
++            mSun.reset (obj);
++        }
+     }
+ 
+     void CaelumSystem::setMoon (Moon* obj) {
+-        mMoon.reset (obj);
++        if (mMoon.get () != obj) {
++            mMoon.reset (obj);
++        }
+     }
+ 
+     void CaelumSystem::setImageStarfield (ImageStarfield* obj) {
+-        mImageStarfield.reset (obj);
++        if (mImageStarfield.get () != obj) {
++            mImageStarfield.reset (obj);
++        }
+     }
+ 
+     void CaelumSystem::setPointStarfield (PointStarfield* obj) {
+-        mPointStarfield.reset (obj);
++        if (mPointStarfield.get () != obj) {
++            mPointStarfield.reset (obj);
++        }
+     }
+ 
+     void CaelumSystem::setGroundFog (GroundFog* obj) {
+-        mGroundFog.reset (obj);
++        if (mGroundFog.get () != obj) {
++            mGroundFog.reset (obj);
++        }
+     }
+ 
+     void CaelumSystem::setCloudSystem (CloudSystem* obj) {
+-        mCloudSystem.reset (obj);
++        if (mCloudSystem.get () != obj) {
++            mCloudSystem.reset (obj);
++        }
+     }
+ 
+     void CaelumSystem::setPrecipitationController (PrecipitationController* newptr) {
+@@ -343,24 +357,31 @@ namespace Caelum
+         // Detach old
+         if (getAutoAttachViewportsToComponents() && oldptr) {
+             std::for_each (mAttachedViewports.begin(), mAttachedViewports.end(),
+-                    std::bind1st (std::mem_fun (&PrecipitationController::destroyViewportInstance), oldptr));
++                    [oldptr] (Ogre::Viewport* viewport) {
++                        oldptr->destroyViewportInstance(viewport);
++                    });
+         }
+         // Attach new.
+         if (getAutoAttachViewportsToComponents() && newptr) {
+             std::for_each (mAttachedViewports.begin(), mAttachedViewports.end(),
+-                    std::bind1st (std::mem_fun (&PrecipitationController::createViewportInstance), newptr));
++                    [newptr] (Ogre::Viewport* viewport) {
++                        (void)newptr->createViewportInstance(viewport);
++                    });
+         }
+         mPrecipitationController.reset(newptr);
+     }
+ 
+     void CaelumSystem::setDepthComposer (DepthComposer* ptr) {
+-        mDepthComposer.reset(ptr);
++        if (mDepthComposer.get () != ptr) {
++            mDepthComposer.reset(ptr);
++        }
+         if (getAutoAttachViewportsToComponents() && getDepthComposer ()) {
++            DepthComposer* depthComposer = getDepthComposer ();
+             std::for_each (
+                     mAttachedViewports.begin(), mAttachedViewports.end(),
+-                    std::bind1st (
+-                            std::mem_fun (&DepthComposer::createViewportInstance),
+-                            getDepthComposer ()));
++                    [depthComposer] (Ogre::Viewport* viewport) {
++                        (void)depthComposer->createViewportInstance(viewport);
++                    });
+         }
+     }
+ 
+diff --git a/main/src/CloudSystem.cpp b/main/src/CloudSystem.cpp
+index 9a3846d..af0c87a 100644
+--- a/main/src/CloudSystem.cpp
++++ b/main/src/CloudSystem.cpp
+@@ -27,7 +27,7 @@ namespace Caelum
+ 
+     FlatCloudLayer* CloudSystem::createLayer()
+     {
+-        std::auto_ptr<FlatCloudLayer> layer(new FlatCloudLayer(mSceneMgr, mCloudRoot));
++        std::unique_ptr<FlatCloudLayer> layer(new FlatCloudLayer(mSceneMgr, mCloudRoot));
+         mLayers.push_back(layer.get());
+         return layer.release();
+     }
+diff --git a/main/src/DepthComposer.cpp b/main/src/DepthComposer.cpp
+index fac35d7..59e0a5e 100644
+--- a/main/src/DepthComposer.cpp
++++ b/main/src/DepthComposer.cpp
+@@ -226,7 +226,7 @@ namespace Caelum
+     {
+         ViewportInstanceMap::const_iterator it = mViewportInstanceMap.find(vp);
+         if (it == mViewportInstanceMap.end()) {
+-            std::auto_ptr<DepthComposerInstance> inst(new DepthComposerInstance(this, vp));
++            std::unique_ptr<DepthComposerInstance> inst(new DepthComposerInstance(this, vp));
+             mViewportInstanceMap.insert(std::make_pair(vp, inst.get()));
+             // hold instance until successfully added to map.
+             return inst.release();
+diff --git a/main/src/FlatCloudLayer.cpp b/main/src/FlatCloudLayer.cpp
+index 82ab75c..2f4a13d 100644
+--- a/main/src/FlatCloudLayer.cpp
++++ b/main/src/FlatCloudLayer.cpp
+@@ -211,7 +211,7 @@ namespace Caelum
+     }
+ 
+ 	void FlatCloudLayer::setCloudCoverLookup (const Ogre::String& fileName) {
+-        mCloudCoverLookup.reset(0);
++        mCloudCoverLookup.reset();
+         mCloudCoverLookup.reset(new Ogre::Image());
+         mCloudCoverLookup->load(fileName, RESOURCE_GROUP_NAME);
+ 
+@@ -219,7 +219,7 @@ namespace Caelum
+     }
+ 
+     void FlatCloudLayer::disableCloudCoverLookup () {
+-        mCloudCoverLookup.reset (0);
++        mCloudCoverLookup.reset ();
+         mCloudCoverLookupFileName.clear ();
+     }
+ 
+diff --git a/main/src/PrecipitationController.cpp b/main/src/PrecipitationController.cpp
+index baf1dfc..9e483ea 100644
+--- a/main/src/PrecipitationController.cpp
++++ b/main/src/PrecipitationController.cpp
+@@ -335,7 +335,7 @@ namespace Caelum
+     {
+         ViewportInstanceMap::const_iterator it = mViewportInstanceMap.find (vp);
+         if (it == mViewportInstanceMap.end()) {
+-            std::auto_ptr<PrecipitationInstance> inst (new PrecipitationInstance(this, vp));
++            std::unique_ptr<PrecipitationInstance> inst (new PrecipitationInstance(this, vp));
+             mViewportInstanceMap.insert (std::make_pair (vp, inst.get()));
+             // hold instance until successfully added to map.
+             return inst.release();

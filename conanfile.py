@@ -6,6 +6,12 @@ from conan.tools.files import copy
 
 
 OGRE14_RECIPE_REVISION = "eed82ba79eff2ce2ad4135d539f83929"
+ANGELSCRIPT_RECIPE_REVISION = "8c9b8d736d0176a6e69c64a4501eeeb1"
+OGRE_LEGACY_RECIPE_REVISION = "14a5ef79ac748a7159824954dc1b8a43"
+CAELUM_LEGACY_RECIPE_REVISION = "3bb39b61a989f2f7deaecbab2d4177db"
+MYGUI_LEGACY_RECIPE_REVISION = "d544e344e389c9b287124fea8b567d01"
+PAGED_GEOMETRY_LEGACY_RECIPE_REVISION = "f87be81bcfb192a40b575cd651bf516c"
+OIS_RECIPE_REVISION = "d5025190ec611a8e0851cb16a07437a2"
 SDL2_RECIPE_REVISION = "19432981a8779c918a13682d4186fa3b"
 SUPPORTED_OGRE14_TARGETS = {
     ("Linux", "x86_64"),
@@ -42,12 +48,9 @@ class RoR(ConanFile):
 
     def requirements(self):
         self.requires(
-            "angelscript/2.38.0" if self.options.ogre14 else "angelscript/2.35.1"
+            f"angelscript/2.38.0#{ANGELSCRIPT_RECIPE_REVISION}"
         )
-        if self.options.ogre14 or str(self.settings.os) == "Macos":
-            self.requires("ois/1.5.1")
-        else:
-            self.requires("ois/1.4.1@rigsofrods/custom")
+        self.requires(f"ois/1.5.1#{OIS_RECIPE_REVISION}")
 
         self.requires("discord-rpc/3.4.0@anotherfoxguy/stable")
         self.requires("libcurl/8.2.1")
@@ -62,11 +65,21 @@ class RoR(ConanFile):
                 force=True,
             )
         else:
-            self.requires("mygui/3.4.0@anotherfoxguy/stable")
-            self.requires("ogre3d-caelum/0.6.3.1@anotherfoxguy/stable")
-            self.requires("ogre3d-pagedgeometry/1.2.0@anotherfoxguy/stable")
             self.requires(
-                "ogre3d/1.11.6.1@anotherfoxguy/stable",
+                "mygui/3.4.0@anotherfoxguy/stable"
+                f"#{MYGUI_LEGACY_RECIPE_REVISION}"
+            )
+            self.requires(
+                "ogre3d-caelum/0.6.3.1@anotherfoxguy/stable"
+                f"#{CAELUM_LEGACY_RECIPE_REVISION}"
+            )
+            self.requires(
+                "ogre3d-pagedgeometry/1.2.0@anotherfoxguy/stable"
+                f"#{PAGED_GEOMETRY_LEGACY_RECIPE_REVISION}"
+            )
+            self.requires(
+                "ogre3d/1.11.6.1@anotherfoxguy/stable"
+                f"#{OGRE_LEGACY_RECIPE_REVISION}",
                 force=True,
             )
         self.requires("openal-soft/1.24.3")
@@ -81,7 +94,18 @@ class RoR(ConanFile):
             override=True,
         )
         self.requires("zlib/1.3.2", override=True)
-        self.requires("zziplib/0.13.78@anotherfoxguy/stable", override=True)
+        if self.options.ogre14:
+            # Retained for the Ogre 14 lock boundary; no active package in the
+            # supported graph consumes this compatibility override.
+            self.requires(
+                "zziplib/0.13.78@anotherfoxguy/stable",
+                override=True,
+            )
+        else:
+            self.requires(
+                "zziplib/0.13.78#a702ebdfc849d51f40651cfd8010aecb",
+                override=True,
+            )
 
     def generate(self):
         tc = CMakeToolchain(self)

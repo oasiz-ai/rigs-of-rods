@@ -1035,8 +1035,8 @@ if (ROR_RENDERER_PUBLIC_LAUNCHER)
         FILES "${_ror_renderer_launcher_generated_header}")
 
     message(STATUS
-        "Renderer suite packages Ogre-Next-first RoR with admitted "
-        "RoR-Ogre14 fallback")
+        "Renderer suite packages Ogre-Next-visible RoR with an authenticated "
+        "hidden RoR-Ogre14 resource host")
 endif ()
 
 if (ROR_OGRE14 AND UNIX AND NOT APPLE)
@@ -1446,14 +1446,6 @@ if (ROR_USE_PAGED)
     target_compile_definitions(${BINNAME} PRIVATE USE_PAGED)
 endif ()
 
-# Caelum and PagedGeometry still expose std::auto_ptr in their public headers.
-# MSVC removes that compatibility type in C++17 unless its documented
-# transition switch is enabled. Scope it to RoR's legacy consumer target and
-# only when at least one affected header surface is active.
-if (MSVC AND (ROR_USE_CAELUM OR ROR_USE_PAGED))
-    target_compile_definitions(${BINNAME} PRIVATE _HAS_AUTO_PTR_ETC=1)
-endif ()
-
 ####################################################################################################
 #  POST-BUILD STEPS
 ####################################################################################################
@@ -1466,15 +1458,16 @@ extract_pot("${SOURCE_FILES}")
 
 # Configure plugins.cfg
 # -----------------------
-if (NOT WIN32)
-    set(CFG_COMMENT_RENDERSYSTEM_D3D9 "# ")
-endif ()
+set(CFG_COMMENT_RENDERSYSTEM_D3D9 "# ")
+set(CFG_COMMENT_RENDERSYSTEM_D3D11 "# ")
 
 if (WIN32)
     set(CFG_COMMENT_RENDERSYSTEM_GL "# ")
+    if (NOT ROR_OGRE14)
+        set(CFG_COMMENT_RENDERSYSTEM_D3D11 "")
+    endif ()
 endif ()
 
-set(CFG_COMMENT_RENDERSYSTEM_D3D11 "# ")
 set(CFG_COMMENT_RENDERSYSTEM_GL3PLUS "# ")
 set(CFG_COMMENT_RENDERSYSTEM_METAL "# ")
 

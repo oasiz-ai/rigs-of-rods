@@ -43,7 +43,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.conan2
-          key: macos-15-arm64-conan-2.31.1-${{ hashFiles('conanfile.py', 'cmake/conan/locks/*.lock', 'cmake/conan/recipes/**') }}
+          key: macos-15-arm64-conan-2.31.1-${{ hashFiles('conanfile.py', 'cmake/conan/locks/*.lock', 'cmake/conan/recipes/**', 'cmake/conan/export_pinned_dependency_recipes.py') }}
           restore-keys: |
             macos-15-arm64-conan-2.31.1-
 
@@ -62,11 +62,13 @@ jobs:
           conan profile detect --force
           conan remote add \
             conancenter https://center2.conan.io --force
-          conan remote add \
-            rigs-of-rods-deps \
-            https://nexus.anotherfoxguy.com/repository/rigs-of-rods/ \
-            --force
           conan profile show
+
+      - name: Export pinned public dependency recipes
+        run: |
+          python3 cmake/conan/export_pinned_dependency_recipes.py \
+            --archive "$RUNNER_TEMP/ror-conan-recipes.tar.gz" \
+            --extract-root "$RUNNER_TEMP/ror-conan-recipes"
 
       - name: Verify native runner and pinned content
         run: |
@@ -75,6 +77,38 @@ jobs:
             "34fefdd126784bf87b068fc283f812525d159dd7"
           xcodebuild -version
           clang++ --version
+
+      - name: Verify the exact Cg-free Ogre 1.11 compatibility graph
+        run: |
+          mkdir -p artifacts
+          conan export \
+            cmake/conan/recipes/ogre3d-legacy \
+            --version=1.11.6.1 \
+            --user=anotherfoxguy \
+            --channel=stable
+          conan export \
+            cmake/conan/recipes/ogre3d-caelum-legacy \
+            --user=anotherfoxguy \
+            --channel=stable
+          conan export \
+            cmake/conan/recipes/ogre3d-pagedgeometry-legacy \
+            --user=anotherfoxguy \
+            --channel=stable
+          graph="artifacts/macos-arm64-ogre11-conan-graph.json"
+          receipt="artifacts/macos-arm64-ogre11-conan-graph-receipt.json"
+          conan graph info . \
+            --profile:host="$GITHUB_WORKSPACE/cmake/conan/profiles/macos-arm64-release" \
+            --profile:build="$GITHUB_WORKSPACE/cmake/conan/profiles/macos-arm64-release" \
+            --lockfile="$GITHUB_WORKSPACE/cmake/conan/locks/ror-ogre11-macos-arm64-release.lock" \
+            -o='&:ogre14=False' \
+            --build='*' \
+            -c:h='tools.cmake:configure_args=["-DCMAKE_POLICY_VERSION_MINIMUM=3.5"]' \
+            --format=json \
+            > "$graph"
+          python3 tests/tools/assert_ogre11_app_graph.py \
+            "$graph" \
+            --platform macos-arm64 \
+            | tee "$receipt"
 
       - name: Configure OgreNext-first native application
         run: |

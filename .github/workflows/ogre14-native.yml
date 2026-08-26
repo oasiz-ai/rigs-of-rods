@@ -218,6 +218,38 @@ jobs:
           python tests/tools/test_ogre_next_product_packaging_contract.py
           python -O tests/tools/test_ogre_next_product_packaging_contract.py
 
+      - name: Verify the exact Cg-free Ogre 1.11 compatibility graph
+        shell: bash
+        run: |
+          conan export \
+            cmake/conan/recipes/ogre3d-legacy \
+            --version=1.11.6.1 \
+            --user=anotherfoxguy \
+            --channel=stable
+          conan export \
+            cmake/conan/recipes/ogre3d-caelum-legacy \
+            --user=anotherfoxguy \
+            --channel=stable
+          conan export \
+            cmake/conan/recipes/ogre3d-pagedgeometry-legacy \
+            --user=anotherfoxguy \
+            --channel=stable
+          graph="artifacts/${{ matrix.platform }}-ogre11-conan-graph.json"
+          receipt="artifacts/${{ matrix.platform }}-ogre11-conan-graph-receipt.json"
+          conan graph info . \
+            --profile:host="${GITHUB_WORKSPACE}/${{ matrix.profile }}" \
+            --profile:build="${GITHUB_WORKSPACE}/${{ matrix.profile }}" \
+            --lockfile="${GITHUB_WORKSPACE}/cmake/conan/locks/ror-ogre11-${{ matrix.platform }}-release.lock" \
+            -o='&:ogre14=False' \
+            --build='*' \
+            -c:h='tools.cmake:configure_args=["-DCMAKE_POLICY_VERSION_MINIMUM=3.5"]' \
+            --format=json \
+            > "$graph"
+          python tests/tools/assert_ogre11_app_graph.py \
+            "$graph" \
+            --platform "${{ matrix.platform }}" \
+            | tee "$receipt"
+
       - name: Verify the locked native Conan graph
         shell: bash
         run: |
@@ -776,6 +808,8 @@ jobs:
             artifacts/cityworld-bridge-sync-${{ matrix.platform }}.driver.log
             artifacts/cityworld-bridge-crash-evidence-${{ matrix.platform }}
             artifacts/${{ matrix.platform }}-conan-graph.json
+            artifacts/${{ matrix.platform }}-ogre11-conan-graph.json
+            artifacts/${{ matrix.platform }}-ogre11-conan-graph-receipt.json
             artifacts/pinned-conan-recipes.json
             artifacts/${{ matrix.platform }}-runtime-audit.json
             artifacts/${{ matrix.platform }}-runtime-audit.log
