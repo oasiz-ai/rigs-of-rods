@@ -3787,6 +3787,20 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
     declaration_identity = resolved->second.declaration_identity;
     return true;
   }
+  // Resolving writes textures, samplers, identities and the memo below into
+  // the structural cache. That cache is copy-on-write and still shared with
+  // the committed transaction at this point, so mutating it in place would
+  // edit committed state directly and leave the derived retained-publication
+  // caches claiming to describe a cache that no longer matches them. Every
+  // other mutation site takes this step; this one was missing it, and the
+  // result was a frozen projection whose revalidation disagreed with the
+  // publication plan built from it.
+  //
+  // Taken once per material per cache, on the resolution path only, so a
+  // steady-state frame that hits the memo never invalidates retained
+  // publication.
+  EnsurePendingCacheWritable();
+
   // Whatever this resolution concludes is what the material means for the
   // life of this structural cache, success or refusal alike.
   const auto remember = [&]() {
@@ -4508,8 +4522,11 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
   // projection depend on transient resource residency: nothing draws a
   // companion, so its textures can be evicted at any time, and every frame
   // after that would look like an authority change and be dropped.
-  // DIAGNOSTIC: temporarily withheld from the projection key.
-  (void)detail_declaration_identity;
+  if (!detail_declaration_identity.empty()) {
+    AppendField(projection_key, kMaterialDetailLayerPolicy);
+    AppendNumber(projection_key, kMaterialDetailLayerPolicyVersion);
+    AppendField(projection_key, detail_declaration_identity);
+  }
   // A managed declaration with no authored specular output does not change
   // the portable material. Retain the exact opaque-v2 ID/name and keep its
   // declaration receipt as revalidated authority only. The versioned managed
