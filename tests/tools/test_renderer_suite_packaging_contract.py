@@ -331,11 +331,17 @@ class RendererSuitePackagingContractTests(unittest.TestCase):
             with self.subTest(platform="linux", contract=contract):
                 self.assertIn(contract, linux)
 
-    def test_all_storefront_and_bundle_entrypoints_use_public_launcher(
+    def test_split_product_storefront_and_bundle_entrypoints_use_public_launcher(
         self,
     ) -> None:
         self.assertIn(
-            '"-DROR_BUNDLE_EXECUTABLE_NAME=RoR"', self.source_cmake
+            'set(_ror_macos_bundle_executable_name "RoR")',
+            self.source_cmake,
+        )
+        self.assertIn(
+            '"-DROR_BUNDLE_EXECUTABLE_NAME='
+            '${_ror_macos_bundle_executable_name}"',
+            self.source_cmake,
         )
         self.assertIn(
             'if(NOT ROR_BUNDLE_EXECUTABLE_NAME STREQUAL "RoR")',
