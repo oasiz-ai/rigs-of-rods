@@ -1456,7 +1456,7 @@ def build_environment(
         f"{request.width}x{request.height}"
     )
     environment["ALSOFT_DRIVERS"] = "null"
-    environment["ALSOFT_LOGLEVEL"] = "0"
+    environment.setdefault("ALSOFT_LOGLEVEL", "0")
     return environment
 
 

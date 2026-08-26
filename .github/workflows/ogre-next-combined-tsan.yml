@@ -5,6 +5,9 @@ on:
     branches: [nextgen/playable-performance-gate]
     paths:
       - .github/workflows/ogre-next-combined-tsan.yml
+      - CMakeLists.txt
+      - cmake/conan/locks/ror-ogre14-linux-x86_64-tsan.lock
+      - cmake/conan/recipes/openal-soft/**
       - content-source/native_render/**
       - doc/nextgen/FORWARD_NATIVE_ASSET_LEDGER.md
       - resources/nextgen/native/**
@@ -19,10 +22,12 @@ on:
       - source/main/gfx/render/NativeVisualShowcaseSceneSource.h
       - tests/CMakeLists.txt
       - tests/fixtures/beamng/jbeam_multi_actor_tsan_soak/**
+      - tests/tools/test_openal_tsan_dependency_contract.py
       - tests/tools/test_run_jbeam_multi_actor_tsan_soak.py
       - tests/tools/test_run_playable_performance_scene.py
       - tools/run_jbeam_multi_actor_tsan_soak.py
       - tools/run_playable_performance_scene.py
+      - tools/audit_openal_tsan_package.py
       - source/main/gfx/render/Ogre14ParticleCaptureSource.cpp
       - source/main/gfx/render/Ogre14ParticleCaptureSource.h
       - source/main/gfx/render/ogrenext/OgreNextN1ParticleRuntime.cpp
@@ -113,7 +118,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ${{ runner.temp }}/ror-combined-tsan-conan-home
-          key: ogre-next-combined-linux-gcc11-release-conan-2.31.1-${{ hashFiles('conanfile.py', 'cmake/conan/locks/*.lock', 'cmake/conan/profiles/*', 'cmake/conan/recipes/**', 'cmake/conan/export_pinned_dependency_recipes.py') }}
+          key: ogre-next-combined-linux-gcc11-tsan-openal-source-v1-conan-2.31.1-${{ hashFiles('conanfile.py', 'cmake/conan/locks/*.lock', 'cmake/conan/profiles/*', 'cmake/conan/recipes/**', 'cmake/conan/export_pinned_dependency_recipes.py') }}
 
       - name: Configure isolated Conan client
         shell: bash
@@ -159,6 +164,8 @@ jobs:
       - name: Run full-runtime TSan fail-closed contracts
         shell: bash
         run: |
+          python tests/tools/test_openal_tsan_dependency_contract.py
+          python -O tests/tools/test_openal_tsan_dependency_contract.py
           python tests/tools/test_run_jbeam_multi_actor_tsan_soak.py
           python -O tests/tools/test_run_jbeam_multi_actor_tsan_soak.py
           python tests/tools/test_ogre_next_combined_provider_contract.py
@@ -192,6 +199,7 @@ jobs:
             -DROR_BUILD_QUALIFICATION_TOOLS=OFF \
             -DROR_CREATE_CONTENT_FOLDER=ON \
             -DROR_OGRE_NEXT_COMBINED_RUNTIME=ON \
+            -DROR_TSAN_INSTRUMENT_OPENAL=ON \
             -DROR_RENDERER_PUBLIC_LAUNCHER=OFF \
             -DROR_OGRE_NEXT_PRODUCTION_PACKAGE=OFF \
             -DROR_OGRE_NEXT_DEMO_ADMISSION=OFF
@@ -203,6 +211,15 @@ jobs:
           --build "$ROR_TSAN_BUILD_DIR"
           --target RoR-Combined
           --config Release
+
+      - name: Prove the pinned OpenAL archive is source-instrumented
+        shell: bash
+        run: |
+          python3 tools/audit_openal_tsan_package.py \
+            --conan-home "$CONAN_HOME" \
+            --build-dir "$ROR_TSAN_BUILD_DIR" \
+            --artifact-dir "$ROR_TSAN_ARTIFACTS_DIR/openal-soft-tsan"
+          test -s "$ROR_TSAN_ARTIFACTS_DIR/openal-soft-tsan/receipt.json"
 
       - name: Prove ThreadSanitizer instrumentation and combined ownership
         shell: bash
@@ -225,10 +242,15 @@ jobs:
         shell: bash
         run: |
           evidence="$ROR_TSAN_ARTIFACTS_DIR/packaged-simple2-semi"
+          openal_log="$evidence/openal-soft-packaged-scene.log"
           tsan_log="$RUNNER_TEMP/ror-combined-packaged-tsan-report"
           test ! -e "$evidence"
+          test ! -e "$openal_log"
           export TSAN_OPTIONS="halt_on_error=1:exitcode=66:history_size=7:second_deadlock_stack=1:log_path=$tsan_log"
           scene_status=0
+          ALSOFT_DRIVERS=null \
+          ALSOFT_LOGLEVEL=3 \
+          ALSOFT_LOGFILE="$openal_log" \
           LP_NUM_THREADS=0 \
           LD_LIBRARY_PATH="$ROR_TSAN_BUILD_DIR/bin${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
           xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
@@ -257,12 +279,121 @@ jobs:
               -name 'ror-combined-packaged-tsan-report*' \
               -type f -exec cp {} "$ROR_TSAN_ARTIFACTS_DIR/" \;
           fi
+          audio_status=0
+          python - \
+            "$evidence/RoR.log" \
+            "$openal_log" \
+            "$ROR_TSAN_ARTIFACTS_DIR/openal-soft-tsan/receipt.json" \
+            "$evidence/openal-audio-runtime-initialization.json" <<'PY' || audio_status=$?
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import sys
+
+          log_path = Path(sys.argv[1])
+          openal_log_path = Path(sys.argv[2])
+          dependency_receipt_path = Path(sys.argv[3])
+          output_path = Path(sys.argv[4])
+          if not log_path.is_file() or log_path.is_symlink():
+              raise SystemExit("packaged TSan scene did not retain a regular RoR.log")
+          if not openal_log_path.is_file() or openal_log_path.is_symlink():
+              raise SystemExit(
+                  "packaged TSan scene did not retain a regular OpenAL trace"
+              )
+          if not dependency_receipt_path.is_file():
+              raise SystemExit("OpenAL TSan dependency receipt is absent")
+          log_bytes = log_path.read_bytes()
+          if not log_bytes or len(log_bytes) > 256 * 1024 * 1024:
+              raise SystemExit("packaged TSan RoR.log byte count is invalid")
+          log = log_bytes.decode("utf-8", errors="replace")
+          openal_log_bytes = openal_log_path.read_bytes()
+          if not openal_log_bytes or len(openal_log_bytes) > 64 * 1024 * 1024:
+              raise SystemExit("packaged TSan OpenAL trace byte count is invalid")
+          openal_log = openal_log_bytes.decode("utf-8", errors="replace")
+          backend_marker = 'Added "null" for playback'
+          if openal_log.count(backend_marker) != 1:
+              raise SystemExit(
+                  "packaged TSan OpenAL trace did not add exactly one null backend"
+              )
+          created_devices = re.findall(
+              r'Created device [^,\r\n]+, "No Output"', openal_log
+          )
+          if len(created_devices) != 1:
+              raise SystemExit(
+                  "packaged TSan OpenAL trace did not create exactly one null device"
+              )
+          version = "SoundManager: OpenAL version is: 1.1 ALSOFT 1.24.3"
+          renderer = "SoundManager: OpenAL renderer is: OpenAL Soft"
+          default_wav = "Loading WAV file default_break.wav"
+          instance = "SoundScriptInstance: instance created: defaults.soundscript-"
+          for marker in (version, renderer, default_wav, instance):
+              if marker not in log:
+                  raise SystemExit(f"packaged TSan audio marker is absent: {marker}")
+          source_counts = [
+              int(value)
+              for value in re.findall(
+                  r"SoundScriptManager: Sound Manager started with ([0-9]+) sources",
+                  log,
+              )
+          ]
+          if len(source_counts) != 1 or source_counts[0] <= 0:
+              raise SystemExit(
+                  "packaged TSan scene did not initialize positive OpenAL sources"
+              )
+          for forbidden in (
+              "SoundScriptManager: Sound Manager is disabled",
+              "SoundScriptManager: Failed to create the Sound Manager",
+              "Failed to open configured audio device",
+              "Failed to open default audio device. Sound disabled.",
+              "Failed to make the OpenAL context current. Sound disabled.",
+          ):
+              if forbidden in log:
+                  raise SystemExit(
+                      f"packaged TSan scene used disabled/fallback audio: {forbidden}"
+                  )
+          dependency_bytes = dependency_receipt_path.read_bytes()
+          dependency_receipt = json.loads(dependency_bytes)
+          if not isinstance(dependency_receipt, dict):
+              raise SystemExit("OpenAL TSan dependency receipt is not an object")
+          receipt = {
+              "format": "ror-openal-tsan-audio-runtime-initialization-v1",
+              "lane": "packaged-simple2-semi",
+              "backend": "null",
+              "evidence_scope": (
+                  "runtime-initialization-and-null-backend-device-creation"
+              ),
+              "null_backend_added": True,
+              "null_device_created": True,
+              "openal_version": "1.1 ALSOFT 1.24.3",
+              "hardware_sources": source_counts[0],
+              "default_wav": "default_break.wav",
+              "openal_log_sha256": hashlib.sha256(
+                  openal_log_bytes
+              ).hexdigest(),
+              "ror_log_sha256": hashlib.sha256(log_bytes).hexdigest(),
+              "dependency_receipt_sha256": hashlib.sha256(
+                  dependency_bytes
+              ).hexdigest(),
+          }
+          temporary = output_path.with_suffix(output_path.suffix + ".tmp")
+          temporary.write_text(
+              json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          os.replace(temporary, output_path)
+          PY
           if (( scene_status != 0 )); then
             echo "Packaged TSan scene exited with status $scene_status" >&2
             exit "$scene_status"
           fi
           if (( tsan_reports != 0 )); then
             exit 1
+          fi
+          if (( audio_status != 0 )); then
+            echo 'Packaged TSan scene did not prove OpenAL initialization and null-device creation' >&2
+            exit "$audio_status"
           fi
           python - "$evidence/performance-run.json" <<'PY'
           import json
@@ -315,9 +446,15 @@ jobs:
         shell: bash
         run: |
           evidence="$ROR_TSAN_ARTIFACTS_DIR/full-runtime-tsan-soak"
+          openal_log="$evidence/openal-soft-full-soak.log"
           tsan_log="$RUNNER_TEMP/ror-combined-tsan-report"
           test ! -e "$evidence"
+          test ! -e "$openal_log"
           export TSAN_OPTIONS="halt_on_error=1:exitcode=66:history_size=7:second_deadlock_stack=1:log_path=$tsan_log"
+          soak_status=0
+          ALSOFT_DRIVERS=null \
+          ALSOFT_LOGLEVEL=3 \
+          ALSOFT_LOGFILE="$openal_log" \
           LD_LIBRARY_PATH="$ROR_TSAN_BUILD_DIR/bin${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
           xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
           python tools/run_jbeam_multi_actor_tsan_soak.py \
@@ -326,12 +463,129 @@ jobs:
             --artifact-dir "$evidence" \
             --workers 8 \
             --timeout 1200 \
-            --require-tsan
+            --require-tsan || soak_status=$?
+          tsan_reports=0
           if compgen -G "$tsan_log*" > /dev/null; then
+            tsan_reports=1
             echo 'ThreadSanitizer emitted a diagnostic report' >&2
             find "$RUNNER_TEMP" -maxdepth 1 -name 'ror-combined-tsan-report*' \
               -type f -exec cp {} "$ROR_TSAN_ARTIFACTS_DIR/" \;
+          fi
+          audio_status=0
+          python - \
+            "$evidence/diagnostics/RoR.log" \
+            "$openal_log" \
+            "$ROR_TSAN_ARTIFACTS_DIR/openal-soft-tsan/receipt.json" \
+            "$evidence/openal-audio-runtime-initialization.json" <<'PY' || audio_status=$?
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import sys
+
+          log_path = Path(sys.argv[1])
+          openal_log_path = Path(sys.argv[2])
+          dependency_receipt_path = Path(sys.argv[3])
+          output_path = Path(sys.argv[4])
+          if not log_path.is_file() or log_path.is_symlink():
+              raise SystemExit("full TSan soak did not retain a regular RoR.log")
+          if not openal_log_path.is_file() or openal_log_path.is_symlink():
+              raise SystemExit(
+                  "full TSan soak did not retain a regular OpenAL trace"
+              )
+          if not dependency_receipt_path.is_file():
+              raise SystemExit("OpenAL TSan dependency receipt is absent")
+          log_bytes = log_path.read_bytes()
+          if not log_bytes or len(log_bytes) > 256 * 1024 * 1024:
+              raise SystemExit("full TSan soak RoR.log byte count is invalid")
+          log = log_bytes.decode("utf-8", errors="replace")
+          openal_log_bytes = openal_log_path.read_bytes()
+          if not openal_log_bytes or len(openal_log_bytes) > 64 * 1024 * 1024:
+              raise SystemExit("full TSan soak OpenAL trace byte count is invalid")
+          openal_log = openal_log_bytes.decode("utf-8", errors="replace")
+          backend_marker = 'Added "null" for playback'
+          if openal_log.count(backend_marker) != 1:
+              raise SystemExit(
+                  "full TSan soak OpenAL trace did not add exactly one null backend"
+              )
+          created_devices = re.findall(
+              r'Created device [^,\r\n]+, "No Output"', openal_log
+          )
+          if len(created_devices) != 1:
+              raise SystemExit(
+                  "full TSan soak OpenAL trace did not create exactly one null device"
+              )
+          version = "SoundManager: OpenAL version is: 1.1 ALSOFT 1.24.3"
+          renderer = "SoundManager: OpenAL renderer is: OpenAL Soft"
+          default_wav = "Loading WAV file default_break.wav"
+          instance = "SoundScriptInstance: instance created: defaults.soundscript-"
+          for marker in (version, renderer, default_wav, instance):
+              if marker not in log:
+                  raise SystemExit(f"full TSan soak audio marker is absent: {marker}")
+          source_counts = [
+              int(value)
+              for value in re.findall(
+                  r"SoundScriptManager: Sound Manager started with ([0-9]+) sources",
+                  log,
+              )
+          ]
+          if len(source_counts) != 1 or source_counts[0] <= 0:
+              raise SystemExit(
+                  "full TSan soak did not initialize positive OpenAL sources"
+              )
+          for forbidden in (
+              "SoundScriptManager: Sound Manager is disabled",
+              "SoundScriptManager: Failed to create the Sound Manager",
+              "Failed to open configured audio device",
+              "Failed to open default audio device. Sound disabled.",
+              "Failed to make the OpenAL context current. Sound disabled.",
+          ):
+              if forbidden in log:
+                  raise SystemExit(
+                      f"full TSan soak used disabled/fallback audio: {forbidden}"
+                  )
+          dependency_bytes = dependency_receipt_path.read_bytes()
+          dependency_receipt = json.loads(dependency_bytes)
+          if not isinstance(dependency_receipt, dict):
+              raise SystemExit("OpenAL TSan dependency receipt is not an object")
+          receipt = {
+              "format": "ror-openal-tsan-audio-runtime-initialization-v1",
+              "lane": "full-runtime-tsan-soak",
+              "backend": "null",
+              "evidence_scope": (
+                  "runtime-initialization-and-null-backend-device-creation"
+              ),
+              "null_backend_added": True,
+              "null_device_created": True,
+              "openal_version": "1.1 ALSOFT 1.24.3",
+              "hardware_sources": source_counts[0],
+              "default_wav": "default_break.wav",
+              "openal_log_sha256": hashlib.sha256(
+                  openal_log_bytes
+              ).hexdigest(),
+              "ror_log_sha256": hashlib.sha256(log_bytes).hexdigest(),
+              "dependency_receipt_sha256": hashlib.sha256(
+                  dependency_bytes
+              ).hexdigest(),
+          }
+          temporary = output_path.with_suffix(output_path.suffix + ".tmp")
+          temporary.write_text(
+              json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          os.replace(temporary, output_path)
+          PY
+          if (( soak_status != 0 )); then
+            echo "Full-runtime TSan soak exited with status $soak_status" >&2
+            exit "$soak_status"
+          fi
+          if (( tsan_reports != 0 )); then
             exit 1
+          fi
+          if (( audio_status != 0 )); then
+            echo 'Full-runtime TSan soak did not prove OpenAL initialization and null-device creation' >&2
+            exit "$audio_status"
           fi
 
       - name: Validate the exact sanitizer evidence receipt

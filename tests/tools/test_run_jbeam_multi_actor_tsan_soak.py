@@ -199,7 +199,12 @@ class JBeamMultiActorTSanSoakTests(unittest.TestCase):
     def test_runtime_environment_forces_synchronous_hidden_llvmpipe(self) -> None:
         with mock.patch.dict(
             GATE.os.environ,
-            {"LP_NUM_THREADS": "12", "SNAP_USER_COMMON": "/tmp/snap"},
+            {
+                "ALSOFT_LOGFILE": "/tmp/ror-openal-soft.log",
+                "ALSOFT_LOGLEVEL": "3",
+                "LP_NUM_THREADS": "12",
+                "SNAP_USER_COMMON": "/tmp/snap",
+            },
             clear=True,
         ):
             isolated_home = Path("/tmp/ror-home")
@@ -207,6 +212,10 @@ class JBeamMultiActorTSanSoakTests(unittest.TestCase):
         self.assertEqual(environment["LP_NUM_THREADS"], "0")
         self.assertEqual(
             environment["ROR_D0_SCENE_HOME"], str(isolated_home)
+        )
+        self.assertEqual(environment["ALSOFT_LOGLEVEL"], "3")
+        self.assertEqual(
+            environment["ALSOFT_LOGFILE"], "/tmp/ror-openal-soft.log"
         )
         self.assertNotIn("SNAP_USER_COMMON", environment)
 

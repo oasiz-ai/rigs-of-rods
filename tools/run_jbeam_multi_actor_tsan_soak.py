@@ -290,7 +290,7 @@ def build_runtime_environment(isolated_home: Path) -> dict[str, str]:
     environment.pop("SNAP_USER_COMMON", None)
     environment["ROR_D0_SCENE_HOME"] = str(isolated_home)
     environment["ALSOFT_DRIVERS"] = "null"
-    environment["ALSOFT_LOGLEVEL"] = "0"
+    environment.setdefault("ALSOFT_LOGLEVEL", "0")
     # Mesa documents zero as fully synchronous llvmpipe rendering. The hidden
     # OGRE14 resource host does not need a raster worker pool in this physics
     # and lifetime soak, while the visible Ogre-Next Vulkan renderer remains

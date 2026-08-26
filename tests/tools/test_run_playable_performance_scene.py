@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -794,7 +795,16 @@ class ConfigurationTests(unittest.TestCase):
 
     def test_environment_isolates_the_profile(self) -> None:
         isolated_home = Path(tempfile.gettempdir()).resolve() / "ror-home"
-        environment = runner.build_environment(isolated_home, make_request())
+        with mock.patch.dict(
+            runner.os.environ,
+            {
+                "ALSOFT_LOGFILE": "/tmp/ror-openal-soft.log",
+                "ALSOFT_LOGLEVEL": "3",
+                "SNAP_USER_COMMON": "/tmp/snap",
+            },
+            clear=True,
+        ):
+            environment = runner.build_environment(isolated_home, make_request())
         self.assertEqual(
             environment["ROR_D0_SCENE_HOME"], str(isolated_home)
         )
@@ -802,6 +812,10 @@ class ConfigurationTests(unittest.TestCase):
             environment["ROR_D0_EXACT_WINDOW_EXTENT"], "1920x1080"
         )
         self.assertEqual(environment["ALSOFT_DRIVERS"], "null")
+        self.assertEqual(environment["ALSOFT_LOGLEVEL"], "3")
+        self.assertEqual(
+            environment["ALSOFT_LOGFILE"], "/tmp/ror-openal-soft.log"
+        )
         self.assertNotIn("SNAP_USER_COMMON", environment)
 
     def test_actor_control_waits_for_a_completed_native_actor_scene(

@@ -67,6 +67,10 @@ option(
     ROR_OGRE_NEXT_COMBINED_RUNTIME
     "Build the first one-process namespaced OgreNext renderer runtime"
     OFF)
+option(
+    ROR_TSAN_INSTRUMENT_OPENAL
+    "Use the pinned source-instrumented OpenAL package for the Linux full-runtime TSan gate"
+    OFF)
 set(ROR_DEPENDENCY_DIR "${CMAKE_SOURCE_DIR}/dependencies" CACHE PATH "Path to the dependencies")
 
 if (ROR_RENDERER_PUBLIC_LAUNCHER AND NOT ROR_OGRE14)
@@ -130,6 +134,21 @@ if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
     unset(_ror_combined_multi_config)
 endif ()
 
+if (ROR_TSAN_INSTRUMENT_OPENAL)
+    if (NOT ROR_OGRE_NEXT_COMBINED_RUNTIME OR
+            NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
+            NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64)$" OR
+            NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        message(FATAL_ERROR
+            "ROR_TSAN_INSTRUMENT_OPENAL is restricted to the reviewed Linux x86_64 GNU RoR-Combined gate")
+    endif ()
+    if (NOT CMAKE_CXX_FLAGS MATCHES "(^|[ ;])-fsanitize=thread($|[ ;])" OR
+            NOT CMAKE_EXE_LINKER_FLAGS MATCHES "(^|[ ;])-fsanitize=thread($|[ ;])")
+        message(FATAL_ERROR
+            "ROR_TSAN_INSTRUMENT_OPENAL requires ThreadSanitizer on both RoR compilation and final linking")
+    endif ()
+endif ()
+
 if (APPLE AND ROR_RENDERER_PUBLIC_LAUNCHER)
     # The signed RoR.app stager owns dependency rewriting, nested-code signing,
     # and both executable roles. A flat CMake install would bypass those gates
@@ -166,19 +185,30 @@ if (ROR_OGRE14)
             "Supported OGRE 14 multi-config build types"
             FORCE)
     endif ()
-    ror_select_ogre14_lockfile(
-        _ror_ogre14_lockfile
-        "${CMAKE_SYSTEM_NAME}"
-        "${CMAKE_SYSTEM_PROCESSOR}"
-    )
+    if (ROR_TSAN_INSTRUMENT_OPENAL)
+        set(_ror_ogre14_lockfile
+            "cmake/conan/locks/ror-ogre14-linux-x86_64-tsan.lock")
+    else ()
+        ror_select_ogre14_lockfile(
+            _ror_ogre14_lockfile
+            "${CMAKE_SYSTEM_NAME}"
+            "${CMAKE_SYSTEM_PROCESSOR}"
+        )
+    endif ()
     if (NOT EXISTS "${CMAKE_SOURCE_DIR}/${_ror_ogre14_lockfile}")
         message(FATAL_ERROR
             "Pinned OGRE 14 lockfile is missing: ${_ror_ogre14_lockfile}")
     endif ()
     find_program(CONAN_COMMAND "conan" REQUIRED)
-    foreach (_ror_recipe IN ITEMS ogre3d mygui)
+    set(_ror_local_recipes ogre3d mygui)
+    if (ROR_TSAN_INSTRUMENT_OPENAL)
+        list(APPEND _ror_local_recipes openal-soft)
+    endif ()
+    foreach (_ror_recipe IN LISTS _ror_local_recipes)
         if (_ror_recipe STREQUAL "ogre3d")
             set(_ror_recipe_version "14.5.2")
+        elseif (_ror_recipe STREQUAL "openal-soft")
+            set(_ror_recipe_version "1.24.3")
         else ()
             set(_ror_recipe_version "3.4.0")
         endif ()
@@ -193,6 +223,7 @@ if (ROR_OGRE14)
             message(FATAL_ERROR "Failed to export ${_ror_recipe} migration recipe")
         endif ()
     endforeach ()
+    unset(_ror_local_recipes)
     unset(_ror_recipe)
     unset(_ror_recipe_version)
     unset(_ror_recipe_export_result)
@@ -202,6 +233,10 @@ if (ROR_OGRE14)
         "--lockfile=${CMAKE_SOURCE_DIR}/${_ror_ogre14_lockfile}"
         "-c:h=tools.cmake:configure_args=[\"-DCMAKE_POLICY_VERSION_MINIMUM=3.5\"]"
     )
+    if (ROR_TSAN_INSTRUMENT_OPENAL)
+        list(APPEND _ror_ogre14_conan_args
+            "-o=openal-soft/*:thread_sanitizer=True")
+    endif ()
     foreach (_ror_conan_arg IN LISTS _ror_ogre14_conan_args)
         list(FIND CONAN_INSTALL_ARGS "${_ror_conan_arg}" _ror_conan_arg_index)
         if (_ror_conan_arg_index EQUAL -1)
@@ -314,6 +349,11 @@ ELSEIF (UNIX)
 endif (WIN32)
 
 include(DependenciesConfig)
+
+if (ROR_TSAN_INSTRUMENT_OPENAL AND NOT ROR_USE_OPENAL)
+    message(FATAL_ERROR
+        "ROR_TSAN_INSTRUMENT_OPENAL requires OpenAL to remain compiled into RoR")
+endif ()
 
 if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
     if (APPLE)
