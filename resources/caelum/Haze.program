@@ -18,27 +18,64 @@
 //along with Caelum. If not, see <http://www.gnu.org/licenses/>.
 //
 
-vertex_program CaelumHazeVP cg
+vertex_program CaelumHazeVP/GL3Plus glsl
 {
-	source CaelumSkyDome.cg
-	entry_point HazeVP
-	profiles vs_2_0 arbvp1 vp30
-
-	default_params
-	{
-		param_named_auto worldViewProj worldviewproj_matrix
-		param_named_auto camPos camera_position
-	}
+    syntax glsl330
+    source CaelumSkyDome_gl3plus.glsl
+    preprocessor_defines CAELUM_HAZE_VERTEX=1
+    default_params
+    {
+        param_named_auto worldViewProj worldviewproj_matrix
+        param_named_auto camPos camera_position
+    }
 }
 
-fragment_program CaelumHazeFP cg
+vertex_program CaelumHazeVP/D3D11 hlsl
 {
-	source CaelumSkyDome.cg
-	entry_point HazeFP
-	profiles ps_2_0 arbfp1 fp30
+    source CaelumSkyDome_d3d11.hlsl
+    entry_point CaelumHazeVS
+    target vs_4_0
+    preprocessor_defines CAELUM_HAZE_VERTEX=1
+    default_params
+    {
+        param_named_auto worldViewProj worldviewproj_matrix
+        param_named_auto camPos camera_position
+    }
+}
 
-	default_params
-	{
-		param_named_auto fogColour fog_colour
-	}
+vertex_program CaelumHazeVP unified
+{
+    delegate CaelumHazeVP/GL3Plus
+    delegate CaelumHazeVP/D3D11
+}
+
+fragment_program CaelumHazeFP/GL3Plus glsl
+{
+    syntax glsl330
+    source CaelumSkyDome_gl3plus.glsl
+    preprocessor_defines CAELUM_HAZE_FRAGMENT=1
+    default_params
+    {
+        param_named atmRelativeDepth int 0
+        param_named gradientsMap int 1
+        param_named_auto fogColour fog_colour
+    }
+}
+
+fragment_program CaelumHazeFP/D3D11 hlsl
+{
+    source CaelumSkyDome_d3d11.hlsl
+    entry_point CaelumHazePS
+    target ps_4_0
+    preprocessor_defines CAELUM_HAZE_FRAGMENT=1
+    default_params
+    {
+        param_named_auto fogColour fog_colour
+    }
+}
+
+fragment_program CaelumHazeFP unified
+{
+    delegate CaelumHazeFP/GL3Plus
+    delegate CaelumHazeFP/D3D11
 }

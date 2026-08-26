@@ -18,35 +18,66 @@
 //along with Caelum. If not, see <http://www.gnu.org/licenses/>.
 //
 
-vertex_program Caelum/StarPointVP cg
+vertex_program Caelum/StarPointVP/GL3Plus glsl
 {
-	source CaelumPointStarfield.cg
-	entry_point StarPointVP
-	profiles vs_2_0 arbvp1 vp30
-
-	default_params
-	{
-	    param_named_auto worldviewproj_matrix worldviewproj_matrix
+    syntax glsl330
+    source CaelumPointStarfield_gl3plus.glsl
+    preprocessor_defines CAELUM_POINT_STAR_VERTEX=1
+    default_params
+    {
+        param_named_auto worldviewproj_matrix worldviewproj_matrix
         param_named_auto render_target_flipping render_target_flipping
-	    
-	    // Default parameters only here to quiet ogre.
-	    param_named mag_scale float -1
+        param_named mag_scale float -1
         param_named mag0_size float -1
         param_named min_size float -1
-        param_named max_size float -1 
+        param_named max_size float -1
         param_named aspect_ratio float -1
-	}
+    }
 }
 
-fragment_program Caelum/StarPointFP cg
+vertex_program Caelum/StarPointVP/D3D11 hlsl
 {
-	source CaelumPointStarfield.cg
-	entry_point StarPointFP
-	profiles ps_2_0 arbfp1 fp30
+    source CaelumPointStarfield_d3d11.hlsl
+    entry_point CaelumPointStarVS
+    target vs_4_0
+    preprocessor_defines CAELUM_POINT_STAR_VERTEX=1
+    default_params
+    {
+        param_named_auto worldviewproj_matrix worldviewproj_matrix
+        param_named_auto render_target_flipping render_target_flipping
+        param_named mag_scale float -1
+        param_named mag0_size float -1
+        param_named min_size float -1
+        param_named max_size float -1
+        param_named aspect_ratio float -1
+    }
+}
 
-	default_params
-	{
-	}
+vertex_program Caelum/StarPointVP unified
+{
+    delegate Caelum/StarPointVP/GL3Plus
+    delegate Caelum/StarPointVP/D3D11
+}
+
+fragment_program Caelum/StarPointFP/GL3Plus glsl
+{
+    syntax glsl330
+    source CaelumPointStarfield_gl3plus.glsl
+    preprocessor_defines CAELUM_POINT_STAR_FRAGMENT=1
+}
+
+fragment_program Caelum/StarPointFP/D3D11 hlsl
+{
+    source CaelumPointStarfield_d3d11.hlsl
+    entry_point CaelumPointStarPS
+    target ps_4_0
+    preprocessor_defines CAELUM_POINT_STAR_FRAGMENT=1
+}
+
+fragment_program Caelum/StarPointFP unified
+{
+    delegate Caelum/StarPointFP/GL3Plus
+    delegate Caelum/StarPointFP/D3D11
 }
 
 material Caelum/StarPoint

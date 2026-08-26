@@ -18,40 +18,106 @@
 // along with Caelum. If not, see <http://www.gnu.org/licenses/>.
 //
 
-vertex_program Caelum/DepthRenderVP cg
+vertex_program Caelum/DepthRenderVP/GL3Plus glsl
 {
-    source DepthComposer.cg
-    entry_point DepthRenderVP
-	profiles vs_2_0 arbvp1
-
+    syntax glsl330
+    source DepthComposer_gl3plus.glsl
+    preprocessor_defines CAELUM_DEPTH_RENDER_VERTEX=1
     default_params
     {
         param_named_auto wvpMatrix worldviewproj_matrix
     }
 }
 
-fragment_program Caelum/DepthRenderFP cg
+vertex_program Caelum/DepthRenderVP/D3D11 hlsl
 {
-    source DepthComposer.cg
-    entry_point DepthRenderFP
-	profiles ps_3_0 fp40 arbfp1
-}
-
-vertex_program Caelum/DepthRenderAlphaRejectionVP cg
-{
-    source DepthComposer.cg
-    entry_point DepthRenderAlphaRejectionVP
-	profiles vs_2_0 arbvp1
-
+    source DepthComposer_d3d11.hlsl
+    entry_point CaelumDepthRenderVS
+    target vs_4_0
+    preprocessor_defines CAELUM_DEPTH_RENDER_VERTEX=1
     default_params
     {
         param_named_auto wvpMatrix worldviewproj_matrix
     }
 }
 
-fragment_program Caelum/DepthRenderAlphaRejectionFP cg
+vertex_program Caelum/DepthRenderVP unified
 {
-    source DepthComposer.cg
-    entry_point DepthRenderAlphaRejectionFP
-	profiles ps_3_0 fp40 arbfp1
+    delegate Caelum/DepthRenderVP/GL3Plus
+    delegate Caelum/DepthRenderVP/D3D11
+}
+
+fragment_program Caelum/DepthRenderFP/GL3Plus glsl
+{
+    syntax glsl330
+    source DepthComposer_gl3plus.glsl
+    preprocessor_defines CAELUM_DEPTH_RENDER_FRAGMENT=1
+}
+
+fragment_program Caelum/DepthRenderFP/D3D11 hlsl
+{
+    source DepthComposer_d3d11.hlsl
+    entry_point CaelumDepthRenderPS
+    target ps_4_0
+    preprocessor_defines CAELUM_DEPTH_RENDER_FRAGMENT=1
+}
+
+fragment_program Caelum/DepthRenderFP unified
+{
+    delegate Caelum/DepthRenderFP/GL3Plus
+    delegate Caelum/DepthRenderFP/D3D11
+}
+
+vertex_program Caelum/DepthRenderAlphaRejectionVP/GL3Plus glsl
+{
+    syntax glsl330
+    source DepthComposer_gl3plus.glsl
+    preprocessor_defines CAELUM_DEPTH_ALPHA_VERTEX=1
+    default_params
+    {
+        param_named_auto wvpMatrix worldviewproj_matrix
+    }
+}
+
+vertex_program Caelum/DepthRenderAlphaRejectionVP/D3D11 hlsl
+{
+    source DepthComposer_d3d11.hlsl
+    entry_point CaelumDepthAlphaVS
+    target vs_4_0
+    preprocessor_defines CAELUM_DEPTH_ALPHA_VERTEX=1
+    default_params
+    {
+        param_named_auto wvpMatrix worldviewproj_matrix
+    }
+}
+
+vertex_program Caelum/DepthRenderAlphaRejectionVP unified
+{
+    delegate Caelum/DepthRenderAlphaRejectionVP/GL3Plus
+    delegate Caelum/DepthRenderAlphaRejectionVP/D3D11
+}
+
+fragment_program Caelum/DepthRenderAlphaRejectionFP/GL3Plus glsl
+{
+    syntax glsl330
+    source DepthComposer_gl3plus.glsl
+    preprocessor_defines CAELUM_DEPTH_ALPHA_FRAGMENT=1
+    default_params
+    {
+        param_named mainTex int 0
+    }
+}
+
+fragment_program Caelum/DepthRenderAlphaRejectionFP/D3D11 hlsl
+{
+    source DepthComposer_d3d11.hlsl
+    entry_point CaelumDepthAlphaPS
+    target ps_4_0
+    preprocessor_defines CAELUM_DEPTH_ALPHA_FRAGMENT=1
+}
+
+fragment_program Caelum/DepthRenderAlphaRejectionFP unified
+{
+    delegate Caelum/DepthRenderAlphaRejectionFP/GL3Plus
+    delegate Caelum/DepthRenderAlphaRejectionFP/D3D11
 }

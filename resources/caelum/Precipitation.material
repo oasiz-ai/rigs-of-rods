@@ -18,27 +18,59 @@
 // along with Caelum. If not, see <http://www.gnu.org/licenses/>.
 //
 
-fragment_program Caelum/PrecipitationFP cg
+fragment_program Caelum/PrecipitationFP/GL3Plus glsl
 {
-	source Precipitation.cg
-	entry_point MainFP
-	profiles ps_3_0 fp40 arbfp1
-	
-	default_params
-	{
-	}
+    syntax glsl330
+    source Precipitation_gl3plus.glsl
+    preprocessor_defines CAELUM_PRECIPITATION_FRAGMENT=1
+    default_params
+    {
+        param_named scene int 0
+        param_named samplerPrec int 1
+    }
 }
 
-vertex_program Caelum/PrecipitationVP cg
+fragment_program Caelum/PrecipitationFP/D3D11 hlsl
 {
-	source Precipitation.cg
-	entry_point MainVP
-	profiles vs_3_0 vp40 arbvp1
-	
-	default_params
-	{
-		param_named_auto worldviewproj_matrix worldviewproj_matrix
-	}
+    source Precipitation_d3d11.hlsl
+    entry_point CaelumPrecipitationPS
+    target ps_4_0
+    preprocessor_defines CAELUM_PRECIPITATION_FRAGMENT=1
+}
+
+fragment_program Caelum/PrecipitationFP unified
+{
+    delegate Caelum/PrecipitationFP/GL3Plus
+    delegate Caelum/PrecipitationFP/D3D11
+}
+
+vertex_program Caelum/PrecipitationVP/GL3Plus glsl
+{
+    syntax glsl330
+    source Precipitation_gl3plus.glsl
+    preprocessor_defines CAELUM_PRECIPITATION_VERTEX=1
+    default_params
+    {
+        param_named_auto worldviewproj_matrix worldviewproj_matrix
+    }
+}
+
+vertex_program Caelum/PrecipitationVP/D3D11 hlsl
+{
+    source Precipitation_d3d11.hlsl
+    entry_point CaelumPrecipitationVS
+    target vs_4_0
+    preprocessor_defines CAELUM_PRECIPITATION_VERTEX=1
+    default_params
+    {
+        param_named_auto worldviewproj_matrix worldviewproj_matrix
+    }
+}
+
+vertex_program Caelum/PrecipitationVP unified
+{
+    delegate Caelum/PrecipitationVP/GL3Plus
+    delegate Caelum/PrecipitationVP/D3D11
 }
 
 material Caelum/PrecipitationMaterial

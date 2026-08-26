@@ -18,16 +18,34 @@
 //along with Caelum. If not, see <http://www.gnu.org/licenses/>.
 //
 
-fragment_program Caelum/PhaseMoonFP cg
+fragment_program Caelum/PhaseMoonFP/GL3Plus glsl
 {
-	source CaelumPhaseMoon.cg
-	entry_point PhaseMoonFP
-	profiles ps_2_0 arbfp1 fp30
+    syntax glsl330
+    source CaelumPhaseMoon_gl3plus.glsl
+    preprocessor_defines CAELUM_PHASE_MOON_FRAGMENT=1
+    default_params
+    {
+        param_named phase float 0.3
+        param_named moonDisc int 0
+    }
+}
 
-	default_params
-	{
-		param_named phase float 0.3
-	}
+fragment_program Caelum/PhaseMoonFP/D3D11 hlsl
+{
+    source CaelumPhaseMoon_d3d11.hlsl
+    entry_point CaelumPhaseMoonPS
+    target ps_4_0
+    preprocessor_defines CAELUM_PHASE_MOON_FRAGMENT=1
+    default_params
+    {
+        param_named phase float 0.3
+    }
+}
+
+fragment_program Caelum/PhaseMoonFP unified
+{
+    delegate Caelum/PhaseMoonFP/GL3Plus
+    delegate Caelum/PhaseMoonFP/D3D11
 }
 
 material Caelum/FullMoon
@@ -140,4 +158,3 @@ material Caelum/MoonBackground
         }
     } 
 }
-

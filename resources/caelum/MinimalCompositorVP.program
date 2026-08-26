@@ -18,14 +18,31 @@
 // along with Caelum. If not, see <http://www.gnu.org/licenses/>.
 //
 
-vertex_program Caelum/MinimalCompositorVP cg
+vertex_program Caelum/MinimalCompositorVP/GL3Plus glsl
 {
-	source MinimalCompositorVP.cg
-	entry_point MinimalCompositorVP
-	profiles vs_1_1 arbvp1
-	
-	default_params
-	{
-		param_named_auto worldviewproj_matrix worldviewproj_matrix
-	}
+    syntax glsl330
+    source MinimalCompositorVP_gl3plus.glsl
+    preprocessor_defines CAELUM_MINIMAL_COMPOSITOR_VERTEX=1
+    default_params
+    {
+        param_named_auto worldviewproj_matrix worldviewproj_matrix
+    }
+}
+
+vertex_program Caelum/MinimalCompositorVP/D3D11 hlsl
+{
+    source MinimalCompositorVP_d3d11.hlsl
+    entry_point CaelumMinimalCompositorVS
+    target vs_4_0
+    preprocessor_defines CAELUM_MINIMAL_COMPOSITOR_VERTEX=1
+    default_params
+    {
+        param_named_auto worldviewproj_matrix worldviewproj_matrix
+    }
+}
+
+vertex_program Caelum/MinimalCompositorVP unified
+{
+    delegate Caelum/MinimalCompositorVP/GL3Plus
+    delegate Caelum/MinimalCompositorVP/D3D11
 }

@@ -18,66 +18,136 @@
 //along with Caelum. If not, see <http://www.gnu.org/licenses/>.
 //
 
-vertex_program CaelumGroundFogVP cg
+vertex_program CaelumGroundFogVP/GL3Plus glsl
 {
-	source CaelumGroundFog.cg
-	entry_point GroundFog_vp
-	profiles vs_2_x arbvp1 vp30
-
-	default_params
-	{
-		param_named_auto worldViewProj worldviewproj_matrix
-		param_named_auto world world_matrix
-	}
+    syntax glsl330
+    source CaelumGroundFog_gl3plus.glsl
+    preprocessor_defines CAELUM_GROUND_FOG_VERTEX=1
+    default_params
+    {
+        param_named_auto worldViewProj worldviewproj_matrix
+        param_named_auto world world_matrix
+    }
 }
 
-fragment_program CaelumGroundFogFP cg
+vertex_program CaelumGroundFogVP/D3D11 hlsl
 {
-	source CaelumGroundFog.cg
-	entry_point GroundFog_fp
-	profiles ps_2_x arbfp1 fp30
-	
-	default_params
-	{
-		param_named_auto camPos camera_position
-		
-		// _auto seems wrong here, since the fog formulas are different than
-		// for standard exp fog.
-		param_named fogDensity float 0
-		param_named fogVerticalDecay float 0
-		param_named fogGroundLevel float 0
-		param_named fogColour float4 0 0 0 0
-	}
+    source CaelumGroundFog_d3d11.hlsl
+    entry_point CaelumGroundFogVS
+    target vs_4_0
+    preprocessor_defines CAELUM_GROUND_FOG_VERTEX=1
+    default_params
+    {
+        param_named_auto worldViewProj worldviewproj_matrix
+        param_named_auto world world_matrix
+    }
 }
 
-vertex_program CaelumGroundFogDomeVP cg
+vertex_program CaelumGroundFogVP unified
 {
-	source CaelumGroundFog.cg
-	entry_point GroundFogDome_vp
-	profiles vs_2_0 arbvp1
-	
-	default_params
-	{
-		param_named_auto worldViewProj worldviewproj_matrix
-	}
+    delegate CaelumGroundFogVP/GL3Plus
+    delegate CaelumGroundFogVP/D3D11
 }
 
-fragment_program CaelumGroundFogDomeFP cg
+fragment_program CaelumGroundFogFP/GL3Plus glsl
 {
-	source CaelumGroundFog.cg
-	entry_point GroundFogDome_fp
-	profiles ps_2_0 arbfp1
+    syntax glsl330
+    source CaelumGroundFog_gl3plus.glsl
+    preprocessor_defines CAELUM_GROUND_FOG_FRAGMENT=1
+    default_params
+    {
+        param_named_auto camPos camera_position
+        param_named fogDensity float 0
+        param_named fogVerticalDecay float 0
+        param_named fogGroundLevel float 0
+        param_named fogColour float4 0 0 0 0
+    }
+}
 
-	default_params
-	{
-		// Fog parameters.
-		param_named fogColour float4 0 0 0 0
-		param_named fogDensity float 0
-		param_named fogVerticalDecay float 0
-		param_named fogGroundLevel float 0
-		
-		// Send camera height. We can't send camera_position because
-		// the entity is always moved with the camera. Joy.
-		param_named cameraHeight float 0
-	}
+fragment_program CaelumGroundFogFP/D3D11 hlsl
+{
+    source CaelumGroundFog_d3d11.hlsl
+    entry_point CaelumGroundFogPS
+    target ps_4_0
+    preprocessor_defines CAELUM_GROUND_FOG_FRAGMENT=1
+    default_params
+    {
+        param_named_auto camPos camera_position
+        param_named fogDensity float 0
+        param_named fogVerticalDecay float 0
+        param_named fogGroundLevel float 0
+        param_named fogColour float4 0 0 0 0
+    }
+}
+
+fragment_program CaelumGroundFogFP unified
+{
+    delegate CaelumGroundFogFP/GL3Plus
+    delegate CaelumGroundFogFP/D3D11
+}
+
+vertex_program CaelumGroundFogDomeVP/GL3Plus glsl
+{
+    syntax glsl330
+    source CaelumGroundFog_gl3plus.glsl
+    preprocessor_defines CAELUM_GROUND_FOG_DOME_VERTEX=1
+    default_params
+    {
+        param_named_auto worldViewProj worldviewproj_matrix
+    }
+}
+
+vertex_program CaelumGroundFogDomeVP/D3D11 hlsl
+{
+    source CaelumGroundFog_d3d11.hlsl
+    entry_point CaelumGroundFogDomeVS
+    target vs_4_0
+    preprocessor_defines CAELUM_GROUND_FOG_DOME_VERTEX=1
+    default_params
+    {
+        param_named_auto worldViewProj worldviewproj_matrix
+    }
+}
+
+vertex_program CaelumGroundFogDomeVP unified
+{
+    delegate CaelumGroundFogDomeVP/GL3Plus
+    delegate CaelumGroundFogDomeVP/D3D11
+}
+
+fragment_program CaelumGroundFogDomeFP/GL3Plus glsl
+{
+    syntax glsl330
+    source CaelumGroundFog_gl3plus.glsl
+    preprocessor_defines CAELUM_GROUND_FOG_DOME_FRAGMENT=1
+    default_params
+    {
+        param_named fogColour float4 0 0 0 0
+        param_named fogDensity float 0
+        param_named fogVerticalDecay float 0
+        param_named fogGroundLevel float 0
+        param_named cameraHeight float 0
+    }
+}
+
+fragment_program CaelumGroundFogDomeFP/D3D11 hlsl
+{
+    source CaelumGroundFog_d3d11.hlsl
+    entry_point CaelumGroundFogDomePS
+    target ps_4_0
+    preprocessor_defines CAELUM_GROUND_FOG_DOME_FRAGMENT=1
+    default_params
+    {
+        param_named fogColour float4 0 0 0 0
+        param_named fogDensity float 0
+        param_named fogVerticalDecay float 0
+        param_named fogGroundLevel float 0
+        param_named cameraHeight float 0
+    }
+}
+
+fragment_program CaelumGroundFogDomeFP unified
+{
+    delegate CaelumGroundFogDomeFP/GL3Plus
+    delegate CaelumGroundFogDomeFP/D3D11
 }

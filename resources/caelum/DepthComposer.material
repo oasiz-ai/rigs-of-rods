@@ -18,89 +18,186 @@
 // along with Caelum. If not, see <http://www.gnu.org/licenses/>.
 //
 
-fragment_program Caelum/DepthComposerFP_Dummy cg
+fragment_program Caelum/DepthComposerFP_Dummy/GL3Plus glsl
 {
-	source DepthComposer.cg
-	entry_point MainFP
-	profiles ps_3_0 arbfp1
-	
-	default_params
-	{
+    syntax glsl330
+    source DepthComposer_gl3plus.glsl
+    preprocessor_defines CAELUM_DEPTH_COMPOSER_FRAGMENT=1
+    default_params
+    {
+        param_named screenTexture int 0
+        param_named depthTexture int 1
     }
 }
 
-fragment_program Caelum/DepthComposerFP_DebugDepthRender cg
+fragment_program Caelum/DepthComposerFP_Dummy/D3D11 hlsl
 {
-	source DepthComposer.cg
-	entry_point MainFP
-	profiles ps_3_0 arbfp1
-	compile_arguments -DDEBUG_DEPTH_RENDER=1
-	
-	default_params
-	{
+    source DepthComposer_d3d11.hlsl
+    entry_point CaelumDepthComposerPS
+    target ps_4_0
+    preprocessor_defines CAELUM_DEPTH_COMPOSER_FRAGMENT=1
+}
+
+fragment_program Caelum/DepthComposerFP_Dummy unified
+{
+    delegate Caelum/DepthComposerFP_Dummy/GL3Plus
+    delegate Caelum/DepthComposerFP_Dummy/D3D11
+}
+
+fragment_program Caelum/DepthComposerFP_DebugDepthRender/GL3Plus glsl
+{
+    syntax glsl330
+    source DepthComposer_gl3plus.glsl
+    preprocessor_defines CAELUM_DEPTH_COMPOSER_FRAGMENT=1,CAELUM_DEPTH_DEBUG_RENDER=1
+    default_params
+    {
+        param_named screenTexture int 0
+        param_named depthTexture int 1
         param_named invViewProjMatrix float4x4 0 0 0 0  0 0 0 0  0 0 0 0  0 0 0 0
     }
 }
 
-fragment_program Caelum/DepthComposerFP_ExpGroundFog cg
+fragment_program Caelum/DepthComposerFP_DebugDepthRender/D3D11 hlsl
 {
-	source DepthComposer.cg
-	entry_point MainFP
-	profiles ps_3_0 arbfp1
-	compile_arguments -DEXP_GROUND_FOG=1
-	
-	default_params
-	{
+    source DepthComposer_d3d11.hlsl
+    entry_point CaelumDepthComposerPS
+    target ps_4_0
+    preprocessor_defines CAELUM_DEPTH_COMPOSER_FRAGMENT=1,CAELUM_DEPTH_DEBUG_RENDER=1
+    default_params
+    {
         param_named invViewProjMatrix float4x4 0 0 0 0  0 0 0 0  0 0 0 0  0 0 0 0
+    }
+}
 
+fragment_program Caelum/DepthComposerFP_DebugDepthRender unified
+{
+    delegate Caelum/DepthComposerFP_DebugDepthRender/GL3Plus
+    delegate Caelum/DepthComposerFP_DebugDepthRender/D3D11
+}
+
+fragment_program Caelum/DepthComposerFP_ExpGroundFog/GL3Plus glsl
+{
+    syntax glsl330
+    source DepthComposer_gl3plus.glsl
+    preprocessor_defines CAELUM_DEPTH_COMPOSER_FRAGMENT=1,CAELUM_DEPTH_EXP_GROUND_FOG=1
+    default_params
+    {
+        param_named screenTexture int 0
+        param_named depthTexture int 1
+        param_named invViewProjMatrix float4x4 0 0 0 0  0 0 0 0  0 0 0 0  0 0 0 0
         param_named worldCameraPos float4 0 0 0 0
-
         param_named groundFogDensity float 0.1
         param_named groundFogVerticalDecay float 0.2
         param_named groundFogBaseLevel float 5
-		param_named groundFogColour float4 1 0 1 1
+        param_named groundFogColour float4 1 0 1 1
     }
 }
 
-fragment_program Caelum/DepthComposerFP_SkyDomeHaze cg
+fragment_program Caelum/DepthComposerFP_ExpGroundFog/D3D11 hlsl
 {
-	source DepthComposer.cg
-	entry_point MainFP
-	profiles ps_3_0 arbfp1
-	compile_arguments -DSKY_DOME_HAZE=1 -DHAZE_DEPTH_TEXTURE=s2
-	
-	default_params
-	{
+    source DepthComposer_d3d11.hlsl
+    entry_point CaelumDepthComposerPS
+    target ps_4_0
+    preprocessor_defines CAELUM_DEPTH_COMPOSER_FRAGMENT=1,CAELUM_DEPTH_EXP_GROUND_FOG=1
+    default_params
+    {
         param_named invViewProjMatrix float4x4 0 0 0 0  0 0 0 0  0 0 0 0  0 0 0 0
-
         param_named worldCameraPos float4 0 0 0 0
+        param_named groundFogDensity float 0.1
+        param_named groundFogVerticalDecay float 0.2
+        param_named groundFogBaseLevel float 5
+        param_named groundFogColour float4 1 0 1 1
+    }
+}
 
+fragment_program Caelum/DepthComposerFP_ExpGroundFog unified
+{
+    delegate Caelum/DepthComposerFP_ExpGroundFog/GL3Plus
+    delegate Caelum/DepthComposerFP_ExpGroundFog/D3D11
+}
+
+fragment_program Caelum/DepthComposerFP_SkyDomeHaze/GL3Plus glsl
+{
+    syntax glsl330
+    source DepthComposer_gl3plus.glsl
+    preprocessor_defines CAELUM_DEPTH_COMPOSER_FRAGMENT=1,CAELUM_DEPTH_SKY_DOME_HAZE=1
+    default_params
+    {
+        param_named screenTexture int 0
+        param_named depthTexture int 1
+        param_named atmRelativeDepth int 2
+        param_named invViewProjMatrix float4x4 0 0 0 0  0 0 0 0  0 0 0 0  0 0 0 0
+        param_named worldCameraPos float4 0 0 0 0
         param_named sunDirection float3 0 1 0
         param_named hazeColour float3 0.1 0.2 0.6
     }
 }
 
-fragment_program Caelum/DepthComposerFP_SkyDomeHaze_ExpGroundFog cg
+fragment_program Caelum/DepthComposerFP_SkyDomeHaze/D3D11 hlsl
 {
-	source DepthComposer.cg
-	entry_point MainFP
-	profiles ps_3_0 arbfp1
-	compile_arguments -DEXP_GROUND_FOG=1 -DSKY_DOME_HAZE=1 -DHAZE_DEPTH_TEXTURE=s2
-	
-	default_params
-	{
+    source DepthComposer_d3d11.hlsl
+    entry_point CaelumDepthComposerPS
+    target ps_4_0
+    preprocessor_defines CAELUM_DEPTH_COMPOSER_FRAGMENT=1,CAELUM_DEPTH_SKY_DOME_HAZE=1
+    default_params
+    {
+        param_named invViewProjMatrix float4x4 0 0 0 0  0 0 0 0  0 0 0 0  0 0 0 0
+        param_named worldCameraPos float4 0 0 0 0
+        param_named sunDirection float3 0 1 0
+        param_named hazeColour float3 0.1 0.2 0.6
+    }
+}
+
+fragment_program Caelum/DepthComposerFP_SkyDomeHaze unified
+{
+    delegate Caelum/DepthComposerFP_SkyDomeHaze/GL3Plus
+    delegate Caelum/DepthComposerFP_SkyDomeHaze/D3D11
+}
+
+fragment_program Caelum/DepthComposerFP_SkyDomeHaze_ExpGroundFog/GL3Plus glsl
+{
+    syntax glsl330
+    source DepthComposer_gl3plus.glsl
+    preprocessor_defines CAELUM_DEPTH_COMPOSER_FRAGMENT=1,CAELUM_DEPTH_EXP_GROUND_FOG=1,CAELUM_DEPTH_SKY_DOME_HAZE=1
+    default_params
+    {
+        param_named screenTexture int 0
+        param_named depthTexture int 1
+        param_named atmRelativeDepth int 2
         param_named invViewProjMatrix float4x4 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
-
         param_named worldCameraPos float4 0 0 0 0
-
         param_named sunDirection float3 0 1 0
         param_named hazeColour float3 0.1 0.2 0.6
-
         param_named groundFogDensity float 0.1
         param_named groundFogVerticalDecay float 0.2
         param_named groundFogBaseLevel float 5
-		param_named groundFogColour float4 1 0 1 1
+        param_named groundFogColour float4 1 0 1 1
     }
+}
+
+fragment_program Caelum/DepthComposerFP_SkyDomeHaze_ExpGroundFog/D3D11 hlsl
+{
+    source DepthComposer_d3d11.hlsl
+    entry_point CaelumDepthComposerPS
+    target ps_4_0
+    preprocessor_defines CAELUM_DEPTH_COMPOSER_FRAGMENT=1,CAELUM_DEPTH_EXP_GROUND_FOG=1,CAELUM_DEPTH_SKY_DOME_HAZE=1
+    default_params
+    {
+        param_named invViewProjMatrix float4x4 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+        param_named worldCameraPos float4 0 0 0 0
+        param_named sunDirection float3 0 1 0
+        param_named hazeColour float3 0.1 0.2 0.6
+        param_named groundFogDensity float 0.1
+        param_named groundFogVerticalDecay float 0.2
+        param_named groundFogBaseLevel float 5
+        param_named groundFogColour float4 1 0 1 1
+    }
+}
+
+fragment_program Caelum/DepthComposerFP_SkyDomeHaze_ExpGroundFog unified
+{
+    delegate Caelum/DepthComposerFP_SkyDomeHaze_ExpGroundFog/GL3Plus
+    delegate Caelum/DepthComposerFP_SkyDomeHaze_ExpGroundFog/D3D11
 }
 
 material Caelum/DepthRender

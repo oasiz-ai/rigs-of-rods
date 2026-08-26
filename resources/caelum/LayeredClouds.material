@@ -18,73 +18,107 @@
 //along with Caelum. If not, see <http://www.gnu.org/licenses/>.
 //
 
-vertex_program CaelumLayeredCloudsVP cg
+vertex_program CaelumLayeredCloudsVP/GL3Plus glsl
 {
-	source CaelumLayeredClouds.cg
-	entry_point LayeredClouds_vp
-	profiles vs_3_0 vp40 arbvp1
-	
-	default_params
-	{
-		param_named_auto worldViewProj worldviewproj_matrix
-		param_named_auto worldMatrix world_matrix 
-		param_named sunDirection float3 -1 -1 0
-	}
-}
-
-fragment_program CaelumLayeredCloudsFP cg
-{
-	source CaelumLayeredClouds.cg
-    entry_point LayeredClouds_fp
-    profiles ps_3_0 fp40 arbfp1
-
+    syntax glsl330
+    source CaelumLayeredClouds_gl3plus.glsl
+    preprocessor_defines CAELUM_LAYERED_CLOUDS_VERTEX=1
     default_params
     {
-        // Caelum sky properties
+        param_named_auto worldViewProj worldviewproj_matrix
+        param_named_auto worldMatrix world_matrix
+        param_named sunDirection float3 -1 -1 0
+    }
+}
+
+vertex_program CaelumLayeredCloudsVP/D3D11 hlsl
+{
+    source CaelumLayeredClouds_d3d11.hlsl
+    entry_point CaelumLayeredCloudsVS
+    target vs_4_0
+    preprocessor_defines CAELUM_LAYERED_CLOUDS_VERTEX=1
+    default_params
+    {
+        param_named_auto worldViewProj worldviewproj_matrix
+        param_named_auto worldMatrix world_matrix
+        param_named sunDirection float3 -1 -1 0
+    }
+}
+
+vertex_program CaelumLayeredCloudsVP unified
+{
+    delegate CaelumLayeredCloudsVP/GL3Plus
+    delegate CaelumLayeredCloudsVP/D3D11
+}
+
+fragment_program CaelumLayeredCloudsFP/GL3Plus glsl
+{
+    syntax glsl330
+    source CaelumLayeredClouds_gl3plus.glsl
+    preprocessor_defines CAELUM_LAYERED_CLOUDS_FRAGMENT=1
+    default_params
+    {
+        param_named cloud_shape1 int 0
+        param_named cloud_shape2 int 1
+        param_named cloud_detail int 2
         param_named sunLightColour float4 1 1 1 1
         param_named sunSphereColour float4 1 1 1 1
         param_named sunDirection float4 1 1 1 1
-        
-        // Fog colour; used as the base cloud colour.
         param_named fogColour float4 0 0 0 0
-        
-        
-        // The inverse of the cloud forms scale
         param_named cloudMassInvScale float 1.2
-        // The inverse of the cloud details scale
         param_named cloudDetailInvScale float 4.8
-        
-        // Cloud mass offset
         param_named cloudMassOffset float2 0 0
-        // Cloud details offset
         param_named cloudDetailOffset float2 0.5 0.5
-        
-        // Blending factor between Cloud1 and Cloud2
         param_named cloudMassBlend float 0.9
-        // Cloud detail weight.
         param_named cloudDetailBlend float 0.5
-        
-        
-        // Cloud coverage, between 0 and 1
         param_named cloudCoverageThreshold float 0.9
-
-        // Cloud sharpness. Lower values result in softer clouds.
         param_named cloudSharpness float 4
-        
-        // Cloud thickness. Bigger values results in darker clouds.
         param_named cloudThickness float 3
-        
-        param_named_auto camera_position camera_position    
+        param_named_auto camera_position camera_position
         param_named layerHeight float 0
-        
         param_named cloudUVFactor float -1
         param_named heightRedFactor float -1
-
         param_named nearFadeDist float -1
         param_named farFadeDist float -1
-        
         param_named fadeDistMeasurementVector float3 0 1 1
     }
+}
+
+fragment_program CaelumLayeredCloudsFP/D3D11 hlsl
+{
+    source CaelumLayeredClouds_d3d11.hlsl
+    entry_point CaelumLayeredCloudsPS
+    target ps_4_0
+    preprocessor_defines CAELUM_LAYERED_CLOUDS_FRAGMENT=1
+    default_params
+    {
+        param_named sunLightColour float4 1 1 1 1
+        param_named sunSphereColour float4 1 1 1 1
+        param_named sunDirection float4 1 1 1 1
+        param_named fogColour float4 0 0 0 0
+        param_named cloudMassInvScale float 1.2
+        param_named cloudDetailInvScale float 4.8
+        param_named cloudMassOffset float2 0 0
+        param_named cloudDetailOffset float2 0.5 0.5
+        param_named cloudMassBlend float 0.9
+        param_named cloudDetailBlend float 0.5
+        param_named cloudCoverageThreshold float 0.9
+        param_named cloudSharpness float 4
+        param_named cloudThickness float 3
+        param_named_auto camera_position camera_position
+        param_named layerHeight float 0
+        param_named cloudUVFactor float -1
+        param_named heightRedFactor float -1
+        param_named nearFadeDist float -1
+        param_named farFadeDist float -1
+        param_named fadeDistMeasurementVector float3 0 1 1
+    }
+}
+
+fragment_program CaelumLayeredCloudsFP unified
+{
+    delegate CaelumLayeredCloudsFP/GL3Plus
+    delegate CaelumLayeredCloudsFP/D3D11
 }
 
 material CaelumLayeredClouds

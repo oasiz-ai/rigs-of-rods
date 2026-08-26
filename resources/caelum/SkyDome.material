@@ -18,45 +18,99 @@
 //along with Caelum. If not, see <http://www.gnu.org/licenses/>.
 //
 
-fragment_program CaelumSkyDomeFP cg
+fragment_program CaelumSkyDomeFP/GL3Plus glsl
 {
-	source CaelumSkyDome.cg
-	entry_point SkyDomeFP
-	compile_arguments -DHAZE
-	profiles ps_2_0 arbfp1
-
-	default_params
-	{
-		// Caelum sky properties
-		param_named offset float 0
-		param_named hazeColour float4 0 0 0 0
-	}
+    syntax glsl330
+    source CaelumSkyDome_gl3plus.glsl
+    preprocessor_defines CAELUM_SKYDOME_FRAGMENT_HAZE=1
+    default_params
+    {
+        param_named gradientsMap int 0
+        param_named atmRelativeDepth int 1
+        param_named offset float 0
+        param_named hazeColour float4 0 0 0 0
+    }
 }
 
-fragment_program CaelumSkyDomeFP_NoHaze cg
+fragment_program CaelumSkyDomeFP/D3D11 hlsl
 {
-	source CaelumSkyDome.cg
-	entry_point SkyDomeFP
-	profiles ps_2_0 arbfp1
-
-	default_params
-	{
-		// Caelum sky properties
-		param_named offset float 0
-	}
+    source CaelumSkyDome_d3d11.hlsl
+    entry_point CaelumSkyDomePS
+    target ps_4_0
+    preprocessor_defines CAELUM_SKYDOME_FRAGMENT_HAZE=1
+    default_params
+    {
+        param_named offset float 0
+        param_named hazeColour float4 0 0 0 0
+    }
 }
 
-vertex_program CaelumSkyDomeVP cg
+fragment_program CaelumSkyDomeFP unified
 {
-	source CaelumSkyDome.cg
-	entry_point SkyDomeVP
-	profiles vs_2_0 arbvp1
-	
-	default_params
-	{
-		param_named_auto worldViewProj worldviewproj_matrix
-		param_named sunDirection float3 1 0 0
-	}
+    delegate CaelumSkyDomeFP/GL3Plus
+    delegate CaelumSkyDomeFP/D3D11
+}
+
+fragment_program CaelumSkyDomeFP_NoHaze/GL3Plus glsl
+{
+    syntax glsl330
+    source CaelumSkyDome_gl3plus.glsl
+    preprocessor_defines CAELUM_SKYDOME_FRAGMENT_NO_HAZE=1
+    default_params
+    {
+        param_named gradientsMap int 0
+        param_named atmRelativeDepth int 1
+        param_named offset float 0
+    }
+}
+
+fragment_program CaelumSkyDomeFP_NoHaze/D3D11 hlsl
+{
+    source CaelumSkyDome_d3d11.hlsl
+    entry_point CaelumSkyDomePS
+    target ps_4_0
+    preprocessor_defines CAELUM_SKYDOME_FRAGMENT_NO_HAZE=1
+    default_params
+    {
+        param_named offset float 0
+    }
+}
+
+fragment_program CaelumSkyDomeFP_NoHaze unified
+{
+    delegate CaelumSkyDomeFP_NoHaze/GL3Plus
+    delegate CaelumSkyDomeFP_NoHaze/D3D11
+}
+
+vertex_program CaelumSkyDomeVP/GL3Plus glsl
+{
+    syntax glsl330
+    source CaelumSkyDome_gl3plus.glsl
+    preprocessor_defines CAELUM_SKYDOME_VERTEX=1
+    default_params
+    {
+        param_named_auto worldViewProj worldviewproj_matrix
+        param_named sunDirection float3 1 0 0
+    }
+}
+
+vertex_program CaelumSkyDomeVP/D3D11 hlsl
+{
+    source CaelumSkyDome_d3d11.hlsl
+    entry_point CaelumSkyDomeVS
+    target vs_4_0
+    preprocessor_defines CAELUM_SKYDOME_VERTEX=1
+    default_params
+    {
+        param_named_auto worldViewProj worldviewproj_matrix
+        param_named sunDirection float3 1 0 0
+    }
+}
+
+vertex_program CaelumSkyDomeVP unified
+{
+    delegate CaelumSkyDomeVP/GL3Plus
+    delegate CaelumSkyDomeVP/D3D11
 }
 
 material CaelumSkyDomeMaterial
@@ -128,4 +182,3 @@ material CaelumSkyDomeMaterial
         }
     } 
 }
-
