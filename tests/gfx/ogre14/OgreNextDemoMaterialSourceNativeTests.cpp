@@ -225,6 +225,35 @@ std::vector<std::uint8_t> OpaqueRgbPng() {
   return result;
 }
 
+void WriteU32LittleEndian(std::vector<std::uint8_t> &bytes,
+                          std::size_t offset, std::uint32_t value) {
+  Require(offset <= bytes.size() && bytes.size() - offset >= 4U,
+          "DDS fixture write escaped its buffer");
+  for (std::size_t byte = 0U; byte < 4U; ++byte) {
+    bytes[offset + byte] =
+        static_cast<std::uint8_t>((value >> (byte * 8U)) & 0xffU);
+  }
+}
+
+std::vector<std::uint8_t> OpaqueBc1Dds() {
+  std::vector<std::uint8_t> bytes(128U + 8U, 0U);
+  WriteU32LittleEndian(bytes, 0U, 0x20534444U);  // "DDS "
+  WriteU32LittleEndian(bytes, 4U, 124U);
+  WriteU32LittleEndian(bytes, 8U, 0x00081007U);
+  WriteU32LittleEndian(bytes, 12U, 2U);
+  WriteU32LittleEndian(bytes, 16U, 2U);
+  WriteU32LittleEndian(bytes, 20U, 8U);
+  WriteU32LittleEndian(bytes, 28U, 1U);
+  WriteU32LittleEndian(bytes, 76U, 32U);
+  WriteU32LittleEndian(bytes, 80U, 0x00000004U);
+  WriteU32LittleEndian(bytes, 84U, 0x31545844U);  // "DXT1"
+  WriteU32LittleEndian(bytes, 108U, 0x00001000U);
+  // One opaque red 4x4 color block. The 2x2 virtual extent clips its edge.
+  bytes[128U] = 0x00U;
+  bytes[129U] = 0xf8U;
+  return bytes;
+}
+
 class TestPixelBuffer final : public Ogre::HardwarePixelBuffer {
 public:
   explicit TestPixelBuffer(std::shared_ptr<std::size_t> readback_calls)
@@ -1410,10 +1439,22 @@ void TestCuratedCityWorldLocalAuthenticatedAdmission(
       const TextureResourceDescriptor *const specular_texture =
           FindTextureBySourceId(first_assets,
                                 specular.texture_source_asset_id);
+      const SamplerResourceDescriptor *const base_sampler =
+          FindSamplerBySourceId(first_assets, base.sampler_source_asset_id);
       Require(base_texture != nullptr && specular_texture != nullptr &&
+                  base_sampler != nullptr &&
+                  base_texture->format ==
+                      TextureResourceFormat::RGBA8_UNORM &&
                   base_texture->color_space == TextureColorSpace::SRGB &&
                   specular_texture->color_space == TextureColorSpace::LINEAR,
-              "curated base/specular color-space lowering drifted");
+              "curated DXT1 base normalization or color-space lowering "
+              "drifted");
+      Require(ValidateMaterialTextureCompatibility(
+                  MaterialTextureSlot::BASE_COLOR, *base_texture,
+                  *base_sampler)
+                  .ok(),
+              "curated DXT1 base remained incompatible with its material "
+              "slot");
     } else if (std::get_if<TextureResourceDescriptor>(asset.payload.get()) !=
                nullptr) {
       ++texture_count;
@@ -1547,6 +1588,86 @@ void TestRetryableOrdinaryAbsencePromotion() {
               source.LifetimeCounters().projected_sections == 1U &&
               source.LifetimeCounters().matte_excluded_sections == 1U,
           "retryable matte was not recounted and promoted after mount");
+}
+
+void TestOrdinaryDxt1NormalizesBeforeMaterialBinding() {
+  const std::vector<std::uint8_t> bytes = OpaqueBc1Dds();
+  auto readbacks = std::make_shared<std::size_t>(0U);
+  Ogre14AuthenticatedTextureReceiptRegistry authenticated_registry;
+  RequireOk(InitializeOgre14AuthenticatedTextureReceiptRegistry(
+                Ogre14AuthenticatedTextureRegistryConfiguration{},
+                authenticated_registry),
+            "initialize DXT1 authority");
+  RequireOk(AdvanceOgre14AuthenticatedTextureGroupGeneration(
+                kGroup, 1U, authenticated_registry),
+            "activate DXT1 authority group");
+  OrdinaryTrustResolver trust_resolver;
+  EmptyAuthorityProvider authority_provider;
+  authority_provider.registry = &authenticated_registry;
+  authority_provider.resolver = &trust_resolver;
+  Ogre14SelectedTextureSourceReceiptRegistry selected_registry;
+  RequireOk(InitializeOgre14SelectedTextureSourceRegistry(
+                Ogre14SelectedTextureSourceRegistryConfiguration{},
+                selected_registry),
+            "initialize DXT1 selected-source registry");
+  RequireOk(AdvanceOgre14SelectedTextureSourceGroupGeneration(
+                kGroup, 1U, selected_registry),
+            "activate DXT1 selected-source group");
+  SelectedResolver selected_resolver;
+  selected_resolver.registry = &selected_registry;
+
+  Ogre::TexturePtr texture =
+      std::make_shared<TestTexture>("road.dds", 62U, kGroup, readbacks);
+  auto *const test_texture = static_cast<TestTexture *>(texture.get());
+  test_texture->MutateSourceState(2U, 2U, 1U, Ogre::PF_DXT1);
+  test_texture->MutateOutputState(2U, 2U, 1U, Ogre::PF_DXT1);
+  const Ogre14SelectedTextureSourceReceipt receipt =
+      BuildReceipt(*texture, 1U, 0U, 0x2600U, bytes);
+  RequireOk(
+      CommitOgre14SelectedTextureSourceReceipt(receipt, selected_registry),
+      "commit ordinary DXT1 receipt");
+  texture->load();
+
+  NativeMaterial native(texture, 92U);
+  OgreNextDemoMaterialSource source;
+  Require(source.BindAuthenticatedTextureAuthority(trust_resolver,
+                                                    authority_provider) &&
+              source.BindOrdinarySelectedTextureSourceResolver(
+                  selected_resolver),
+          "bind DXT1 MaterialSource authorities");
+  Require(source.BeginCapture(), "begin ordinary DXT1 capture");
+  Ogre14GraphicsSceneMaterialCaptureInput input = CaptureInput();
+  bool projected = false;
+  RequireOk(source.TryProject(kSectionKey, native.material, true, true, input,
+                              projected),
+            "project ordinary DXT1 material");
+  Require(projected, "ordinary DXT1 material remained matte");
+  std::vector<GraphicsSceneAssetInput> assets = BuildPlaceholderAssets(input);
+  RequireOk(source.Apply(assets), "apply ordinary DXT1 material assets");
+  const GraphicsSceneAssetInput *const material_asset =
+      FindProjectedMaterial(assets);
+  Require(material_asset != nullptr,
+          "ordinary DXT1 projected material is absent");
+  const GraphicsSceneAssetBinding &base =
+      material_asset->material_bindings[static_cast<std::size_t>(
+          MaterialTextureSlot::BASE_COLOR)];
+  const TextureResourceDescriptor *const texture_descriptor =
+      FindTextureBySourceId(assets, base.texture_source_asset_id);
+  const SamplerResourceDescriptor *const sampler_descriptor =
+      FindSamplerBySourceId(assets, base.sampler_source_asset_id);
+  Require(texture_descriptor != nullptr && sampler_descriptor != nullptr &&
+              texture_descriptor->format ==
+                  TextureResourceFormat::RGBA8_UNORM &&
+              !IsBlockCompressedTextureResourceFormat(
+                  texture_descriptor->format),
+          "ordinary DXT1 was published as material-incompatible BC1");
+  Require(ValidateMaterialTextureCompatibility(
+              MaterialTextureSlot::BASE_COLOR, *texture_descriptor,
+              *sampler_descriptor)
+              .ok(),
+          "normalized ordinary DXT1 remained incompatible with base color");
+  RequireZeroReadback(source, *readbacks);
+  source.Commit();
 }
 
 void RequireFrozenProjectionFailure(OgreNextDemoMaterialSource &source,
@@ -2966,6 +3087,7 @@ int main(int argc, char **argv) {
                  "not supplied)\n";
   }
   TestRetryableOrdinaryAbsencePromotion();
+  TestOrdinaryDxt1NormalizesBeforeMaterialBinding();
   TestManagedSpecularProjectionAndRollback();
   TestAlphaStateAndAnisotropicProjection();
   TestLegacyAdditiveOverlayPassAdmission();

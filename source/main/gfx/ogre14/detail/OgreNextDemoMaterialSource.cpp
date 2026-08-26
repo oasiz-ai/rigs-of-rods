@@ -310,8 +310,9 @@ PreflightTextureIdentity(const Ogre::TexturePtr &native_texture,
     const char *const value = std::getenv("ROR_TEXTURE_BLOCK_PASSTHROUGH");
     const bool on = value == nullptr || (value[0] != '0' || value[1] != '\0');
     Ogre::LogManager::getSingleton().logMessage(
-        on ? "[RoR|OgreNext|TextureCompression] block-compressed pass-through "
-             "ENABLED (ROR_TEXTURE_BLOCK_PASSTHROUGH)"
+        on ? "[RoR|OgreNext|TextureCompression] material-compatible "
+             "block-compressed pass-through ENABLED; BC1 normalizes to "
+             "RGBA8 (ROR_TEXTURE_BLOCK_PASSTHROUGH)"
            : "[RoR|OgreNext|TextureCompression] block-compressed pass-through "
              "DISABLED; every BC source will decode to RGBA8");
     return on;
@@ -336,7 +337,13 @@ Render::Ogre14SourceTextureDecodeOptions BuildAuthenticatedDecodeOptions(
   options.maximum_mip_levels = Render::kOgre14SourceTextureHardMaximumMipLevels;
   options.maximum_encoded_bytes = kMaximumTextureBaseBytes;
   options.maximum_decoded_bytes = kMaximumTextureBaseBytes;
-  options.preserve_block_compression = BlockCompressedPassThroughEnabled();
+  // BC1 remains representable in transport, but no material slot admits its
+  // one-bit alpha. Decode it with the already-authorized alpha interpretation
+  // so opaque or explicitly alpha-authorized legacy DXT1 content reaches the
+  // material contract as canonical RGBA8 instead of poisoning every scene
+  // snapshot. Other admitted BC formats retain zero-copy block pass-through.
+  options.preserve_block_compression =
+      BlockCompressedPassThroughEnabled() && !legacy_dxt1;
   return options;
 }
 
@@ -391,7 +398,10 @@ Render::Ogre14SourceTextureDecodeOptions BuildOrdinaryDecodeOptions(
   options.maximum_mip_levels = Render::kOgre14SourceTextureHardMaximumMipLevels;
   options.maximum_encoded_bytes = kMaximumTextureBaseBytes;
   options.maximum_decoded_bytes = kMaximumTextureBaseBytes;
-  options.preserve_block_compression = BlockCompressedPassThroughEnabled();
+  // See the authenticated path above: legacy DXT1/BC1 must be normalized
+  // before material binding, while BC3/BC4/BC5/BC7 remain block-preserving.
+  options.preserve_block_compression =
+      BlockCompressedPassThroughEnabled() && !legacy_dxt1;
   return options;
 }
 
