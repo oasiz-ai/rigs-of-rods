@@ -29,7 +29,7 @@ THE SOFTWARE.
 // Program Name: FFPLib_Common
 // Program Desc: Common functions of the FFP.
 // Program Type: Vertex/Pixel shader
-// Language: CG
+// Language: HLSL
 // Notes: Common functions needed by all FFP implementation classes.
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
@@ -223,6 +223,5 @@ void FFP_DotProduct(in float4 vIn0, in float4 vIn1, out float4 vOut)
 {
 	vOut = dot(vIn0, vIn1);
 }
-
 
 

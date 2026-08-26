@@ -1,67 +1,162 @@
+// Modern GL3Plus/D3D11 closure for the managed-material PSSM family.
 
-vertex_program PSSM/shadow_caster_vs cg
+vertex_program PSSM/shadow_caster_vs/GL3Plus glsl
 {
-	source pssm.cg
-	profiles vs_2_0 arbvp1
-	entry_point shadow_caster_vs
+	syntax glsl330
+	source pssm_gl3plus.glsl
+	preprocessor_defines PSSM_CASTER_VERTEX=1
 	default_params
 	{
 		param_named_auto wvpMat worldviewproj_matrix
 	}
 }
-fragment_program PSSM/shadow_caster_ps cg
-{
-	source pssm.cg
-	profiles ps_2_0 arbfp1
-	entry_point shadow_caster_ps
-	default_params
-	{
-	}
-}
-fragment_program PSSM/shadow_caster_alpha_ps cg
-{
-	source pssm.cg
-	profiles ps_2_0 arbfp1
-	entry_point shadow_caster_alpha_ps
-	default_params
-	{
-	}
-}
-vertex_program PSSM/shadow_receiver_vs cg
-{
-	source pssm.cg
-	profiles vs_1_1 arbvp1
-	entry_point shadow_receiver_vs
 
+vertex_program PSSM/shadow_caster_vs/D3D11 hlsl
+{
+	source pssm_d3d11.hlsl
+	entry_point PssmShadowCasterVS
+	target vs_4_0
+	preprocessor_defines PSSM_CASTER_VERTEX=1
 	default_params
 	{
-		param_named_auto lightPosition				light_position_object_space 0
-		param_named_auto eyePosition				camera_position_object_space
-		param_named_auto worldViewProjMatrix		worldviewproj_matrix
-		param_named_auto texWorldViewProjMatrix0	texture_worldviewproj_matrix 0
-		param_named_auto texWorldViewProjMatrix1	texture_worldviewproj_matrix 1
-		param_named_auto texWorldViewProjMatrix2	texture_worldviewproj_matrix 2
-		//param_named_auto depthRange0				shadow_scene_depth_range 0
-		//param_named_auto depthRange1				shadow_scene_depth_range 1
-		//param_named_auto depthRange2				shadow_scene_depth_range 2
+		param_named_auto wvpMat worldviewproj_matrix
 	}
 }
 
-fragment_program PSSM/shadow_receiver_ps cg
+vertex_program PSSM/shadow_caster_vs unified
 {
-	source pssm.cg
-	profiles ps_2_x arbfp1
-	entry_point shadow_receiver_ps
+	delegate PSSM/shadow_caster_vs/GL3Plus
+	delegate PSSM/shadow_caster_vs/D3D11
+}
 
+fragment_program PSSM/shadow_caster_ps/GL3Plus glsl
+{
+	syntax glsl330
+	source pssm_gl3plus.glsl
+	preprocessor_defines PSSM_CASTER_FRAGMENT=1
+}
+
+fragment_program PSSM/shadow_caster_ps/D3D11 hlsl
+{
+	source pssm_d3d11.hlsl
+	entry_point PssmShadowCasterPS
+	target ps_4_0
+	preprocessor_defines PSSM_CASTER_FRAGMENT=1
+}
+
+fragment_program PSSM/shadow_caster_ps unified
+{
+	delegate PSSM/shadow_caster_ps/GL3Plus
+	delegate PSSM/shadow_caster_ps/D3D11
+}
+
+fragment_program PSSM/shadow_caster_alpha_ps/GL3Plus glsl
+{
+	syntax glsl330
+	source pssm_gl3plus.glsl
+	preprocessor_defines PSSM_CASTER_ALPHA_FRAGMENT=1
 	default_params
 	{
-		param_named_auto lightDiffuse		derived_light_diffuse_colour 0
-		param_named_auto lightSpecular		derived_light_specular_colour 0
-		param_named_auto ambient			derived_ambient_light_colour 
-		param_named_auto invShadowMapSize0	inverse_texture_size 0
-		param_named_auto invShadowMapSize1	inverse_texture_size 1
-		param_named_auto invShadowMapSize2	inverse_texture_size 2
-		//param_named pssmSplitPoints MANUAL 0
-		shared_params_ref pssm_params  
+		param_named alphaMap int 0
 	}
+}
+
+fragment_program PSSM/shadow_caster_alpha_ps/D3D11 hlsl
+{
+	source pssm_d3d11.hlsl
+	entry_point PssmShadowCasterAlphaPS
+	target ps_4_0
+	preprocessor_defines PSSM_CASTER_ALPHA_FRAGMENT=1
+}
+
+fragment_program PSSM/shadow_caster_alpha_ps unified
+{
+	delegate PSSM/shadow_caster_alpha_ps/GL3Plus
+	delegate PSSM/shadow_caster_alpha_ps/D3D11
+}
+
+vertex_program PSSM/shadow_receiver_vs/GL3Plus glsl
+{
+	syntax glsl330
+	source pssm_gl3plus.glsl
+	preprocessor_defines PSSM_RECEIVER_VERTEX=1
+	default_params
+	{
+		param_named_auto lightPosition light_position_object_space 0
+		param_named_auto eyePosition camera_position_object_space
+		param_named_auto worldViewProjMatrix worldviewproj_matrix
+		param_named_auto texWorldViewProjMatrix0 texture_worldviewproj_matrix 0
+		param_named_auto texWorldViewProjMatrix1 texture_worldviewproj_matrix 1
+		param_named_auto texWorldViewProjMatrix2 texture_worldviewproj_matrix 2
+	}
+}
+
+vertex_program PSSM/shadow_receiver_vs/D3D11 hlsl
+{
+	source pssm_d3d11.hlsl
+	entry_point PssmShadowReceiverVS
+	target vs_4_0
+	preprocessor_defines PSSM_RECEIVER_VERTEX=1
+	default_params
+	{
+		param_named_auto lightPosition light_position_object_space 0
+		param_named_auto eyePosition camera_position_object_space
+		param_named_auto worldViewProjMatrix worldviewproj_matrix
+		param_named_auto texWorldViewProjMatrix0 texture_worldviewproj_matrix 0
+		param_named_auto texWorldViewProjMatrix1 texture_worldviewproj_matrix 1
+		param_named_auto texWorldViewProjMatrix2 texture_worldviewproj_matrix 2
+	}
+}
+
+vertex_program PSSM/shadow_receiver_vs unified
+{
+	delegate PSSM/shadow_receiver_vs/GL3Plus
+	delegate PSSM/shadow_receiver_vs/D3D11
+}
+
+fragment_program PSSM/shadow_receiver_ps/GL3Plus glsl
+{
+	syntax glsl330
+	source pssm_gl3plus.glsl
+	preprocessor_defines PSSM_RECEIVER_FRAGMENT=1
+	default_params
+	{
+		param_named_auto lightDiffuse derived_light_diffuse_colour 0
+		param_named_auto lightSpecular derived_light_specular_colour 0
+		param_named_auto ambient derived_ambient_light_colour
+		param_named_auto invShadowMapSize0 inverse_texture_size 0
+		param_named_auto invShadowMapSize1 inverse_texture_size 1
+		param_named_auto invShadowMapSize2 inverse_texture_size 2
+		param_named diffuse int 0
+		param_named specular int 1
+		param_named normalMap int 2
+		param_named shadowMap0 int 3
+		param_named shadowMap1 int 4
+		param_named shadowMap2 int 5
+		shared_params_ref pssm_params
+	}
+}
+
+fragment_program PSSM/shadow_receiver_ps/D3D11 hlsl
+{
+	source pssm_d3d11.hlsl
+	entry_point PssmShadowReceiverPS
+	target ps_4_0
+	preprocessor_defines PSSM_RECEIVER_FRAGMENT=1
+	default_params
+	{
+		param_named_auto lightDiffuse derived_light_diffuse_colour 0
+		param_named_auto lightSpecular derived_light_specular_colour 0
+		param_named_auto ambient derived_ambient_light_colour
+		param_named_auto invShadowMapSize0 inverse_texture_size 0
+		param_named_auto invShadowMapSize1 inverse_texture_size 1
+		param_named_auto invShadowMapSize2 inverse_texture_size 2
+		shared_params_ref pssm_params
+	}
+}
+
+fragment_program PSSM/shadow_receiver_ps unified
+{
+	delegate PSSM/shadow_receiver_ps/GL3Plus
+	delegate PSSM/shadow_receiver_ps/D3D11
 }
