@@ -539,13 +539,13 @@ FACADE_PRESET: dict[str, object] = {
             "params": {"cells": 12, "coverage": 0.35, "contrast": 2.6},
             "uv_scale": [3.0, 3.0],
             "weight": 0.7,
-            "coverage_threshold": 0.45,
-            "coverage_contrast": 12.0,
-            "elevation": 0.46,
-            "elevation_spread": 0.34,
+            "coverage_threshold": 0.35,
+            "coverage_contrast": 8.0,
+            "elevation": 0.52,
+            "elevation_spread": 0.36,
             "elevation_contrast": 6.0,
             "placement_cells": 2,
-            "placement_coverage": 0.45,
+            "placement_coverage": 0.72,
         },
         {
             # Fine break-up sits AT the running surface, so it modulates

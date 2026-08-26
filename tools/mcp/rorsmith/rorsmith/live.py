@@ -269,11 +269,21 @@ def verify_live(
     if truck:
         command.extend(["-truck", truck, "-enter"])
 
+    # The runtime writes a great deal to stdout, including the
+    # NativeRoughnessCensus lines. It MUST go to a file, not a pipe: while we
+    # poll the log we are not draining a pipe, the 64 KiB kernel buffer fills,
+    # and the process blocks forever inside fflush() during resource-group
+    # script parsing. Observed as a session that starts, logs 57 KiB and then
+    # sits at 0% CPU indefinitely.
+    stdio_path = home.user_dir / "logs" / "rorsmith-stdio.log"
+    stdio_path.parent.mkdir(parents=True, exist_ok=True)
+    stdio_handle = stdio_path.open("wb")
+
     started = time.time()
     process = subprocess.Popen(
         command,
         env=environment,
-        stdout=subprocess.PIPE,
+        stdout=stdio_handle,
         stderr=subprocess.STDOUT,
         cwd=str(executable.parent),
         start_new_session=True,
@@ -309,18 +319,17 @@ def verify_live(
                     os.killpg(os.getpgid(process.pid), signal.SIGKILL)
                 except (ProcessLookupError, PermissionError):
                     process.kill()
-        if process.stdout is not None:
-            try:
-                raw = process.stdout.read() or b""
-            except ValueError:
-                raw = b""
-            stderr_tail = raw.decode("utf-8", "replace").splitlines()
+        stdio_handle.close()
 
     log_text = ""
     if home.log_path.exists():
         log_text = home.log_path.read_text(encoding="utf-8", errors="replace")
-    # stderr carries the NativeRoughnessCensus lines; the log carries the rest.
-    parsed = parse_log(log_text + "\n" + "\n".join(stderr_tail))
+    stdio_text = ""
+    if stdio_path.exists():
+        stdio_text = stdio_path.read_text(encoding="utf-8", errors="replace")
+    stderr_tail = stdio_text.splitlines()
+    # stdout carries the NativeRoughnessCensus lines; the log carries the rest.
+    parsed = parse_log(log_text + "\n" + stdio_text)
 
     if material_filter:
         needle = material_filter.casefold()
@@ -341,6 +350,7 @@ def verify_live(
         "elapsed_seconds": round(time.time() - started, 1),
         "runtime_exit_code": exit_code,
         "log_bytes": len(log_text),
+        "stdio_bytes": len(stdio_text),
         **parsed,
     }
     if not census_seen:
