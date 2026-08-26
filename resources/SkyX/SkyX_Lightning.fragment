@@ -1,9 +1,11 @@
+#version 150
+
 /*
 --------------------------------------------------------------------------------
 This source file is part of SkyX.
 Visit http://www.paradise-studios.net/products/skyx/
 
-Copyright (C) 2009-2012 Xavier VerguÌn Gonz·lez <xavyiy@gmail.com>
+Copyright (C) 2009-2012 Xavier Vergu√≠n Gonz√°lez <xavyiy@gmail.com>
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU Lesser General Public License as published by the Free Software
@@ -25,9 +27,10 @@ http://www.gnu.org/copyleft/lesser.txt.
 // ------------------------------ GLSL Vertex -----------------------------------
 
 // IN
-varying vec3 vUV;
-varying vec4 vData;
+in vec3 vUV;
+in vec4 vData;
 // OUT
+out vec4 fragColor;
 // UNIFORM
 uniform vec3 uColor;
 
@@ -37,7 +40,7 @@ void main(void)
 	float mult = 1.0;
 	float smoothAvance = 16.0;
 	
-	// OGL doesn't like varying assignements
+	// Keep the interpolator input immutable.
 	vec3 UV = vUV;
 
 	if (vData.x+UV.y*(vData.y-vData.x) > vData.z)
@@ -62,5 +65,5 @@ void main(void)
 	UV.z *= 1.0-vData.w*clamp(length(vData.x+UV.y*(vData.y-vData.x) - vData.z)*smoothAvance,0.0,1.0);
 	
 	// Final color
-	gl_FragColor = vec4(uColor*UV.z*intensity, 1.0);
+	fragColor = vec4(uColor*UV.z*intensity, 1.0);
 }

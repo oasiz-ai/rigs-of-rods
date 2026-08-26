@@ -18,6 +18,7 @@ on:
       - resources/scripts/example_deterministic_input_save_checkpoint.as
       - resources/nextgen/native/**
       - resources/mygui/**
+      - resources/SkyX/**
       - source/main/**
       - tools/linux/RunRoR-combined
       - tools/ogre_next_probe/**
@@ -37,6 +38,7 @@ on:
       - tests/tools/test_run_playable_performance_scene.py
       - tests/tools/test_renderer_combined_game_wiring_contract.py
       - tests/tools/test_mygui_glsl_contract.py
+      - tests/tools/test_skyx_glsl_contract.py
   pull_request:
     paths:
       - .github/workflows/ogre-next-combined-native.yml
@@ -53,6 +55,7 @@ on:
       - resources/scripts/example_deterministic_input_save_checkpoint.as
       - resources/nextgen/native/**
       - resources/mygui/**
+      - resources/SkyX/**
       - source/main/**
       - tools/linux/RunRoR-combined
       - tools/ogre_next_probe/**
@@ -72,6 +75,7 @@ on:
       - tests/tools/test_run_playable_performance_scene.py
       - tests/tools/test_renderer_combined_game_wiring_contract.py
       - tests/tools/test_mygui_glsl_contract.py
+      - tests/tools/test_skyx_glsl_contract.py
   workflow_dispatch:
 
 permissions:
@@ -207,6 +211,7 @@ jobs:
           python tests/tools/test_run_deterministic_savegame_resume.py
           python tests/tools/test_renderer_combined_game_wiring_contract.py
           python tests/tools/test_mygui_glsl_contract.py
+          python tests/tools/test_skyx_glsl_contract.py
           python -O tests/tools/test_ogre_next_combined_provider_contract.py
           python -O tests/tools/test_ogre_next_embedded_namespace_contract.py
           python -O tests/tools/test_run_playable_performance_scene.py
@@ -214,6 +219,7 @@ jobs:
           python -O tests/tools/test_run_deterministic_savegame_resume.py
           python -O tests/tools/test_renderer_combined_game_wiring_contract.py
           python -O tests/tools/test_mygui_glsl_contract.py
+          python -O tests/tools/test_skyx_glsl_contract.py
 
       - name: Verify the locked native Conan graph
         shell: bash
@@ -566,9 +572,9 @@ jobs:
           PY
           grep -Fq '===== LOADING TERRAIN simple2_a.terrn2' "$scene/RoR.log"
           grep -Fq '== Spawning vehicle: Daf Semi truck' "$scene/RoR.log"
-          if grep -Eq "Program '[^']+\\.(glsl|glsles)' is not supported" \
+          if grep -Eq "Program '[^']+\\.(glsl|glsles)' is not supported|Program 'SkyX_[^']+' is not supported|Error: ScriptCompiler .*SkyX\\.material" \
               "$scene/RoR.log" "$scene/console.txt"; then
-            echo 'MyGUI GLSL compilation failed in the packaged combined runtime' >&2
+            echo 'MyGUI GLSL compilation failed or SkyX shader/material compilation failed in the packaged combined runtime' >&2
             exit 1
           fi
           if grep -Fq -- '--native-visual-showcase' "$scene/performance-run.json"; then
@@ -926,6 +932,7 @@ jobs:
           python tests/tools/test_run_deterministic_savegame_resume.py
           python tests/tools/test_renderer_combined_game_wiring_contract.py
           python tests/tools/test_mygui_glsl_contract.py
+          python tests/tools/test_skyx_glsl_contract.py
           python -O tests/tools/test_ogre_next_combined_provider_contract.py
           python -O tests/tools/test_ogre_next_embedded_namespace_contract.py
           python -O tests/tools/test_run_playable_performance_scene.py
@@ -933,6 +940,7 @@ jobs:
           python -O tests/tools/test_run_deterministic_savegame_resume.py
           python -O tests/tools/test_renderer_combined_game_wiring_contract.py
           python -O tests/tools/test_mygui_glsl_contract.py
+          python -O tests/tools/test_skyx_glsl_contract.py
 
       - name: Verify the locked native Conan graph
         shell: bash
@@ -1191,6 +1199,11 @@ jobs:
               || grep -Fq "$GITHUB_WORKSPACE" \
               "$scene/RoR.log" "$scene/console.txt"; then
             echo 'packaged macOS scene accessed an unbundled runtime path' >&2
+            exit 1
+          fi
+          if grep -Eq "Program '[^']+\\.(glsl|glsles)' is not supported|Program 'SkyX_[^']+' is not supported|Error: ScriptCompiler .*SkyX\\.material" \
+              "$scene/RoR.log" "$scene/console.txt"; then
+            echo 'MyGUI GLSL compilation failed or SkyX shader/material compilation failed in the packaged macOS runtime' >&2
             exit 1
           fi
           destination="$ROR_COMBINED_PACKAGE_DIR/qualification/packaged-scene-smoke"
@@ -1521,6 +1534,7 @@ jobs:
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_run_deterministic_savegame_resume.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_renderer_combined_game_wiring_contract.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_mygui_glsl_contract.py')
+          Invoke-CheckedPython -PythonArguments @('tests/tools/test_skyx_glsl_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_ogre_next_combined_provider_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_ogre_next_embedded_namespace_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_playable_performance_scene.py')
@@ -1528,6 +1542,7 @@ jobs:
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_deterministic_savegame_resume.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_renderer_combined_game_wiring_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_mygui_glsl_contract.py')
+          Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_skyx_glsl_contract.py')
 
       - name: Verify the locked native Conan graph
         shell: pwsh
@@ -1920,6 +1935,15 @@ jobs:
           }
           if (-not (Select-String -LiteralPath $log -SimpleMatch '== Spawning vehicle: Daf Semi truck')) {
             throw 'Packaged Windows scene did not spawn the semi'
+          }
+          $console = Join-Path $scene 'console.txt'
+          $shaderDiagnostics = Select-String `
+            -LiteralPath @($log, $console) `
+            -Pattern "Program '[^']+' is not supported|Error: ScriptCompiler .*SkyX\.material" `
+            -ErrorAction Stop
+          if ($shaderDiagnostics) {
+            $shaderDiagnostics | ForEach-Object { Write-Host $_.Line }
+            throw 'Shader or SkyX material compilation failed in the packaged Windows runtime'
           }
           $destination = Join-Path $stage 'qualification/packaged-scene-smoke'
           New-Item -ItemType Directory -Force -Path $destination | Out-Null

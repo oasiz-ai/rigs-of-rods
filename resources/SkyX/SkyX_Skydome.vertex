@@ -1,9 +1,11 @@
+#version 150
+
 /*
 --------------------------------------------------------------------------------
 This source file is part of SkyX.
 Visit http://www.paradise-studios.net/products/skyx/
 
-Copyright (C) 2009-2012 Xavier VerguÌn Gonz·lez <xavyiy@gmail.com>
+Copyright (C) 2009-2012 Xavier Vergu√≠n Gonz√°lez <xavyiy@gmail.com>
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU Lesser General Public License as published by the Free Software
@@ -25,19 +27,21 @@ http://www.gnu.org/copyleft/lesser.txt.
 // ------------------------- GLSL Vertex ------------------------------
 
 // IN
-attribute vec4 vertex; // iPosition
-attribute vec3 uv0;    // iNPosition
-attribute vec2 uv1;    // iUV
-attribute float uv2;   // iOpacity
+in vec4 vertex; // iPosition
+in vec3 uv0;    // iNPosition
+in vec2 uv1;    // iUV
+in float uv2;   // iOpacity
 // OUT
-varying vec2 vUV;
-varying vec3 vRayleighColor;
-varying vec3 vMieColor;
-varying vec3 vDirection;
-varying float vOpacity;
-varying float vHeight;
+out gl_PerVertex { vec4 gl_Position; };
+out vec2 vUV;
+out vec3 vRayleighColor;
+out vec3 vMieColor;
+out vec3 vDirection;
+out float vOpacity;
+out float vHeight;
 // UNIFORM
 // Global information
+uniform mat4 uWorldViewProj;
 uniform vec3 uLightDir;
 // Position information
 uniform vec3 uCameraPos;
@@ -65,7 +69,7 @@ float scale(float cos, float uScaleDepth)
 void main(void)
 {
     // Clip space position
-	gl_Position = gl_ModelViewProjectionMatrix * vertex;
+	gl_Position = uWorldViewProj * vertex;
 
 	vec3 v3Pos = uv0;
 	v3Pos.y += uInnerRadius;

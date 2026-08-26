@@ -12,6 +12,7 @@ on:
       - doc/nextgen/FORWARD_NATIVE_ASSET_LEDGER.md
       - resources/nextgen/native/**
       - resources/mygui/**
+      - resources/SkyX/**
       - resources/scripts/example_jbeam_multi_actor_tsan_soak.as
       - source/main/CMakeLists.txt
       - source/main/gfx/GfxActor.cpp
@@ -30,6 +31,7 @@ on:
       - tests/tools/test_run_jbeam_multi_actor_tsan_soak.py
       - tests/tools/test_run_playable_performance_scene.py
       - tests/tools/test_mygui_glsl_contract.py
+      - tests/tools/test_skyx_glsl_contract.py
       - tools/run_jbeam_multi_actor_tsan_soak.py
       - tools/run_playable_performance_scene.py
       - tools/audit_openal_tsan_package.py
@@ -179,6 +181,8 @@ jobs:
           python -O tests/tools/test_renderer_combined_game_wiring_contract.py
           python tests/tools/test_mygui_glsl_contract.py
           python -O tests/tools/test_mygui_glsl_contract.py
+          python tests/tools/test_skyx_glsl_contract.py
+          python -O tests/tools/test_skyx_glsl_contract.py
           python tests/tools/test_run_playable_performance_scene.py
           python -O tests/tools/test_run_playable_performance_scene.py
 
@@ -288,9 +292,9 @@ jobs:
               -type f -exec cp {} "$ROR_TSAN_ARTIFACTS_DIR/" \;
           fi
           shader_status=0
-          if grep -Eq "Program '[^']+\\.(glsl|glsles)' is not supported" \
+          if grep -Eq "Program '[^']+\\.(glsl|glsles)' is not supported|Program 'SkyX_[^']+' is not supported|Error: ScriptCompiler .*SkyX\\.material" \
               "$evidence/RoR.log" "$evidence/console.txt"; then
-            echo 'MyGUI GLSL compilation failed in the packaged combined runtime' >&2
+            echo 'MyGUI GLSL compilation failed or SkyX shader/material compilation failed in the packaged combined runtime' >&2
             shader_status=1
           fi
           audio_status=0

@@ -1,9 +1,11 @@
+#version 150
+
 /*
 --------------------------------------------------------------------------------
 This source file is part of SkyX.
 Visit http://www.paradise-studios.net/products/skyx/
 
-Copyright (C) 2009-2012 Xavier VerguÌn Gonz·lez <xavyiy@gmail.com>
+Copyright (C) 2009-2012 Xavier Vergu√≠n Gonz√°lez <xavyiy@gmail.com>
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU Lesser General Public License as published by the Free Software
@@ -25,9 +27,10 @@ http://www.gnu.org/copyleft/lesser.txt.
 // ------------------------ GLSL Fragment ----------------------------
 
 // IN
-varying vec3 vRayleighColor;
-varying vec3 vDirection;
+in vec3 vRayleighColor;
+in vec3 vDirection;
 // OUT
+out vec4 fragColor;
 // UNIFORM
 uniform vec3 uLightDir;
 uniform float uExposure;
@@ -39,9 +42,9 @@ void main(void)
 	
 	float rayleighPhase = 0.75 * (1.0 + 0.5*cos2);
 					 
-	gl_FragColor = vec4(rayleighPhase*vRayleighColor,1.0);
+	fragColor = vec4(rayleighPhase*vRayleighColor,1.0);
 	
 //#ifdef LDR
-	gl_FragColor.xyz = 1.0 - exp(-uExposure * gl_FragColor.xyz);
+	fragColor.xyz = 1.0 - exp(-uExposure * fragColor.xyz);
 //#endif // LDR
 }

@@ -1,9 +1,11 @@
+#version 150
+
 /*
 --------------------------------------------------------------------------------
 This source file is part of SkyX.
 Visit http://www.paradise-studios.net/products/skyx/
 
-Copyright (C) 2009-2012 Xavier VerguÌn Gonz·lez <xavyiy@gmail.com>
+Copyright (C) 2009-2012 Xavier Vergu√≠n Gonz√°lez <xavyiy@gmail.com>
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU Lesser General Public License as published by the Free Software
@@ -25,8 +27,9 @@ http://www.gnu.org/copyleft/lesser.txt.
 // ------------------------ GLSL fragment ----------------------------
 
 // IN
-varying vec3 vPosition;
+in vec3 vPosition;
 // OUT
+out vec4 fragColor;
 // UNIFORM
 uniform float uExposure;
 // Sun information
@@ -55,8 +58,8 @@ void main(void)
     
     // Get texture coords
     vec2 TexCoord = CloudPosition.xz*uScale;
-    float Density = texture2D(uClouds, TexCoord+uTime*uWindDirection*0.25).r;
-    vec3 Normal   = -(2.0*texture2D(uCloudsNormal, TexCoord+uTime*uWindDirection*0.25).xyz-1.0);
+    float Density = texture(uClouds, TexCoord+uTime*uWindDirection*0.25).r;
+    vec3 Normal   = -(2.0*texture(uCloudsNormal, TexCoord+uTime*uWindDirection*0.25).xyz-1.0);
     Normal.zy = Normal.yz;
  
     ///------------ Volumetric effect:
@@ -66,10 +69,10 @@ void main(void)
     vh = (uHeight+uHeight*(1.0-Density)*CloudLayerHeightVolume) / iNewPosition.y;
     CloudPosition = iNewPosition * vh;
     TexCoord = CloudPosition.xz*uScale;                              // Little offset
-    Density = texture2D(uClouds, TexCoord+uTime*uWindDirection*0.25 + vec2(0.2,0.6)).r;
+    Density = texture(uClouds, TexCoord+uTime*uWindDirection*0.25 + vec2(0.2,0.6)).r;
     ///------------
     
-    float CloudTile = texture2D(uCloudsTile, TexCoord-uTime*uWindDirection*0.25).r;
+    float CloudTile = texture(uCloudsTile, TexCoord-uTime*uWindDirection*0.25).r;
 
 	// Ambient + Sun*Density
     vec3 PixelColor = uAmbientLuminosity + uSunColor*Density;
@@ -83,11 +86,11 @@ void main(void)
     // FINAL colour
     float Alpha = Density * clamp(10.0*clamp(-uDistanceAttenuation+vPosition.y, 0.0, 1.0), 0.0, 1.0);
     
-    gl_FragColor = vec4(PixelColor*(1.0-Density*0.35), Alpha*clamp(1.0-CloudTile*uDetailAttenuation, 0.0, 1.0));
+    fragColor = vec4(PixelColor*(1.0-Density*0.35), Alpha*clamp(1.0-CloudTile*uDetailAttenuation, 0.0, 1.0));
     
   #ifdef LDR
-    gl_FragColor.xyz = vec3(1.0 - exp(-uExposure * gl_FragColor.xyz));
+    fragColor.xyz = vec3(1.0 - exp(-uExposure * fragColor.xyz));
   #else // HDR
-    gl_FragColor.xyz *= pow(uExposure, 0.5);
+    fragColor.xyz *= pow(uExposure, 0.5);
   #endif
 }

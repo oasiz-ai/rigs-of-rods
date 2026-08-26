@@ -1,9 +1,11 @@
+#version 150
+
 /*
 --------------------------------------------------------------------------------
 This source file is part of SkyX.
 Visit http://www.paradise-studios.net/products/skyx/
 
-Copyright (C) 2009-2012 Xavier VerguÌn Gonz·lez <xavyiy@gmail.com>
+Copyright (C) 2009-2012 Xavier Vergu√≠n Gonz√°lez <xavyiy@gmail.com>
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU Lesser General Public License as published by the Free Software
@@ -25,12 +27,14 @@ http://www.gnu.org/copyleft/lesser.txt.
 // ------------------------- GLSL Vertex -----------------------------
 
 // IN
-attribute vec4 vertex; // iPosition
+in vec4 vertex; // iPosition
 // OUT
-varying vec3 vRayleighColor;
-varying vec3 vDirection;
+out gl_PerVertex { vec4 gl_Position; };
+out vec3 vRayleighColor;
+out vec3 vDirection;
 // UNIFORM
 // Global information
+uniform mat4 uWorldViewProj;
 uniform mat4 uWorld;
 uniform vec3 uLightDir;
 // Position information
@@ -60,7 +64,7 @@ float scale(float cos, float uScaleDepth)
 void main(void)
 {
 	// Clip space position
-	gl_Position = gl_ModelViewProjectionMatrix * vertex;
+	gl_Position = uWorldViewProj * vertex;
 	
 	// Calculate vertex world position
 	vec3 vertexWorldPos = (uWorld * vertex).xyz;

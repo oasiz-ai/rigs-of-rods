@@ -3,7 +3,7 @@
 This source file is part of SkyX.
 Visit http://www.paradise-studios.net/products/skyx/
 
-Copyright (C) 2009-2012 Xavier VerguÌn Gonz·lez <xavyiy@gmail.com>
+Copyright (C) 2009-2012 Xavier Vergu√≠n Gonz√°lez <xavyiy@gmail.com>
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU Lesser General Public License as published by the Free Software
@@ -41,6 +41,7 @@ vertex_program SkyX_Clouds_VP_GLSL glsl
 
     default_params
     {
+       param_named_auto uWorldViewProj worldviewproj_matrix
     }
 }
 	
@@ -124,6 +125,7 @@ vertex_program SkyX_VolClouds_VP_GLSL glsl
 
     default_params
     {
+		param_named_auto uWorldViewProj worldviewproj_matrix
     }
 }
 	
@@ -239,6 +241,7 @@ vertex_program SkyX_VolClouds_Lightning_VP_GLSL glsl
 
     default_params
     {
+		param_named_auto uWorldViewProj worldviewproj_matrix
     }
 }
 	
@@ -360,6 +363,7 @@ vertex_program SkyX_Skydome_VP_GLSL glsl
 
     default_params
     {
+		param_named_auto uWorldViewProj worldviewproj_matrix
     }
 }
 	
@@ -600,7 +604,7 @@ material SkyX_Skydome_STARFIELD_HDR
 			
 			texture_unit Starfield
 			{
-			    texture SkyX_Starfield.png gamma
+			    texture SkyX_Starfield.png
 			    tex_address_mode wrap
 			    filtering linear linear none
 			    tex_coord_set 0
@@ -741,6 +745,7 @@ vertex_program SkyX_Moon_VP_GLSL glsl
 
     default_params
     {
+		param_named_auto uWorldViewProj worldviewproj_matrix
     }
 }
 	
@@ -844,6 +849,7 @@ vertex_program SkyX_Lightning_VP_GLSL glsl
 
     default_params
     {
+		param_named_auto uWorldViewProj worldviewproj_matrix
     }
 }
 	
@@ -956,6 +962,7 @@ vertex_program SkyX_Ground_VP_GLSL glsl
 
     default_params
     {
+		param_named_auto uWorldViewProj worldviewproj_matrix
 		param_named_auto uWorld world_matrix
 		param_named_auto uCameraPos_ camera_position
 			    
