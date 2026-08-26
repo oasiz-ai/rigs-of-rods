@@ -57,12 +57,20 @@ bool UsesClampToBorder(const SamplerResourceDescriptor &sampler) noexcept {
 
 ValidationResult ValidateModernTexturePolicy(
     const TextureResourceDescriptor &texture, std::size_t index) {
+  // RGBA8 plus the three block-compressed storage formats. BC4/BC5/BC7 are
+  // supported by every target backend, Metal on Apple Silicon included, so
+  // this stays one format family across macOS, Windows, and Linux. A texture
+  // whose storage is anything else is refused by name rather than converted.
+  const bool admitted_format =
+      texture.format == TextureResourceFormat::RGBA8_UNORM ||
+      texture.format == TextureResourceFormat::BC4_UNORM ||
+      texture.format == TextureResourceFormat::BC5_UNORM ||
+      texture.format == TextureResourceFormat::BC7_UNORM;
   if (texture.type != TextureResourceType::TEXTURE_2D ||
-      texture.array_layers != 1U ||
-      texture.format != TextureResourceFormat::RGBA8_UNORM) {
+      texture.array_layers != 1U || !admitted_format) {
     return Unsupported(
         "assets.texture.format",
-        "RT4/V1 admits non-array RGBA8 material textures only; this keeps sRGB decode and linear metallic/roughness uploads identical on Metal, D3D11, and Vulkan",
+        "RT4/V1 admits non-array RGBA8, BC4, BC5, or BC7 material textures only; this keeps sRGB decode, linear metallic/roughness uploads, and block-compressed pass-through identical on Metal, D3D11, and Vulkan",
         index);
   }
   return ValidationResult::Success();

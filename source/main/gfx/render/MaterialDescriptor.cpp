@@ -522,23 +522,55 @@ ValidateMaterialTextureCompatibility(MaterialTextureSlot slot,
       texture.format == TextureResourceFormat::RGBA8_UNORM ||
       texture.format == TextureResourceFormat::RGBA16_FLOAT ||
       texture.format == TextureResourceFormat::RGBA32_FLOAT;
+  // BC7 carries four channels at one byte per texel and is the only block
+  // format that may hold an sRGB transfer, so it substitutes for RGBA8
+  // wherever a slot wants displayable colour.
+  const bool bc7_storage = texture.format == TextureResourceFormat::BC7_UNORM;
+  // BC5 is two unsigned channels: exactly the tangent-space XY a normal map
+  // needs, with Z reconstructed in the shader as it already is for RG8.
+  const bool bc5_storage = texture.format == TextureResourceFormat::BC5_UNORM;
+  // BC4 is one unsigned channel.
+  const bool bc4_storage = texture.format == TextureResourceFormat::BC4_UNORM;
   switch (slot) {
   case MaterialTextureSlot::BASE_COLOR:
   case MaterialTextureSlot::EMISSIVE:
-    if (texture.format != TextureResourceFormat::RGBA8_UNORM ||
+    if ((texture.format != TextureResourceFormat::RGBA8_UNORM && !bc7_storage) ||
         texture.color_space != TextureColorSpace::SRGB) {
       return ValidationResult::Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "texture.format",
-          "base-color and emissive slots require RGBA8 sRGB storage");
+          "base-color and emissive slots require RGBA8 or BC7 sRGB storage");
     }
     break;
   case MaterialTextureSlot::METALLIC_ROUGHNESS:
-  case MaterialTextureSlot::NORMAL:
-  case MaterialTextureSlot::SPECULAR:
+    // Deliberately NOT block-compressed. This one binding becomes two
+    // single-channel GPU textures by extracting green and blue, and a channel
+    // cannot be read out of a BC block without decoding it. Refusing by name
+    // is honest; silently uploading the packed block to both roles would make
+    // metallic equal roughness.
     if (!rgba_storage || texture.color_space != TextureColorSpace::LINEAR) {
       return ValidationResult::Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "texture.format",
-          "metallic-roughness, normal, and specular slots require linear RGBA storage");
+          IsBlockCompressedTextureResourceFormat(texture.format)
+              ? "metallic-roughness cannot be block-compressed: the slot is "
+                "channel-split into separate roughness and metallic textures, "
+                "which requires addressable texels"
+              : "metallic-roughness slot requires linear RGBA storage");
+    }
+    break;
+  case MaterialTextureSlot::NORMAL:
+    if ((!rgba_storage && !bc5_storage) ||
+        texture.color_space != TextureColorSpace::LINEAR) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "texture.format",
+          "normal slot requires linear RGBA or BC5 storage");
+    }
+    break;
+  case MaterialTextureSlot::SPECULAR:
+    if ((!rgba_storage && !bc7_storage) ||
+        texture.color_space != TextureColorSpace::LINEAR) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "texture.format",
+          "specular slot requires linear RGBA or BC7 storage");
     }
     break;
   case MaterialTextureSlot::OCCLUSION:
@@ -546,6 +578,13 @@ ValidateMaterialTextureCompatibility(MaterialTextureSlot slot,
       return ValidationResult::Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "texture.color_space",
           "occlusion slot requires linear storage with an R channel");
+    }
+    if (IsBlockCompressedTextureResourceFormat(texture.format) &&
+        !bc4_storage) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "texture.format",
+          "a block-compressed occlusion map must be BC4, the single-channel "
+          "block format");
     }
     break;
   case MaterialTextureSlot::DETAIL_WEIGHT:
@@ -563,11 +602,11 @@ ValidateMaterialTextureCompatibility(MaterialTextureSlot slot,
   case MaterialTextureSlot::DETAIL3:
     // Detail layers are albedo and composite with the base color, so they
     // share the base-color storage rule exactly.
-    if (texture.format != TextureResourceFormat::RGBA8_UNORM ||
+    if ((texture.format != TextureResourceFormat::RGBA8_UNORM && !bc7_storage) ||
         texture.color_space != TextureColorSpace::SRGB) {
       return ValidationResult::Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "texture.format",
-          "detail albedo slots require RGBA8 sRGB storage");
+          "detail albedo slots require RGBA8 or BC7 sRGB storage");
     }
     break;
   default:

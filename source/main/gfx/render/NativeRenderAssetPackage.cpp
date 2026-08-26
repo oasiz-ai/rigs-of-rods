@@ -1194,14 +1194,21 @@ ValidationResult DecodeTexture(Reader &reader, RenderAssetPayload &payload) {
   texture.type = static_cast<TextureResourceType>(type);
   texture.format = static_cast<TextureResourceFormat>(format);
   texture.color_space = static_cast<TextureColorSpace>(color_space);
-  if (texture.type != TextureResourceType::TEXTURE_2D ||
-      texture.format != TextureResourceFormat::RGBA8_UNORM ||
+  // RGBA8 plus the block-compressed storage set. Anything else is refused by
+  // name rather than reinterpreted, because the pitch rules below are derived
+  // from the format's block geometry and a wrong guess would read garbage.
+  const bool admitted_format =
+      texture.format == TextureResourceFormat::RGBA8_UNORM ||
+      texture.format == TextureResourceFormat::BC4_UNORM ||
+      texture.format == TextureResourceFormat::BC5_UNORM ||
+      texture.format == TextureResourceFormat::BC7_UNORM;
+  if (texture.type != TextureResourceType::TEXTURE_2D || !admitted_format ||
       texture.width == 0U || texture.width > kMaximumTextureDimension ||
       texture.height == 0U || texture.height > kMaximumTextureDimension ||
       texture.array_layers != 1U || mip_count == 0U ||
       mip_count > kMaximumTextureMips) {
     return Failure(ValidationCode::UNSUPPORTED_FEATURE, "native.texture",
-                   "v1 accepts bounded RGBA8 2D textures only");
+                   "package accepts bounded 2D RGBA8, BC4, BC5, or BC7 textures only");
   }
   std::uint32_t expected_width = texture.width;
   std::uint32_t expected_height = texture.height;
@@ -1213,8 +1220,11 @@ ValidationResult DecodeTexture(Reader &reader, RenderAssetPayload &payload) {
         !reader.ReadU64(mip.row_pitch_bytes) ||
         !reader.ReadU64(mip.layer_pitch_bytes) || reader.ReadU64(bytes) == false ||
         mip.width != expected_width || mip.height != expected_height ||
-        mip.row_pitch_bytes != static_cast<std::uint64_t>(mip.width) * 4U ||
-        mip.layer_pitch_bytes != mip.row_pitch_bytes * mip.height ||
+        mip.row_pitch_bytes !=
+            MinimumTextureRowPitchBytes(texture.format, mip.width) ||
+        mip.layer_pitch_bytes !=
+            mip.row_pitch_bytes *
+                TextureBlockRowCount(texture.format, mip.height) ||
         bytes != mip.layer_pitch_bytes || bytes > reader.remaining() ||
         bytes > kMaximumNativeRenderAssetPackageBytes ||
         !reader.ReadVector(mip.bytes, static_cast<std::size_t>(bytes))) {
