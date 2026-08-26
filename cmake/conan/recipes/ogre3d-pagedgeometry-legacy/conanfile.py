@@ -21,7 +21,7 @@ from pagedgeometry_package_audit import (
 MACOS_DEPLOYMENT_TARGET = "11.0"
 OGRE_LEGACY_REFERENCE = (
     "ogre3d/1.11.6.1@anotherfoxguy/stable"
-    "#49bf28ca81e5f1d7c9aba93095ae9a82"
+    "#44875cdee59d651783849e1924b04ea6"
 )
 SUPPORTED_TARGETS = {
     ("Linux", "x86_64"),

@@ -165,6 +165,11 @@ def is_trusted_windows_kits_library_path(
     return expected_filename is None or match.group(1) == expected_filename.lower()
 
 
+def package_relative_posix_path(entry_path: str, package_folder: str) -> str:
+    """Return a stable package-relative path on every host platform."""
+    return Path(os.path.relpath(entry_path, package_folder)).as_posix()
+
+
 def find_forbidden_cg_package_entries(package_folder: str) -> list[str]:
     """Return every path/config/symlink that could reactivate Cg."""
     if not os.path.isdir(package_folder):
@@ -185,7 +190,9 @@ def find_forbidden_cg_package_entries(package_folder: str) -> list[str]:
     ):
         for entry_name in (*directories, *filenames):
             entry_path = os.path.join(current_root, entry_name)
-            relative_path = os.path.relpath(entry_path, package_folder)
+            relative_path = package_relative_posix_path(
+                entry_path, package_folder
+            )
             if (
                 Path(entry_name).suffix.lower() in FORBIDDEN_CG_SUFFIXES
                 or contains_forbidden_cg_token(entry_name)
@@ -200,7 +207,9 @@ def find_forbidden_cg_package_entries(package_folder: str) -> list[str]:
             if Path(filename).suffix.lower() not in RESOURCE_SCRIPT_SUFFIXES:
                 continue
             config_path = os.path.join(current_root, filename)
-            relative_config = os.path.relpath(config_path, package_folder)
+            relative_config = package_relative_posix_path(
+                config_path, package_folder
+            )
             with open(config_path, encoding="utf-8") as config_file:
                 active_routes = active_cg_route_lines(config_file.read())
             findings.extend(
@@ -234,7 +243,9 @@ def find_forbidden_legacy_directx_package_entries(
     ):
         for entry_name in (*directories, *filenames):
             entry_path = os.path.join(current_root, entry_name)
-            relative_path = os.path.relpath(entry_path, package_folder)
+            relative_path = package_relative_posix_path(
+                entry_path, package_folder
+            )
             if contains_forbidden_legacy_directx_token(entry_name):
                 findings.append(relative_path)
             if os.path.islink(entry_path):
@@ -247,7 +258,9 @@ def find_forbidden_legacy_directx_package_entries(
             if not lowered_filename.endswith(PACKAGE_TEXT_EXTENSIONS):
                 continue
             config_path = os.path.join(current_root, filename)
-            relative_config = os.path.relpath(config_path, package_folder)
+            relative_config = package_relative_posix_path(
+                config_path, package_folder
+            )
             with open(config_path, encoding="utf-8") as config_file:
                 config_source = config_file.read()
                 if lowered_filename.endswith(".cmake"):

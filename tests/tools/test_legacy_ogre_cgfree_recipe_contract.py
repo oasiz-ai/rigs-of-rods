@@ -6,12 +6,13 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import re
 import subprocess
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 
 import assert_ogre11_app_graph as graph_assertion
 
@@ -679,6 +680,27 @@ class LegacyOgreCgFreeRecipeContractTests(unittest.TestCase):
             )
             self.assertEqual(audit(tmp), [])
 
+    def test_package_audit_canonicalizes_windows_diagnostic_paths(
+        self,
+    ) -> None:
+        relative_path = r"lib\OGRE\cmake\OGREConfig.cmake"
+        with mock.patch.object(
+            self.legacy_audit_module.os.path,
+            "relpath",
+            return_value=relative_path,
+        ), mock.patch.object(
+            self.legacy_audit_module,
+            "Path",
+            PureWindowsPath,
+        ):
+            observed = (
+                self.legacy_audit_module.package_relative_posix_path(
+                    r"C:\package\lib\OGRE\cmake\OGREConfig.cmake",
+                    r"C:\package",
+                )
+            )
+        self.assertEqual(observed, "lib/OGRE/cmake/OGREConfig.cmake")
+
     def test_package_audit_rejects_d3d9_and_requires_d3d11_policy(
         self,
     ) -> None:
@@ -912,7 +934,7 @@ class LegacyOgreCgFreeRecipeContractTests(unittest.TestCase):
         self,
     ) -> None:
         self.assertIn(
-            '"#49bf28ca81e5f1d7c9aba93095ae9a82"',
+            '"#44875cdee59d651783849e1924b04ea6"',
             self.legacy_caelum_recipe,
         )
         self.assertNotIn("[~14]", self.legacy_caelum_recipe)
@@ -1070,7 +1092,7 @@ class LegacyOgreCgFreeRecipeContractTests(unittest.TestCase):
         self,
     ) -> None:
         self.assertIn(
-            '"#49bf28ca81e5f1d7c9aba93095ae9a82"',
+            '"#44875cdee59d651783849e1924b04ea6"',
             self.legacy_paged_geometry_recipe,
         )
         self.assertNotIn("[~1.11]", self.legacy_paged_geometry_recipe)
