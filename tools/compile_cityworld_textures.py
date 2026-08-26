@@ -88,6 +88,8 @@ ZIP_MODE = 0o100644
 # and a texture nobody classified is refused rather than silently guessed at.
 ROLE_COLOUR_SRGB = "colour_srgb"
 ROLE_WEIGHT_MASK = "weight_mask"
+# Present in the archive but owned by another workstream: copied verbatim.
+ROLE_EXTERNALLY_OWNED = "externally_owned"
 
 COMPILE_PLAN: dict[str, tuple[str, str]] = {
     # member -> (role, why)
@@ -136,6 +138,27 @@ COMPILE_PLAN: dict[str, tuple[str, str]] = {
         ROLE_WEIGHT_MASK,
         "layer weight mask; block compression would bleed layer selection "
         "across 4x4 boundaries at exactly the layer edges it defines",
+    ),
+    # Detail-layer members owned by the layered-materials workstream. They are
+    # copied verbatim, not compiled. Their layer set was verified live shortly
+    # before this tool ran, and compressing it in the same change would put
+    # this compression and those freshly-proven layers at risk together.
+    #
+    # When they are compiled: the four albedo layers take BC3, whose BC4 alpha
+    # block reproduces the block's alpha extremes exactly, which matters
+    # because their alpha is not transparency -- it carries the layer's
+    # height/coverage curve and multiplies into the per-texel layer weight.
+    # The two normal maps take BC5. facade_layer_mask_256.png must stay
+    # uncompressed for the same reason as the terrain blend map above.
+    "cityworld_next_replacements/facade_grain_256.png": (ROLE_EXTERNALLY_OWNED, "detail albedo"),
+    "cityworld_next_replacements/facade_joint_512.png": (ROLE_EXTERNALLY_OWNED, "detail albedo"),
+    "cityworld_next_replacements/facade_stain_512.png": (ROLE_EXTERNALLY_OWNED, "detail albedo"),
+    "cityworld_next_replacements/facade_weathering_512.png": (ROLE_EXTERNALLY_OWNED, "detail albedo"),
+    "cityworld_next_replacements/facade_grain_nrm_256.png": (ROLE_EXTERNALLY_OWNED, "detail normal"),
+    "cityworld_next_replacements/facade_joint_nrm_512.png": (ROLE_EXTERNALLY_OWNED, "detail normal"),
+    "cityworld_next_replacements/facade_layer_mask_256.png": (
+        ROLE_EXTERNALLY_OWNED,
+        "detail layer weight mask; must never be block-compressed",
     ),
 }
 
@@ -312,8 +335,8 @@ def main(argv: list[str] | None = None) -> int:
         entry = by_name[name]
         width, height, pixels = decode_png_rgba(entry.data)
         rgba8_resident = resident_bytes_rgba8(width, height)
-        if role == ROLE_WEIGHT_MASK:
-            skipped.append((name, why))
+        if role in (ROLE_WEIGHT_MASK, ROLE_EXTERNALLY_OWNED):
+            skipped.append((name, f"[{role}] {why}"))
             before_resident += rgba8_resident
             after_resident += rgba8_resident
             before_disk += len(entry.data)

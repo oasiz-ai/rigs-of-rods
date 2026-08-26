@@ -88,14 +88,40 @@ channels, so there is nothing to extract.
 
 | Slot | Accepts |
 | --- | --- |
-| `BASE_COLOR`, `EMISSIVE` | RGBA8 / BC1 / BC3 / BC7, sRGB |
+| `BASE_COLOR`, `EMISSIVE` | RGBA8 / BC3 / BC7, sRGB |
 | `METALLIC_ROUGHNESS` | linear RGBA only — block formats refused by name |
 | `NORMAL` | linear RGBA or BC5 |
-| `SPECULAR` | linear RGBA / BC1 / BC3 / BC7 |
+| `SPECULAR` | linear RGBA / BC3 / BC7 |
 | `OCCLUSION` | linear; block-compressed must be BC4 |
 | `DETAIL_WEIGHT` | linear RGBA only — block formats refused |
-| `DETAIL0..3` | RGBA8 / BC1 / BC3 / BC7, sRGB |
+| `DETAIL0..3` | RGBA8 / BC3 / BC7, sRGB |
 | `DETAIL0_NM..3_NM` | linear RGBA or BC5 |
+
+### BC1 is admitted by no material slot
+
+In this material model alpha is never decorative. Base colour uses it for
+transparency and cutout; a detail layer uses it to carry the baked
+height/coverage curve that drives per-texel layer selection. BC1 carries **one
+bit** of alpha, so admitting it would quantise a height ramp to on/off — and the
+texture would load, render, and simply be wrong. That is the worst failure shape
+available, so BC1 is refused at every slot, by name.
+
+The storage format still exists because legacy DXT1 archive content has to be
+representable in transport. It just may not back a material slot.
+
+### BC3 is the recommended detail-albedo format, and the reason is the encoder
+
+BC7 is admitted for detail albedo and is the better format in principle. But the
+encoder shipped here emits **mode 6 only**, and mode 6 gives all four channels a
+single shared index per texel: alpha cannot vary independently of colour. A
+detail layer whose colour has texture *and* whose alpha carries an independent
+height ramp is exactly the case mode 6 cannot represent.
+
+BC3 splits the block into an independent BC4 alpha block plus a BC1 colour
+block, so its alpha is free to vary however the height curve does, and the
+block's alpha extremes come back exactly. Until a full-mode BC7 encoder emitting
+modes 4 and 5 exists, **BC3 is the correct choice for any layer whose alpha
+carries signal**, and BC7 is correct for layers whose alpha is constant.
 
 `DETAIL_WEIGHT` is closed to compression deliberately. BC fits two endpoints per
 4x4 block, so a compressed weight mask bleeds layer selection across block
