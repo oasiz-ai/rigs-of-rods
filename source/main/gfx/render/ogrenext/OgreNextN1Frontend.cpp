@@ -17384,9 +17384,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
           OgreNextN1AnalyticSkyFailureStage::AFTER_SCENE_NODE,
           "injected analytic-sky scene-node rollback failure");
 #endif
-      const Ogre::Vector3 camera_position =
+      const Ogre::Vector3 analytic_sky_camera_position =
           native_view.inverseAffine().getTrans();
-      analytic_sky_node->setPosition(camera_position);
+      analytic_sky_node->setPosition(analytic_sky_camera_position);
       analytic_sky_background_item->setDatablock(
           analytic_sky_background_datablock);
       analytic_sky_sun_item->setDatablock(analytic_sky_sun_datablock);
@@ -17523,7 +17523,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
           analytic_sky_background_item->getParentSceneNode() !=
               analytic_sky_node ||
           analytic_sky_sun_item->getParentSceneNode() != analytic_sky_node ||
-          analytic_sky_node->getPosition() != camera_position) {
+          analytic_sky_node->getPosition() !=
+              analytic_sky_camera_position) {
         throw std::logic_error(
             "N1 native analytic sky failed exact v2 Item/VAO metadata, optional test-artifact content, camera-centred, render-first, no-depth, or separate-alpha verification");
       }

@@ -319,6 +319,47 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
         self.assertIn("kOgreNextExpectedViewFarMeters", self.policy_header)
         self.assertIn("shadow_flags != 0U", self.policy)
 
+    def test_windows_warning_clean_environment_and_camera_scopes(self) -> None:
+        environment_start = self.policy.index(
+            "class ScopedEnvironmentValue final"
+        )
+        environment_end = self.policy.index(
+            "bool IsPowerOfTwoResolution", environment_start
+        )
+        environment_helper = self.policy[environment_start:environment_end]
+        for token in (
+            "#if defined(_MSC_VER)",
+            "_dupenv_s(&value_, &length, name)",
+            "std::free(value_);",
+            "value_ = std::getenv(name);",
+        ):
+            self.assertIn(token, environment_helper)
+        self.assertNotIn("fprintf", environment_helper)
+        for token in (
+            "ScopedEnvironmentValue environment(name);",
+            'ScopedEnvironmentValue legacy_environment("ROR_SHADOW_LEGACY");',
+            'ScopedEnvironmentValue resolution_environment("ROR_SHADOW_RES");',
+        ):
+            self.assertIn(token, self.policy)
+
+        analytic_sky_start = self.frontend.index(
+            "const Ogre::Vector3 analytic_sky_camera_position"
+        )
+        analytic_sky_end = self.frontend.index(
+            "analytic_sky_frame_completed = true", analytic_sky_start
+        )
+        analytic_sky = self.frontend[analytic_sky_start:analytic_sky_end]
+        self.assertNotIn(
+            "const Ogre::Vector3 camera_position =", analytic_sky
+        )
+        self.assertIn(
+            "analytic_sky_node->setPosition(analytic_sky_camera_position);",
+            analytic_sky,
+        )
+        self.assertIn(
+            "analytic_sky_camera_position)", analytic_sky
+        )
+
     def test_shadow_visibility_excludes_reflection_and_ogre_layers(self) -> None:
         self.assertIn(
             "kOgreNextPssmNativeVisibilityMask =\n"

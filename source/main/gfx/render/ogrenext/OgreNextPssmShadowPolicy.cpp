@@ -61,6 +61,42 @@ constexpr std::uint32_t kOgreNextPssmMaxAtlasDimension = 8192U;
 
 std::atomic<bool> g_modern_shadow_defaults_requested{false};
 
+class ScopedEnvironmentValue final {
+public:
+  explicit ScopedEnvironmentValue(const char *name) noexcept {
+    if (name == nullptr || name[0U] == '\0') {
+      return;
+    }
+#if defined(_MSC_VER)
+    std::size_t length = 0U;
+    if (_dupenv_s(&value_, &length, name) != 0) {
+      std::free(value_);
+      value_ = nullptr;
+    }
+#else
+    value_ = std::getenv(name);
+#endif
+  }
+
+  ~ScopedEnvironmentValue() noexcept {
+#if defined(_MSC_VER)
+    std::free(value_);
+#endif
+  }
+
+  ScopedEnvironmentValue(const ScopedEnvironmentValue &) = delete;
+  ScopedEnvironmentValue &operator=(const ScopedEnvironmentValue &) = delete;
+
+  const char *get() const noexcept { return value_; }
+
+private:
+#if defined(_MSC_VER)
+  char *value_ = nullptr;
+#else
+  const char *value_ = nullptr;
+#endif
+};
+
 bool IsPowerOfTwoResolution(std::uint32_t value) noexcept {
   return value >= 256U && value <= 4096U && (value & (value - 1U)) == 0U;
 }
@@ -105,7 +141,8 @@ bool PackCascadeShelves(const std::array<std::uint32_t,
 
 bool ParseEnvUnsigned(const char *name, std::uint32_t minimum,
                       std::uint32_t maximum, std::uint32_t &value) noexcept {
-  const char *raw = std::getenv(name);
+  const ScopedEnvironmentValue environment(name);
+  const char *const raw = environment.get();
   if (raw == nullptr || raw[0U] == '\0') {
     return false;
   }
@@ -120,7 +157,8 @@ bool ParseEnvUnsigned(const char *name, std::uint32_t minimum,
 
 bool ParseEnvFloat(const char *name, float minimum, float maximum,
                    float &value) noexcept {
-  const char *raw = std::getenv(name);
+  const ScopedEnvironmentValue environment(name);
+  const char *const raw = environment.get();
   if (raw == nullptr || raw[0U] == '\0') {
     return false;
   }
@@ -140,7 +178,8 @@ OgreNextPssmShadowQualityConfig ResolveShadowQualityConfig() noexcept {
       kOgreNextPssmLegacyResolutions;
   const bool modern = g_modern_shadow_defaults_requested.load(
       std::memory_order_acquire);
-  const char *legacy_raw = std::getenv("ROR_SHADOW_LEGACY");
+  const ScopedEnvironmentValue legacy_environment("ROR_SHADOW_LEGACY");
+  const char *const legacy_raw = legacy_environment.get();
   const bool legacy_forced =
       legacy_raw != nullptr && std::strcmp(legacy_raw, "1") == 0;
   if (modern && !legacy_forced) {
@@ -160,7 +199,8 @@ OgreNextPssmShadowQualityConfig ResolveShadowQualityConfig() noexcept {
     if (ParseEnvFloat("ROR_SHADOW_LAMBDA", 0.5F, 0.99F, knob_float)) {
       config.lambda = knob_float;
     }
-    const char *resolution_raw = std::getenv("ROR_SHADOW_RES");
+    const ScopedEnvironmentValue resolution_environment("ROR_SHADOW_RES");
+    const char *const resolution_raw = resolution_environment.get();
     if (resolution_raw != nullptr && resolution_raw[0U] != '\0') {
       std::array<std::uint32_t, kOgreNextPssmMaxCascadeCount> parsed =
           resolutions;
