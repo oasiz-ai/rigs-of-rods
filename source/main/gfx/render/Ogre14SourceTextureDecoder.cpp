@@ -1716,25 +1716,18 @@ ValidationResult ParseDdsHeader(
 ///   detail layer's height curve, so it is refused at every slot; BC2 has no
 ///   transport format at all.
 ///
-/// - The authored mip chain must be COMPLETE, base to 1x1. A compressed mip
-///   cannot be derived from a compressed mip without decoding and re-encoding
-///   it, so a short chain cannot be completed later and the descriptor builder
-///   refuses it. Plenty of legacy DDS content ships a truncated chain, and for
-///   that content the RGBA8 decode is the right answer -- it can generate the
-///   tail. Falling back costs a memory saving; refusing would cost the frame.
+/// There used to be a second condition here demanding a COMPLETE base-to-1x1
+/// mip chain, mirroring what the descriptor builder insisted on. Both were
+/// wrong in the same way. A compressed mip cannot be GENERATED at load time,
+/// which is true, but that never obliged the source to reach 1x1: a BC block
+/// is 4x4, so authoring tools stop at or above the block floor and omit the
+/// sub-block levels. Stock RoR particle art ships six levels where
+/// completeness would demand eight or nine. A truncated chain is a valid
+/// texture and sampling simply clamps to the last authored level, so those
+/// payloads pass through now rather than falling back to an RGBA8 decode they
+/// never needed.
 [[nodiscard]] bool IsPassThroughEligible(const ParsedDds &parsed) noexcept {
-  if (!IsPassThroughFormatEligible(parsed.format)) {
-    return false;
-  }
-  std::uint32_t complete = 1U;
-  std::uint32_t width = parsed.width;
-  std::uint32_t height = parsed.height;
-  while (width > 1U || height > 1U) {
-    width = (std::max)(1U, width / 2U);
-    height = (std::max)(1U, height / 2U);
-    ++complete;
-  }
-  return parsed.mip_count == complete;
+  return IsPassThroughFormatEligible(parsed.format);
 }
 
 ValidationResult BuildMipSpans(
