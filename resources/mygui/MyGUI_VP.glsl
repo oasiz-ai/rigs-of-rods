@@ -1,4 +1,4 @@
-#version 130
+#version 150
 
 precision highp int;
 precision highp float;
@@ -10,6 +10,8 @@ uniform float YFlipScale;
 
 out vec4 outUV0;
 out vec4 outColor;
+
+out gl_PerVertex { vec4 gl_Position; };
 
 // Texturing vertex program for the MyGUI OGRE backend.
 void main()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail closed on the packaged MyGUI GLSL 130 shader contract."""
+"""Fail closed on the packaged MyGUI GLSL shader contract."""
 
 from pathlib import Path
 import unittest
@@ -16,15 +16,14 @@ TSAN_WORKFLOW = (
 
 
 class MyGuiGlslContractTests(unittest.TestCase):
-    def test_glsl130_vertex_source_uses_the_ogre_sso_injection_path(self) -> None:
+    def test_vertex_source_declares_the_glsl150_per_vertex_interface(self) -> None:
         vertex = (MYGUI / "MyGUI_VP.glsl").read_text(encoding="utf-8")
-        reference = (MYGUI / "MyGUI_Ogre_VP.glsl").read_text(
-            encoding="utf-8"
-        )
 
-        self.assertTrue(vertex.startswith("#version 130\n"))
-        self.assertNotIn("gl_PerVertex", vertex)
-        self.assertNotIn("vec4 gl_Position", vertex)
+        self.assertTrue(vertex.startswith("#version 150\n"))
+        self.assertEqual(
+            vertex.count("out gl_PerVertex { vec4 gl_Position; };"),
+            1,
+        )
         for contract in (
             "in vec4 position;",
             "in vec4 uv0;",
@@ -36,7 +35,6 @@ class MyGuiGlslContractTests(unittest.TestCase):
         ):
             with self.subTest(contract=contract):
                 self.assertEqual(vertex.count(contract), 1)
-                self.assertEqual(reference.count(contract), 1)
 
     def test_glsl130_fragment_interface_matches_the_vertex_source(self) -> None:
         fragment = (MYGUI / "MyGUI_FP.glsl").read_text(encoding="utf-8")
