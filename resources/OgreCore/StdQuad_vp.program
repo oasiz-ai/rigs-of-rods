@@ -61,6 +61,10 @@ vertex_program Ogre/Compositor/StdQuad_Tex4_Cg_vp cg
 vertex_program Ogre/Compositor/StdQuad_GLSL_vp glsl
 {
 	source StdQuad_vp.glsl
+	default_params
+	{
+		param_named_auto worldViewProj worldviewproj_matrix
+	}
 }
 
 vertex_program Ogre/Compositor/StdQuad_GLSLES_vp glsles
@@ -125,6 +129,8 @@ vertex_program Ogre/Compositor/StdQuad_HLSL_vp hlsl
 // Unified definitions
 vertex_program Ogre/Compositor/StdQuad_vp unified
 {
+	delegate Ogre/Compositor/StdQuad_HLSL_vp
+	delegate Ogre/Compositor/StdQuad_GLSL_vp
 	delegate Ogre/Compositor/StdQuad_GLSLES_vp
 	delegate Ogre/Compositor/StdQuad_Cg_vp
 }
@@ -159,4 +165,3 @@ vertex_program Ogre/Compositor/StdQuad_Tex4_vp unified
 	delegate Ogre/Compositor/StdQuad_Tex4_GLSLES_vp
 	delegate Ogre/Compositor/StdQuad_Tex4_Cg_vp
 }
-

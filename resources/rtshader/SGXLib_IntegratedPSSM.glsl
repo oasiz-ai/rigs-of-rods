@@ -5,6 +5,8 @@
 // Language: GLSL
 //-----------------------------------------------------------------------------
 
+// RTSS dependency fragment: the generated program owns the GLSL version.
+
 //-----------------------------------------------------------------------------
 void SGX_CopyDepth(in vec4 clipSpacePos,
 			 out float oDepth)
@@ -36,10 +38,10 @@ float _SGX_ShadowPCF4(sampler2D shadowMap, vec4 shadowMapPos, vec2 offset)
 	vec3 o = vec3(offset, -offset.x) * 0.3;
 
 	// Note: We using 2x2 PCF. Good enough and is alot faster.
-	float c =	(shadowMapPos.z <= texture2D(shadowMap, uv.xy - o.xy).r) ? 1.0 : 0.0; // top left
-	c +=		(shadowMapPos.z <= texture2D(shadowMap, uv.xy + o.xy).r) ? 1.0 : 0.0; // bottom right
-	c +=		(shadowMapPos.z <= texture2D(shadowMap, uv.xy + o.zy).r) ? 1.0 : 0.0; // bottom left
-	c +=		(shadowMapPos.z <= texture2D(shadowMap, uv.xy - o.zy).r) ? 1.0 : 0.0; // top right
+	float c =	(shadowMapPos.z <= texture(shadowMap, uv.xy - o.xy).r) ? 1.0 : 0.0; // top left
+	c +=		(shadowMapPos.z <= texture(shadowMap, uv.xy + o.xy).r) ? 1.0 : 0.0; // bottom right
+	c +=		(shadowMapPos.z <= texture(shadowMap, uv.xy + o.zy).r) ? 1.0 : 0.0; // bottom left
+	c +=		(shadowMapPos.z <= texture(shadowMap, uv.xy - o.zy).r) ? 1.0 : 0.0; // top right
 		
 	return c / 4.0;
 }
@@ -79,4 +81,3 @@ void SGX_ComputeShadowFactor_PSSM3(in float fDepth,
 		oShadowFactor = shadowFactor2;				
 	}
 }
-

@@ -1,4 +1,4 @@
-#version 120
+// RTSS dependency fragment: the generated program owns the GLSL version.
 /*
 -----------------------------------------------------------------------------
 This source file is part of OGRE
@@ -40,9 +40,9 @@ void SGX_ApplyReflectionMap(in sampler2D maskSampler,
 						    in float reflectionPower,
 						    out vec3 vOut)
 {
-	vec3 maskTexel	   = texture2D(maskSampler, maskSamplerTexCoord).xyz;
+	vec3 maskTexel	   = texture(maskSampler, maskSamplerTexCoord).xyz;
 	reflectionSamplerTexCoord.y = -reflectionSamplerTexCoord.y; // Hack for gl 
-	vec3 reflectionTexel = texture2D(reflectionSampler, reflectionSamplerTexCoord).xyz;
+	vec3 reflectionTexel = texture(reflectionSampler, reflectionSamplerTexCoord).xyz;
 	
 	vOut = baseColor + reflectionTexel.xyz*maskTexel.xyz*reflectionPower;
 }
@@ -56,9 +56,9 @@ void SGX_ApplyReflectionMap(in sampler2D maskSampler,
 						    in float reflectionPower,
 						    out vec3 vOut)
 {
-	vec3 maskTexel	   = texture2D(maskSampler, maskSamplerTexCoord).xyz;
+	vec3 maskTexel	   = texture(maskSampler, maskSamplerTexCoord).xyz;
 	reflectionSamplerTexCoord.z = -reflectionSamplerTexCoord.z; // Hack for gl 
-	vec3 reflectionTexel = textureCube(reflectionSampler, reflectionSamplerTexCoord).xyz;
+	vec3 reflectionTexel = texture(reflectionSampler, reflectionSamplerTexCoord).xyz;
 	
 	vOut = baseColor + reflectionTexel.xyz*maskTexel.xyz*reflectionPower;
 }

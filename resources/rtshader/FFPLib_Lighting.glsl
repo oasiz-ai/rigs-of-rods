@@ -1,4 +1,4 @@
-#version 120
+// RTSS dependency fragment: the generated program owns the GLSL version.
 /*
 -----------------------------------------------------------------------------
 This source file is part of OGRE

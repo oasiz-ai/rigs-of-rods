@@ -1,4 +1,4 @@
-#version 120
+// RTSS dependency fragment: the generated program owns the GLSL version.
 /*
 -----------------------------------------------------------------------------
 This source file is part of OGRE
@@ -225,4 +225,3 @@ void SGX_Light_Spot_DiffuseSpecular(
 		vOutSpecular += vSpecularColour * pow(clamp(nDotH, 0.0, 1.0), fSpecularPower) * fAtten * fSpotT;
 	}		
 }
-

@@ -1,4 +1,4 @@
-#version 120
+// RTSS dependency fragment: the generated program owns the GLSL version.
 /*
 -----------------------------------------------------------------------------
 This source file is part of OGRE
@@ -44,4 +44,3 @@ void FFP_Transform(in mat4 m,
 {
 	vOut = m * v;
 }
-

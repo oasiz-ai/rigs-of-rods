@@ -1,4 +1,4 @@
-#version 120
+// RTSS dependency fragment: the generated program owns the GLSL version.
 /*
 -----------------------------------------------------------------------------
 This source file is part of OGRE
@@ -193,7 +193,7 @@ void FFP_SampleTexture(in sampler1D s,
 				   in float f,
 				   out vec4 t)
 {
-	t = texture1D(s, f);
+	t = texture(s, f);
 }
 
 //-----------------------------------------------------------------------------
@@ -201,14 +201,14 @@ void FFP_SampleTexture(in sampler2D s,
 				   in vec2 f,
 				   out vec4 t)
 {
-	t = texture2D (s, f);
+	t = texture(s, f);
 }
 //-----------------------------------------------------------------------------
 void FFP_SampleTexture(in sampler2D s, 
 				   in vec4 f,
 				   out vec4 t)
 {
-	t = texture2D (s, vec2(f.xy));
+	t = texture(s, vec2(f.xy));
 }
 
 //-----------------------------------------------------------------------------
@@ -216,7 +216,7 @@ void FFP_SampleTextureProj(in sampler2D s,
 				   in vec3 f,
 				   out vec4 t)
 {
-	t = texture2D(s, f.xy/f.z);
+	t = texture(s, f.xy/f.z);
 }
 
 //-----------------------------------------------------------------------------
@@ -224,7 +224,7 @@ void FFP_SampleTexture(in sampler3D s,
 				   in vec3 f,
 				   out vec4 t)
 {
-	t = texture3D(s, f);
+	t = texture(s, f);
 }
 
 //-----------------------------------------------------------------------------
@@ -232,7 +232,7 @@ void FFP_SampleTexture(in samplerCube s,
 				   in vec3 f,
 				   out vec4 t)
 {
-	t = textureCube(s, f);
+	t = texture(s, f);
 }
 
 
@@ -331,4 +331,3 @@ void FFP_AddSmooth(in vec4 vIn0, in vec4 vIn1, out vec4 vOut)
 {
 	vOut = vIn0 + vIn1 - (vIn0 * vIn1);
 }
-

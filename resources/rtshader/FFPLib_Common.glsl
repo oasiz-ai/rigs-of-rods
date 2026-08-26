@@ -1,4 +1,4 @@
-#version 120
+// RTSS dependency fragment: the generated program owns the GLSL version.
 /*
 -----------------------------------------------------------------------------
 This source file is part of OGRE
@@ -225,7 +225,6 @@ void FFP_DotProduct(in vec4 vIn0, in vec4 vIn1, out vec4 vOut)
 {
 	vOut = vec4(dot(vIn0, vIn1), 1.0, 1.0, 1.0);
 }
-
 
 
 

@@ -19,6 +19,9 @@ on:
       - resources/nextgen/native/**
       - resources/mygui/**
       - resources/SkyX/**
+      - resources/OgreCore/StdQuad_vp.glsl
+      - resources/OgreCore/StdQuad_vp.program
+      - resources/rtshader/**
       - source/main/**
       - tools/linux/RunRoR-combined
       - tools/ogre_next_probe/**
@@ -39,6 +42,7 @@ on:
       - tests/tools/test_renderer_combined_game_wiring_contract.py
       - tests/tools/test_mygui_glsl_contract.py
       - tests/tools/test_skyx_glsl_contract.py
+      - tests/tools/test_ogre14_remaining_glsl_contract.py
   pull_request:
     paths:
       - .github/workflows/ogre-next-combined-native.yml
@@ -56,6 +60,9 @@ on:
       - resources/nextgen/native/**
       - resources/mygui/**
       - resources/SkyX/**
+      - resources/OgreCore/StdQuad_vp.glsl
+      - resources/OgreCore/StdQuad_vp.program
+      - resources/rtshader/**
       - source/main/**
       - tools/linux/RunRoR-combined
       - tools/ogre_next_probe/**
@@ -76,6 +83,7 @@ on:
       - tests/tools/test_renderer_combined_game_wiring_contract.py
       - tests/tools/test_mygui_glsl_contract.py
       - tests/tools/test_skyx_glsl_contract.py
+      - tests/tools/test_ogre14_remaining_glsl_contract.py
   workflow_dispatch:
 
 permissions:
@@ -212,6 +220,7 @@ jobs:
           python tests/tools/test_renderer_combined_game_wiring_contract.py
           python tests/tools/test_mygui_glsl_contract.py
           python tests/tools/test_skyx_glsl_contract.py
+          python tests/tools/test_ogre14_remaining_glsl_contract.py
           python -O tests/tools/test_ogre_next_combined_provider_contract.py
           python -O tests/tools/test_ogre_next_embedded_namespace_contract.py
           python -O tests/tools/test_run_playable_performance_scene.py
@@ -220,6 +229,7 @@ jobs:
           python -O tests/tools/test_renderer_combined_game_wiring_contract.py
           python -O tests/tools/test_mygui_glsl_contract.py
           python -O tests/tools/test_skyx_glsl_contract.py
+          python -O tests/tools/test_ogre14_remaining_glsl_contract.py
 
       - name: Verify the locked native Conan graph
         shell: bash
@@ -572,9 +582,9 @@ jobs:
           PY
           grep -Fq '===== LOADING TERRAIN simple2_a.terrn2' "$scene/RoR.log"
           grep -Fq '== Spawning vehicle: Daf Semi truck' "$scene/RoR.log"
-          if grep -Eq "Program '[^']+\\.(glsl|glsles)' is not supported|Program 'SkyX_[^']+' is not supported|Error: ScriptCompiler .*SkyX\\.material" \
+          if grep -Eq "Program '[^']+\\.(glsl|glsles)' is not supported|Program 'SkyX_[^']+' is not supported|Program 'Ogre/Compositor/StdQuad_[^']+' is not supported|Error: ScriptCompiler .*SkyX\\.material|Error: ScriptCompiler .*StdQuad_vp\\.program" \
               "$scene/RoR.log" "$scene/console.txt"; then
-            echo 'MyGUI GLSL compilation failed or SkyX shader/material compilation failed in the packaged combined runtime' >&2
+            echo 'MyGUI GLSL compilation failed, or SkyX/StdQuad shader or material compilation failed in the packaged combined runtime' >&2
             exit 1
           fi
           if grep -Fq -- '--native-visual-showcase' "$scene/performance-run.json"; then
@@ -933,6 +943,7 @@ jobs:
           python tests/tools/test_renderer_combined_game_wiring_contract.py
           python tests/tools/test_mygui_glsl_contract.py
           python tests/tools/test_skyx_glsl_contract.py
+          python tests/tools/test_ogre14_remaining_glsl_contract.py
           python -O tests/tools/test_ogre_next_combined_provider_contract.py
           python -O tests/tools/test_ogre_next_embedded_namespace_contract.py
           python -O tests/tools/test_run_playable_performance_scene.py
@@ -941,6 +952,7 @@ jobs:
           python -O tests/tools/test_renderer_combined_game_wiring_contract.py
           python -O tests/tools/test_mygui_glsl_contract.py
           python -O tests/tools/test_skyx_glsl_contract.py
+          python -O tests/tools/test_ogre14_remaining_glsl_contract.py
 
       - name: Verify the locked native Conan graph
         shell: bash
@@ -1201,9 +1213,9 @@ jobs:
             echo 'packaged macOS scene accessed an unbundled runtime path' >&2
             exit 1
           fi
-          if grep -Eq "Program '[^']+\\.(glsl|glsles)' is not supported|Program 'SkyX_[^']+' is not supported|Error: ScriptCompiler .*SkyX\\.material" \
+          if grep -Eq "Program '[^']+\\.(glsl|glsles)' is not supported|Program 'SkyX_[^']+' is not supported|Program 'Ogre/Compositor/StdQuad_[^']+' is not supported|Error: ScriptCompiler .*SkyX\\.material|Error: ScriptCompiler .*StdQuad_vp\\.program" \
               "$scene/RoR.log" "$scene/console.txt"; then
-            echo 'MyGUI GLSL compilation failed or SkyX shader/material compilation failed in the packaged macOS runtime' >&2
+            echo 'MyGUI GLSL compilation failed, or SkyX/StdQuad shader or material compilation failed in the packaged macOS runtime' >&2
             exit 1
           fi
           destination="$ROR_COMBINED_PACKAGE_DIR/qualification/packaged-scene-smoke"
@@ -1535,6 +1547,7 @@ jobs:
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_renderer_combined_game_wiring_contract.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_mygui_glsl_contract.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_skyx_glsl_contract.py')
+          Invoke-CheckedPython -PythonArguments @('tests/tools/test_ogre14_remaining_glsl_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_ogre_next_combined_provider_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_ogre_next_embedded_namespace_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_playable_performance_scene.py')
@@ -1543,6 +1556,7 @@ jobs:
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_renderer_combined_game_wiring_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_mygui_glsl_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_skyx_glsl_contract.py')
+          Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_ogre14_remaining_glsl_contract.py')
 
       - name: Verify the locked native Conan graph
         shell: pwsh
@@ -1939,11 +1953,11 @@ jobs:
           $console = Join-Path $scene 'console.txt'
           $shaderDiagnostics = Select-String `
             -LiteralPath @($log, $console) `
-            -Pattern "Program '[^']+' is not supported|Error: ScriptCompiler .*SkyX\.material" `
+            -Pattern "Program '[^']+' is not supported|Error: ScriptCompiler .*SkyX\.material|Error: ScriptCompiler .*StdQuad_vp\.program" `
             -ErrorAction Stop
           if ($shaderDiagnostics) {
             $shaderDiagnostics | ForEach-Object { Write-Host $_.Line }
-            throw 'Shader or SkyX material compilation failed in the packaged Windows runtime'
+            throw 'Shader, SkyX material, or StdQuad program compilation failed in the packaged Windows runtime'
           }
           $destination = Join-Path $stage 'qualification/packaged-scene-smoke'
           New-Item -ItemType Directory -Force -Path $destination | Out-Null

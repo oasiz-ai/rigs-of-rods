@@ -1,4 +1,4 @@
-#version 120
+// RTSS dependency fragment: the generated program owns the GLSL version.
 /*
 -----------------------------------------------------------------------------
 This source file is part of OGRE
@@ -82,7 +82,7 @@ void SGX_FetchNormal(in sampler2D s,
 				   in vec2 uv, 
 				   out vec3 vOut)
 {
-	vOut = 2.0 * texture2D(s, uv).xyz - 1.0;
+	vOut = 2.0 * texture(s, uv).xyz - 1.0;
 }
 
 //-----------------------------------------------------------------------------
@@ -107,7 +107,7 @@ void SGX_Generate_Parallax_Texcoord(in sampler2D normalHeightMap,
 						out vec2 newTexCoord)
 {
 	eyeVec = normalize(eyeVec);
-	float height = texture2D(normalHeightMap, texCoord).a;
+	float height = texture(normalHeightMap, texCoord).a;
 	float displacement = (height * scaleBias.x) + scaleBias.y;
 	vec3 scaledEyeDir = eyeVec * displacement;
 	newTexCoord = (scaledEyeDir  + vec3(texCoord, 1.0)).xy;
@@ -266,4 +266,3 @@ void SGX_Light_Spot_DiffuseSpecular(
 		vOutSpecular += vSpecularColour * pow(clamp(nDotH, 0.0, 1.0), fSpecularPower) * fAtten * fSpotT;
 	}	
 }
-
