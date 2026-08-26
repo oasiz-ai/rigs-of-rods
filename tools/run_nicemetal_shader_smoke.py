@@ -744,6 +744,15 @@ def rejected_diagnostics(text: str) -> list[str]:
     return sorted(found)
 
 
+def canonical_placeholder_resource_group(
+    resource_group: str, target_platform: str
+) -> str:
+    """Canonicalize only native Windows separators in bundle identities."""
+    if target_platform == "win32":
+        return resource_group.replace("\\", "/")
+    return resource_group
+
+
 def validate_runtime_evidence(
     runtime_log: str,
     console: str,
@@ -798,7 +807,12 @@ def validate_runtime_evidence(
 
     placeholder_matches = list(PLACEHOLDER_PATTERN.finditer(runtime_log))
     observed_pairs = [
-        (match.group("material"), match.group("group"))
+        (
+            match.group("material"),
+            canonical_placeholder_resource_group(
+                match.group("group"), target_platform
+            ),
+        )
         for match in placeholder_matches
     ]
     expected_pairs = [(name, RESOURCE_GROUP) for name in MATERIAL_TEMPLATES]

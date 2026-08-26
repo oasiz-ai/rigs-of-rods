@@ -120,6 +120,38 @@ class RuntimeEvidenceTests(unittest.TestCase):
                 )
                 self.assertFalse(evidence["backend_child_names_directly_logged"])
 
+    def test_windows_accepts_native_separators_only_for_the_exact_bundle(
+        self,
+    ) -> None:
+        native_group = DRIVER.RESOURCE_GROUP.replace("/", "\\")
+        native_log = complete_log("win32").replace(
+            DRIVER.RESOURCE_GROUP, native_group
+        )
+        evidence = DRIVER.validate_runtime_evidence(
+            native_log, "clean console\n", "win32"
+        )
+        self.assertIsNotNone(evidence)
+        self.assertEqual(
+            evidence["placeholder_marker_counts"],
+            {name: 1 for name in DRIVER.MATERIAL_TEMPLATES},
+        )
+
+        for hostile_group in (
+            native_group.replace(DRIVER.ARCHIVE_NAME, "Other.zip"),
+            native_group.replace("USER:", "CACHE:"),
+        ):
+            with self.subTest(hostile_group=hostile_group):
+                hostile_log = native_log.replace(
+                    native_group, hostile_group
+                )
+                with self.assertRaisesRegex(
+                    DRIVER.NiceMetalSmokeFailure,
+                    "unexpected placeholder",
+                ):
+                    DRIVER.validate_runtime_evidence(
+                        hostile_log, "clean console\n", "win32"
+                    )
+
     def test_incomplete_evidence_waits_but_final_validation_fails(self) -> None:
         log = complete_log("linux").replace(
             "placeholder for material 'NiceMetalMesh'", "not-yet NiceMetalMesh"
