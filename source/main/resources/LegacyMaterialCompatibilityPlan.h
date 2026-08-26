@@ -26,19 +26,26 @@ constexpr char kCityWorldLegacyMaterialCompatibilityArchiveSha256[] =
 constexpr std::uint64_t
     kCityWorldLegacyMaterialCompatibilityArchiveBytes = 158845395ULL;
 
-/// The reviewed CityWorld Next local overlay (v13). Its members carry the
+/// The reviewed CityWorld Next local overlay (v14). Its members carry the
 /// authenticated texture authority the combined runtime's road-material
-/// capture requires (cityworld_road2_basecolor.png). The digest is the
+/// capture requires (cityworld_road2_basecolor.dds). The digest is the
 /// deterministic output of tools/build_cityworld_local_overlay.py over the
 /// pinned inputs, with its terrain members restaged by
-/// tools/restage_cityworld_overlay_terrain.py; rebuilding the overlay with
+/// tools/restage_cityworld_overlay_terrain.py and its colour textures then
+/// compiled to block-compressed DDS by
+/// tools/compile_cityworld_textures.py; rebuilding the overlay with
 /// changed content must update this pin in the same commit, or the runtime
 /// falls back to the ordinary unauthenticated mount and road captures fail
 /// closed.
+///
+/// v14 compiles the ten colour textures from RGBA8 PNG to BC3 (DXT5) with
+/// complete authored mip chains. Resident cost over those members falls 4x
+/// each; the terrain blend map stays uncompressed because it is a layer
+/// weight mask, not artwork.
 constexpr char kCityWorldNextLocalOverlayArchiveSha256[] =
-    "f6084a9f2b116c43c35c989810eb0e7d4b64fbb358cc8a8dfe0cc230037a153d";
+    "187f61f8a8c30e280eb0398552d00386f62af2e59c52fe93820f795193ec60c6";
 constexpr std::uint64_t
-    kCityWorldNextLocalOverlayArchiveBytes = 36519796ULL;
+    kCityWorldNextLocalOverlayArchiveBytes = 39366185ULL;
 
 /// Hash probing is private to the active OgreNext migration session and only
 /// applies to a selected primary terrain ZIP.  These inexpensive facts limit
