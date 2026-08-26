@@ -1874,15 +1874,29 @@ Render::ValidationResult BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
       return unmapped;
     }
     const std::size_t authored_mip_levels = decoded.mip_levels.size();
-    if (authored_mip_levels !=
-        static_cast<std::size_t>(
-            CompleteMipCount(decoded.width, decoded.height))) {
+    // A compressed mip genuinely cannot be generated at load time without
+    // decoding and re-encoding it, so whatever the source authored is all
+    // there will ever be. That forbids GENERATING a tail; it does not oblige
+    // the source to reach 1x1, and legacy BC content essentially never does:
+    // a BC block is 4x4, so authoring tools stop at or above the block floor
+    // and simply omit the sub-block levels. Requiring a complete chain
+    // rejected stock RoR particle art outright -- dust/smoke/ripple at
+    // 128x128 and splash at 256x256 all ship six levels where completeness
+    // would demand eight and nine -- and with it every frame of the session.
+    //
+    // A truncated chain is a perfectly valid texture: sampling clamps to the
+    // last authored level, which costs a little minification aliasing and
+    // nothing else. The contiguity and exact per-level geometry of what IS
+    // authored is still proved level by level below.
+    if (authored_mip_levels == 0U ||
+        authored_mip_levels >
+            static_cast<std::size_t>(
+                CompleteMipCount(decoded.width, decoded.height))) {
       return Failure(
           Render::ValidationCode::SIZE_MISMATCH,
           "ogre_next_demo.material.authenticated.block_mip_chain",
-          "a block-compressed texture must author its complete mip chain "
-          "because a compressed mip cannot be generated at load time without "
-          "decoding and re-encoding it");
+          "a block-compressed texture must author a contiguous mip chain from "
+          "mip 0, no longer than the complete chain for its dimensions");
     }
 
     Render::TextureResourceDescriptor candidate;
