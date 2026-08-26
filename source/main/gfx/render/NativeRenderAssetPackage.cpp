@@ -1201,14 +1201,16 @@ ValidationResult DecodeTexture(Reader &reader, RenderAssetPayload &payload) {
       texture.format == TextureResourceFormat::RGBA8_UNORM ||
       texture.format == TextureResourceFormat::BC4_UNORM ||
       texture.format == TextureResourceFormat::BC5_UNORM ||
-      texture.format == TextureResourceFormat::BC7_UNORM;
+      texture.format == TextureResourceFormat::BC7_UNORM ||
+      texture.format == TextureResourceFormat::BC1_UNORM ||
+      texture.format == TextureResourceFormat::BC3_UNORM;
   if (texture.type != TextureResourceType::TEXTURE_2D || !admitted_format ||
       texture.width == 0U || texture.width > kMaximumTextureDimension ||
       texture.height == 0U || texture.height > kMaximumTextureDimension ||
       texture.array_layers != 1U || mip_count == 0U ||
       mip_count > kMaximumTextureMips) {
     return Failure(ValidationCode::UNSUPPORTED_FEATURE, "native.texture",
-                   "package accepts bounded 2D RGBA8, BC4, BC5, or BC7 textures only");
+                   "package accepts bounded 2D RGBA8, BC1, BC3, BC4, BC5, or BC7 textures only");
   }
   std::uint32_t expected_width = texture.width;
   std::uint32_t expected_height = texture.height;

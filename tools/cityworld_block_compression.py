@@ -547,6 +547,169 @@ def encode_bc7(width: int, height: int, pixels: bytes) -> bytes:
 
 
 # ---------------------------------------------------------------------------
+# BC1 / BC3
+# ---------------------------------------------------------------------------
+#
+# These two exist for a portability reason, not a quality one. The hidden
+# OGRE14 producer runs on GL3Plus, and macOS core profile caps at OpenGL 4.1
+# while BC7 needs 4.2 or ARB_texture_compression_bptc. A texture that has to
+# load in BOTH the producer and the Metal presenter is therefore limited to the
+# S3TC set. BC3 costs exactly the same 1 byte/texel as BC7; it simply spends
+# fewer of those bits on colour.
+
+
+def _rgb565(r: int, g: int, b: int) -> int:
+    return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
+
+
+def _expand565(value: int) -> tuple[int, int, int]:
+    r = (value >> 11) & 0x1F
+    g = (value >> 5) & 0x3F
+    b = value & 0x1F
+    return ((r << 3) | (r >> 2), (g << 2) | (g >> 4), (b << 3) | (b >> 2))
+
+
+def _encode_bc1_colour(
+    texels: Sequence[tuple[int, int, int, int]], *, allow_transparent: bool
+) -> bytes:
+    """The 8-byte colour half shared by BC1 and BC3.
+
+    Endpoints come from the principal axis for the same reason BC7's do: a
+    bounding-box fit collapses whenever two channels vary in opposite
+    directions, which is exactly what brick, lane markings and signage look
+    like.
+    """
+
+    opaque = [t for t in texels if not (allow_transparent and t[3] < 128)]
+    if not opaque:
+        # Every texel is punch-through transparent. Emit the transparent-only
+        # block form: colour0 <= colour1 with every index 3.
+        return struct.pack("<HH", 0, 0) + b"\xff\xff\xff\xff"
+
+    mean = [sum(t[c] for t in opaque) / len(opaque) for c in range(3)]
+    covariance = [[0.0] * 3 for _ in range(3)]
+    for texel in opaque:
+        centred = [texel[c] - mean[c] for c in range(3)]
+        for i in range(3):
+            for j in range(i, 3):
+                covariance[i][j] += centred[i] * centred[j]
+    for i in range(3):
+        for j in range(i):
+            covariance[i][j] = covariance[j][i]
+
+    seed_index = 0
+    for i in range(1, 3):
+        if covariance[i][i] > covariance[seed_index][seed_index]:
+            seed_index = i
+    axis = list(covariance[seed_index])
+    if not any(axis):
+        axis = [1.0, 1.0, 1.0]
+    for _ in range(8):
+        product = [sum(covariance[i][j] * axis[j] for j in range(3)) for i in range(3)]
+        magnitude = max(abs(v) for v in product)
+        if magnitude < 1e-9:
+            break
+        axis = [v / magnitude for v in product]
+
+    length_squared = sum(v * v for v in axis)
+    if length_squared < 1e-9:
+        low = high = [int(round(v)) for v in mean]
+    else:
+        inverse = 1.0 / length_squared
+        projections = [
+            sum((t[c] - mean[c]) * axis[c] for c in range(3)) * inverse for t in opaque
+        ]
+        low = [
+            min(255, max(0, int(round(mean[c] + axis[c] * min(projections)))))
+            for c in range(3)
+        ]
+        high = [
+            min(255, max(0, int(round(mean[c] + axis[c] * max(projections)))))
+            for c in range(3)
+        ]
+
+    colour0 = _rgb565(high[0], high[1], high[2])
+    colour1 = _rgb565(low[0], low[1], low[2])
+    # BC1 selects its palette layout by comparing the two packed endpoints:
+    # colour0 > colour1 gives four opaque colours, otherwise three colours plus
+    # a transparent index. Force the ordering the caller asked for.
+    if allow_transparent:
+        if colour0 > colour1:
+            colour0, colour1 = colour1, colour0
+    else:
+        if colour0 < colour1:
+            colour0, colour1 = colour1, colour0
+        elif colour0 == colour1:
+            # Equal endpoints select the three-colour layout, whose index 3 is
+            # transparent black. For an opaque block that would punch a hole, so
+            # nudge one endpoint down by a single blue step instead.
+            if colour1 > 0:
+                colour1 -= 1
+            else:
+                colour0 = 1
+
+    e0 = _expand565(colour0)
+    e1 = _expand565(colour1)
+    if colour0 > colour1:
+        palette = [
+            e0,
+            e1,
+            tuple((2 * e0[c] + e1[c] + 1) // 3 for c in range(3)),
+            tuple((e0[c] + 2 * e1[c] + 1) // 3 for c in range(3)),
+        ]
+        transparent_index = None
+    else:
+        palette = [
+            e0,
+            e1,
+            tuple((e0[c] + e1[c]) // 2 for c in range(3)),
+            (0, 0, 0),
+        ]
+        transparent_index = 3
+
+    indices = 0
+    for position, texel in enumerate(texels):
+        if transparent_index is not None and allow_transparent and texel[3] < 128:
+            index = transparent_index
+        else:
+            best_index = 0
+            best_error = None
+            limit = 3 if transparent_index is not None else 4
+            for candidate in range(limit):
+                entry = palette[candidate]
+                error = sum((entry[c] - texel[c]) ** 2 for c in range(3))
+                if best_error is None or error < best_error:
+                    best_error = error
+                    best_index = candidate
+            index = best_index
+        indices |= index << (2 * position)
+    return struct.pack("<HH", colour0, colour1) + indices.to_bytes(4, "little")
+
+
+def encode_bc1(width: int, height: int, pixels: bytes, *, punch_through: bool) -> bytes:
+    out = bytearray()
+    for block_y in range(0, height, 4):
+        for block_x in range(0, width, 4):
+            out += _encode_bc1_colour(
+                _gather_block(pixels, width, height, block_x, block_y),
+                allow_transparent=punch_through,
+            )
+    return bytes(out)
+
+
+def encode_bc3(width: int, height: int, pixels: bytes) -> bytes:
+    """BC3 is a BC4 alpha block followed by an always-opaque BC1 colour block."""
+
+    out = bytearray()
+    for block_y in range(0, height, 4):
+        for block_x in range(0, width, 4):
+            texels = _gather_block(pixels, width, height, block_x, block_y)
+            out += encode_bc4_block([t[3] for t in texels])
+            out += _encode_bc1_colour(texels, allow_transparent=False)
+    return bytes(out)
+
+
+# ---------------------------------------------------------------------------
 # DDS container
 # ---------------------------------------------------------------------------
 
@@ -671,6 +834,34 @@ def decode_bc4_block(block: bytes) -> list[int]:
     return [palette[(bits >> (3 * i)) & 7] for i in range(16)]
 
 
+def decode_bc1_block(block: bytes) -> list[tuple[int, int, int, int]]:
+    colour0, colour1 = struct.unpack("<HH", block[:4])
+    bits = int.from_bytes(block[4:8], "little")
+    e0 = _expand565(colour0)
+    e1 = _expand565(colour1)
+    if colour0 > colour1:
+        palette = [
+            e0 + (255,),
+            e1 + (255,),
+            tuple((2 * e0[c] + e1[c] + 1) // 3 for c in range(3)) + (255,),
+            tuple((e0[c] + 2 * e1[c] + 1) // 3 for c in range(3)) + (255,),
+        ]
+    else:
+        palette = [
+            e0 + (255,),
+            e1 + (255,),
+            tuple((e0[c] + e1[c]) // 2 for c in range(3)) + (255,),
+            (0, 0, 0, 0),
+        ]
+    return [palette[(bits >> (2 * i)) & 3] for i in range(16)]
+
+
+def decode_bc3_block(block: bytes) -> list[tuple[int, int, int, int]]:
+    alpha = decode_bc4_block(block[:8])
+    colour = decode_bc1_block(block[8:16])
+    return [(colour[i][0], colour[i][1], colour[i][2], alpha[i]) for i in range(16)]
+
+
 def decode_bc7_mode6_block(block: bytes) -> list[tuple[int, int, int, int]]:
     value = int.from_bytes(block, "little")
     position = 0
@@ -769,6 +960,12 @@ def self_test() -> int:
     print(f"  flat blocks uniform, worst channel error={flat_worst} (P-bit parity)")
 
     def gradient():
+        # A gentle ramp, the way a real gradient looks once it is spread across
+        # a whole texture rather than crammed into four texels.
+        return [(90 + i, 100 + i, 110 + i, 255) for i in range(16)]
+
+    def steep_gradient():
+        # The pathological case: a 210-level ramp inside a single 4x4 block.
         return [(10 + i * 14, 20 + i * 13, 30 + i * 12, 255) for i in range(16)]
 
     def anti_correlated():
@@ -801,6 +998,7 @@ def self_test() -> int:
 
     for label, generator, minimum_psnr in (
         ("smooth gradient", gradient, 40.0),
+        ("steep gradient", steep_gradient, 40.0),
         ("anti-correlated", anti_correlated, 40.0),
         ("brick", brick, 40.0),
         ("lane marking", lane_marking, 40.0),
@@ -831,9 +1029,91 @@ def self_test() -> int:
                 print(f"  FAIL: {label} fell below {minimum_psnr} dB")
                 failures += 1
 
+    print("BC1 / BC3:")
+    for label, generator, minimum_psnr in (
+        ("bc1 smooth gradient", gradient, 30.0),
+        # BC1 has four palette entries per block. A 210-level ramp across one
+        # block therefore lands 35 levels from its worst texel no matter how
+        # good the encoder is -- the bar below is where the FORMAT sits, not
+        # where this encoder sits. BC7 handles the same block at 48 dB because
+        # it has sixteen entries; this is the fidelity actually being traded
+        # away to keep the GL3Plus producer able to load the file.
+        ("bc1 steep gradient", steep_gradient, 21.0),
+        ("bc1 anti-correlated", anti_correlated, 30.0),
+        ("bc1 brick", brick, 30.0),
+        ("bc1 lane marking", lane_marking, 30.0),
+        ("bc1 photographic", photographic, 28.0),
+    ):
+        total = 0.0
+        count = 0
+        worst = 0
+        for _ in range(200):
+            texels = generator()
+            encoded = _encode_bc1_colour(texels, allow_transparent=False)
+            decoded = decode_bc1_block(encoded)
+            if any(entry[3] != 255 for entry in decoded):
+                print(f"  FAIL: {label} produced a transparent texel in an opaque block")
+                failures += 1
+                break
+            for a, b in zip(texels, decoded):
+                for c in range(3):
+                    error = abs(a[c] - b[c])
+                    total += error * error
+                    count += 1
+                    worst = max(worst, error)
+        report(label, total, count, worst)
+        mean_squared = total / count
+        psnr = 99.0 if mean_squared <= 0 else 10 * math.log10(255 * 255 / mean_squared)
+        if psnr < minimum_psnr:
+            print(f"  FAIL: {label} fell below {minimum_psnr} dB")
+            failures += 1
+
+    # A flat opaque block must never select the three-colour layout, whose
+    # index 3 decodes to transparent black. That would punch holes in solid
+    # colour, which is the one BC1 failure mode that is visible rather than
+    # merely soft.
+    for value in (0, 1, 64, 128, 200, 255):
+        colour = (value, value, value, 255)
+        decoded = decode_bc1_block(_encode_bc1_colour([colour] * 16, allow_transparent=False))
+        if any(entry[3] != 255 for entry in decoded):
+            print(f"  FAIL: flat opaque BC1 block {colour} decoded transparent")
+            failures += 1
+    print("  flat opaque blocks stay opaque: OK")
+
+    # BC3 alpha rides in a BC4 block, so it must reproduce the block's alpha
+    # extremes exactly -- that is what makes it safe for the detail-layer
+    # height/coverage signal.
+    total = 0.0
+    count = 0
+    worst = 0
+    for _ in range(200):
+        texels = [
+            (random.randrange(256), random.randrange(256), random.randrange(256),
+             random.randrange(256))
+            for _ in range(16)
+        ]
+        decoded = decode_bc3_block(encode_bc3(4, 4, bytes(b for t in texels for b in t)))
+        alphas = [t[3] for t in texels]
+        decoded_alphas = [d[3] for d in decoded]
+        if max(alphas) not in decoded_alphas or min(alphas) not in decoded_alphas:
+            print("  FAIL: BC3 did not reproduce its alpha extremes exactly")
+            failures += 1
+            break
+        for a, b in zip(alphas, decoded_alphas):
+            error = abs(a - b)
+            total += error * error
+            count += 1
+            worst = max(worst, error)
+    report("bc3 alpha", total, count, worst)
+
     texels = white_noise()
     if encode_bc7_block(texels) != encode_bc7_block(texels):
         print("  FAIL: BC7 encoding is not deterministic")
+        failures += 1
+    elif encode_bc3(4, 4, bytes(b for t in texels for b in t)) != encode_bc3(
+        4, 4, bytes(b for t in texels for b in t)
+    ):
+        print("  FAIL: BC3 encoding is not deterministic")
         failures += 1
     else:
         print("  deterministic: OK")
@@ -849,3 +1129,70 @@ if __name__ == "__main__":
         raise SystemExit(self_test())
     print(__doc__)
     raise SystemExit(0)
+
+
+def write_dds_fourcc(
+    width: int,
+    height: int,
+    four_cc: bytes,
+    block_bytes: int,
+    mip_payloads: Sequence[bytes],
+) -> bytes:
+    """Serialise a LEGACY FourCC DDS -- no DX10 extended header.
+
+    The DX10 header is deliberately not used. The runtime's own source-texture
+    decoder refuses DX10 outright, and separately the hidden OGRE14 producer
+    runs on GL3Plus where macOS core profile caps at OpenGL 4.1, below the 4.2
+    that BC7 needs. A texture that must load in both renderers is therefore a
+    legacy-FourCC S3TC/RGTC file, and writing one keeps that constraint
+    visible here rather than discovering it at load time.
+
+    The flag combination matters and is checked by the decoder: a
+    block-compressed DDS must declare DDSD_LINEARSIZE with the top mip's byte
+    count and must NOT declare DDSD_PITCH.
+    """
+
+    if len(four_cc) != 4:
+        raise BlockCompressionError("a DDS FourCC is exactly four bytes")
+    if not mip_payloads:
+        raise BlockCompressionError("a DDS needs at least one mip level")
+    linear_size = ((width + 3) // 4) * ((height + 3) // 4) * block_bytes
+    if len(mip_payloads[0]) != linear_size:
+        raise BlockCompressionError(
+            f"top mip is {len(mip_payloads[0])} bytes, expected {linear_size}"
+        )
+
+    flags = (
+        _DDSD_CAPS
+        | _DDSD_HEIGHT
+        | _DDSD_WIDTH
+        | _DDSD_PIXELFORMAT
+        | _DDSD_LINEARSIZE
+        | _DDSD_MIPMAPCOUNT
+    )
+    caps = _DDSCAPS_TEXTURE
+    if len(mip_payloads) > 1:
+        caps |= _DDSCAPS_COMPLEX | _DDSCAPS_MIPMAP
+
+    header = bytearray()
+    header += b"DDS "
+    header += struct.pack("<I", 124)
+    header += struct.pack("<I", flags)
+    header += struct.pack("<I", height)
+    header += struct.pack("<I", width)
+    header += struct.pack("<I", linear_size)
+    header += struct.pack("<I", 0)
+    header += struct.pack("<I", len(mip_payloads))
+    header += b"\x00" * (4 * 11)
+    header += struct.pack("<I", 32)
+    header += struct.pack("<I", _DDPF_FOURCC)
+    header += four_cc
+    header += struct.pack("<IIIII", 0, 0, 0, 0, 0)
+    header += struct.pack("<I", caps)
+    header += struct.pack("<IIII", 0, 0, 0, 0)
+    if len(header) != 128:
+        raise BlockCompressionError(f"DDS header is {len(header)} bytes, expected 128")
+    body = bytearray(header)
+    for payload in mip_payloads:
+        body += payload
+    return bytes(body)

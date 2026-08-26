@@ -125,6 +125,20 @@ enum class TextureResourceFormat : std::uint8_t {
   BC4_UNORM = 8,
   BC5_UNORM = 9,
   BC7_UNORM = 10,
+  /// BC1 stores three channels plus one bit of alpha in 8 bytes per block
+  /// (0.5 bytes/texel); BC3 stores three channels plus a full interpolated
+  /// alpha in 16 bytes per block (1 byte/texel, the same footprint as BC7 at
+  /// lower colour fidelity). Both carry the sRGB transfer.
+  ///
+  /// These two exist alongside BC7 for a portability reason, not a quality
+  /// one. The hidden OGRE14 producer runs on GL3Plus, and macOS core profile
+  /// caps at OpenGL 4.1 while BC7 needs 4.2 or ARB_texture_compression_bptc.
+  /// Any texture that must load in BOTH the producer and the presenter is
+  /// therefore limited to the S3TC/RGTC set. BC7 remains admitted for content
+  /// that reaches the presenter directly and never passes through the
+  /// producer.
+  BC1_UNORM = 11,
+  BC3_UNORM = 12,
 };
 
 /// Storage geometry of one texture format. Uncompressed formats report a 1x1

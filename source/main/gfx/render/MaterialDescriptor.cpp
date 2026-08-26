@@ -525,7 +525,14 @@ ValidateMaterialTextureCompatibility(MaterialTextureSlot slot,
   // BC7 carries four channels at one byte per texel and is the only block
   // format that may hold an sRGB transfer, so it substitutes for RGBA8
   // wherever a slot wants displayable colour.
-  const bool bc7_storage = texture.format == TextureResourceFormat::BC7_UNORM;
+  // BC1 and BC3 join BC7 wherever a slot wants displayable colour. They are
+  // lower fidelity per byte, but they are the only block formats the GL3Plus
+  // producer can load on macOS, so content that must survive both renderers
+  // uses them.
+  const bool bc7_storage =
+      texture.format == TextureResourceFormat::BC7_UNORM ||
+      texture.format == TextureResourceFormat::BC1_UNORM ||
+      texture.format == TextureResourceFormat::BC3_UNORM;
   // BC5 is two unsigned channels: exactly the tangent-space XY a normal map
   // needs, with Z reconstructed in the shader as it already is for RG8.
   const bool bc5_storage = texture.format == TextureResourceFormat::BC5_UNORM;
@@ -538,7 +545,7 @@ ValidateMaterialTextureCompatibility(MaterialTextureSlot slot,
         texture.color_space != TextureColorSpace::SRGB) {
       return ValidationResult::Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "texture.format",
-          "base-color and emissive slots require RGBA8 or BC7 sRGB storage");
+          "base-color and emissive slots require RGBA8, BC1, BC3, or BC7 sRGB storage");
     }
     break;
   case MaterialTextureSlot::METALLIC_ROUGHNESS:
@@ -570,7 +577,7 @@ ValidateMaterialTextureCompatibility(MaterialTextureSlot slot,
         texture.color_space != TextureColorSpace::LINEAR) {
       return ValidationResult::Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "texture.format",
-          "specular slot requires linear RGBA or BC7 storage");
+          "specular slot requires linear RGBA, BC1, BC3, or BC7 storage");
     }
     break;
   case MaterialTextureSlot::OCCLUSION:
@@ -606,7 +613,7 @@ ValidateMaterialTextureCompatibility(MaterialTextureSlot slot,
         texture.color_space != TextureColorSpace::SRGB) {
       return ValidationResult::Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "texture.format",
-          "detail albedo slots require RGBA8 or BC7 sRGB storage");
+          "detail albedo slots require RGBA8, BC1, BC3, or BC7 sRGB storage");
     }
     break;
   default:

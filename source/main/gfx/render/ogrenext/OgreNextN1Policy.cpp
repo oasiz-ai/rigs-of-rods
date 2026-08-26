@@ -65,12 +65,14 @@ ValidationResult ValidateModernTexturePolicy(
       texture.format == TextureResourceFormat::RGBA8_UNORM ||
       texture.format == TextureResourceFormat::BC4_UNORM ||
       texture.format == TextureResourceFormat::BC5_UNORM ||
-      texture.format == TextureResourceFormat::BC7_UNORM;
+      texture.format == TextureResourceFormat::BC7_UNORM ||
+      texture.format == TextureResourceFormat::BC1_UNORM ||
+      texture.format == TextureResourceFormat::BC3_UNORM;
   if (texture.type != TextureResourceType::TEXTURE_2D ||
       texture.array_layers != 1U || !admitted_format) {
     return Unsupported(
         "assets.texture.format",
-        "RT4/V1 admits non-array RGBA8, BC4, BC5, or BC7 material textures only; this keeps sRGB decode, linear metallic/roughness uploads, and block-compressed pass-through identical on Metal, D3D11, and Vulkan",
+        "RT4/V1 admits non-array RGBA8, BC1, BC3, BC4, BC5, or BC7 material textures only; this keeps sRGB decode, linear metallic/roughness uploads, and block-compressed pass-through identical on Metal, D3D11, and Vulkan",
         index);
   }
   return ValidationResult::Success();
