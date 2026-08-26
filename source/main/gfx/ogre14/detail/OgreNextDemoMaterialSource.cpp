@@ -4508,11 +4508,8 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
   // projection depend on transient resource residency: nothing draws a
   // companion, so its textures can be evicted at any time, and every frame
   // after that would look like an authority change and be dropped.
-  if (!detail_declaration_identity.empty()) {
-    AppendField(projection_key, kMaterialDetailLayerPolicy);
-    AppendNumber(projection_key, kMaterialDetailLayerPolicyVersion);
-    AppendField(projection_key, detail_declaration_identity);
-  }
+  // DIAGNOSTIC: temporarily withheld from the projection key.
+  (void)detail_declaration_identity;
   // A managed declaration with no authored specular output does not change
   // the portable material. Retain the exact opaque-v2 ID/name and keep its
   // declaration receipt as revalidated authority only. The versioned managed
