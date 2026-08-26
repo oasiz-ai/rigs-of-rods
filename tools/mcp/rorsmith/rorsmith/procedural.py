@@ -364,8 +364,11 @@ def _brick_common(size, pattern, rows, columns, repeat, row_offset, mortar,
     bmin, bmax = _BRICK_PATTERNS[pattern](uv, count, F32(repeat), F32(row_offset))
     mask, centre = _brick_field(uv, bmin, bmax, F32(mortar), F32(round_), F32(bevel))
     tint = _mm_rand3(_fract(centre + F32(seed)))
-    grit_noise = fbm(size, cells=max(4, size // 64), octaves=4, seed=seed + 3.0)
-    fine = fbm(size, cells=max(8, size // 16), octaves=3, seed=seed + 11.0)
+    # Two independent noise scales. `grit` is the large weathering wash;
+    # `fine` is the clay/aggregate grain that only exists because the surface
+    # is regenerated - it is the detail an upscale cannot invent.
+    grit_noise = fbm(size, cells=max(4, size // 64), octaves=5, seed=seed + 3.0)
+    fine = fbm(size, cells=max(16, size // 8), octaves=5, gain=0.62, seed=seed + 11.0)
 
     brick = np.array(brick_color, dtype=F32)
     mortarc = np.array(mortar_color, dtype=F32)
@@ -375,18 +378,20 @@ def _brick_common(size, pattern, rows, columns, repeat, row_offset, mortar,
     varied = np.clip(varied, F32(0.0), F32(1.0))
     albedo = _mix_rgb(np.broadcast_to(mortarc, varied.shape).copy(), varied, mask)
     albedo *= (F32(1.0) - F32(grit) * F32(0.35) * (F32(1.0) - grit_noise))[..., None]
+    albedo *= (F32(0.82) + F32(0.36) * fine)[..., None]
     albedo = np.clip(albedo, F32(0.0), F32(1.0))
 
     # Height: brick faces proud of the mortar bed, with per-brick jitter and
     # surface grit so the recess survives a normal-map bake.
     jitter = (_mm_rand(_fract(centre + F32(seed) + F32(0.37))) - F32(0.5)) * F32(0.12)
-    height = mask * (F32(0.78) + jitter) + F32(0.10) * fine * mask
-    height += F32(0.06) * grit_noise * (F32(1.0) - mask)
+    height = mask * (F32(0.72) + jitter) + F32(0.16) * fine * mask
+    height += F32(0.08) * grit_noise * (F32(1.0) - mask)
+    height += F32(0.05) * fine * (F32(1.0) - mask)
     height = np.clip(height, F32(0.0), F32(1.0))
 
     roughness = np.clip(
         mask * F32(brick_roughness) + (F32(1.0) - mask) * F32(mortar_roughness)
-        + F32(0.06) * (fine - F32(0.5)),
+        + F32(0.10) * (fine - F32(0.5)),
         F32(0.03),
         F32(1.0),
     )

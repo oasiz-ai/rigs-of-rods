@@ -352,6 +352,34 @@ def _dominant_period(profile: np.ndarray) -> tuple[float, float]:
     return float(len(centred)) / peak, min(1.0, confidence * 6.0)
 
 
+
+def _folded_joint_fraction(profile: np.ndarray, period: float) -> tuple[float, bool]:
+    """Fraction of one period the joint occupies, by phase folding.
+
+    Averaging every sample that shares a phase within the detected period
+    cancels the brick-to-brick colour variation that otherwise swamps a raw
+    threshold, leaving one clean period whose dark band is the joint.
+    """
+    if period <= 2.0 or not np.isfinite(period):
+        return 0.0, True
+    bins = max(4, int(round(period)))
+    phase = (np.arange(len(profile)) % period) / period
+    index = np.clip((phase * bins).astype(int), 0, bins - 1)
+    folded = np.zeros(bins, dtype=np.float64)
+    counts = np.zeros(bins, dtype=np.float64)
+    np.add.at(folded, index, profile.astype(np.float64))
+    np.add.at(counts, index, 1.0)
+    folded = folded / np.maximum(counts, 1.0)
+    low, high = float(folded.min()), float(folded.max())
+    span = max(1e-6, high - low)
+    dark = float((folded <= (low + 0.4 * span)).mean())
+    bright = float((folded >= (high - 0.4 * span)).mean())
+    # Mortar may be lighter than the brick (grey joint on red clay) or darker
+    # (dark grout on pale block). Polarity is not assumed: a joint is always
+    # the THINNER of the two bands, so the minority side is the joint.
+    return min(dark, bright), dark <= bright
+
+
 def fit_generator(
     layout: Layout,
     texture: str,
@@ -383,8 +411,15 @@ def fit_generator(
             f"'{generator}' has no fitted parameterisation",
         )
     rgb, origin = load_texture(layout, texture)
-    linear = _srgb_to_linear(rgb)
-    luminance = linear.mean(axis=-1)
+    # The joint/face split is a PERCEPTUAL one, so the Otsu threshold is taken
+    # on sRGB luminance. Doing it on linear luminance drags the threshold into
+    # the shadows of any saturated colour and reports a wall as almost all
+    # mortar.
+    luminance = (
+        rgb[..., 0] * F32(0.2126)
+        + rgb[..., 1] * F32(0.7152)
+        + rgb[..., 2] * F32(0.0722)
+    )
     height, width = luminance.shape
 
     dy = np.abs(np.diff(luminance, axis=0, append=luminance[:1]))
@@ -404,7 +439,22 @@ def fit_generator(
             "no parameters are reported rather than invented",
         )
 
-    # Otsu split of the luminance into mortar (dark) and face (bright).
+    # Joint thickness and POLARITY first: the Otsu split below needs to know
+    # which side of the threshold is the joint, and mortar is not always the
+    # darker one.
+    #
+    # Mortar WIDTH, not mortar area. Phase-folding the row-mean luminance over
+    # the detected row pitch cancels brick-to-brick colour variation and
+    # leaves one clean period whose minority band is the joint. A raw area
+    # fraction would also count every dark brick and report a wall as mostly
+    # mortar.
+    row_luminance = luminance.mean(axis=1)
+    joint_fraction, joint_is_dark = _folded_joint_fraction(row_luminance, row_period)
+    # The generator insets each brick by `mortar` on every side, so one joint
+    # spans about 2 * mortar of the row pitch.
+    mortar_fraction = joint_fraction / 2.0
+
+    # Otsu split of the luminance into joint and face.
     histogram, edges = np.histogram(luminance, bins=64, range=(0.0, 1.0))
     total = histogram.sum()
     best_threshold, best_variance = 0.5, -1.0
@@ -427,8 +477,9 @@ def fit_generator(
         if variance > best_variance:
             best_variance, best_threshold = variance, float(centre)
 
-    face = luminance >= best_threshold
-    mortar_fraction = float(1.0 - face.mean())
+    face = luminance >= best_threshold if joint_is_dark else luminance < best_threshold
+    area_below_threshold = float(1.0 - face.mean())
+
     face_rgb = rgb[face] if face.any() else rgb.reshape(-1, 3)
     mortar_rgb = rgb[~face] if (~face).any() else rgb.reshape(-1, 3)
     brick_color = [round(float(c), 4) for c in face_rgb.mean(axis=0)]
@@ -438,6 +489,12 @@ def fit_generator(
 
     rows = max(1.0, round(height / row_period)) if row_period else 1.0
     columns = max(1.0, round(width / column_period)) if column_period else 1.0
+    # Running bond offsets alternate rows by half a brick, so the vertical
+    # joints seen by a column-gradient profile repeat at HALF the brick width.
+    # The measured column count is therefore twice the true one.
+    measured_columns = columns
+    if generator == "bricks" and columns >= 2:
+        columns = max(1.0, columns / 2.0)
 
     if generator == "bricks":
         params = {
@@ -446,7 +503,7 @@ def fit_generator(
             "columns": float(columns),
             "repeat": 1.0,
             "row_offset": 0.5,
-            "mortar": round(float(np.clip(mortar_fraction * 0.5, 0.005, 0.5)), 4),
+            "mortar": round(float(np.clip(mortar_fraction, 0.005, 0.5)), 4),
             "bevel": 0.1,
             "brick_color": brick_color,
             "mortar_color": mortar_color,
@@ -457,7 +514,7 @@ def fit_generator(
             "rows": float(np.clip(rows, 4, 16)),
             "bricks": float(np.clip(columns, 4, 16)),
             "repeat": 2.0,
-            "mortar": round(float(np.clip(mortar_fraction * 0.5, 0.0, 0.5)), 4),
+            "mortar": round(float(np.clip(mortar_fraction, 0.0, 0.5)), 4),
             "bevel": 0.2,
             "stone_color": brick_color,
             "mortar_color": mortar_color,
@@ -472,10 +529,15 @@ def fit_generator(
         "measurements": {
             "row_period_texels": round(row_period, 2),
             "column_period_texels": round(column_period, 2),
+            "measured_column_joints": measured_columns,
+            "running_bond_halving": generator == "bricks",
             "row_confidence": round(row_confidence, 4),
             "column_confidence": round(column_confidence, 4),
             "otsu_threshold": round(best_threshold, 4),
-            "mortar_area_fraction": round(mortar_fraction, 4),
+            "joint_row_fraction": round(joint_fraction, 4),
+            "joint_is_darker_than_face": joint_is_dark,
+            "area_below_threshold": round(area_below_threshold, 4),
+            "mortar_parameter": round(float(np.clip(mortar_fraction, 0.005, 0.5)), 4),
         },
         "method": "gradient_profile_fft_period_plus_otsu_split_v1",
         "next": (

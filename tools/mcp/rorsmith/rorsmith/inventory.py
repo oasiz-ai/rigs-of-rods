@@ -220,7 +220,7 @@ def inspect_material(layout: Layout, archive: str, name: str) -> dict[str, objec
         "would_inject": (
             None
             if band is None
-            else f"specular {band.specular_rgb} 1.0 {band.shininess}"
+            else f"specular {band.specular_rgb} 1 {band.shininess:g}"
         ),
         "injection_rule": (
             "pass-open `specular R G B A shininess`; all-or-nothing per "

@@ -43,22 +43,60 @@ _FIELD = re.compile(r"(?P<key>[a-z0-9_]+)=(?P<value>\d+)")
 _REASONS = re.compile(r"matte_by_reason=\[(?P<body>[^\]]*)\]")
 
 
+def build_search_roots(layout: Layout) -> list[Path]:
+    """Where a built RoR-Combined may live.
+
+    A linked worktree has no build tree of its own; the builds sit in the main
+    checkout, which is found through the worktree's `.git` pointer file rather
+    than guessed.
+    """
+    roots: list[Path] = []
+    override = os.environ.get("RORSMITH_BUILD_ROOT")
+    if override:
+        roots.append(Path(override).expanduser())
+    roots.append(layout.repo_root)
+    git_pointer = layout.repo_root / ".git"
+    if git_pointer.is_file():
+        text = git_pointer.read_text(encoding="utf-8", errors="replace").strip()
+        if text.startswith("gitdir:"):
+            gitdir = Path(text.split(":", 1)[1].strip())
+            # <main>/.git/worktrees/<name> -> <main>
+            for parent in gitdir.parents:
+                if parent.name == ".git":
+                    roots.append(parent.parent)
+                    break
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for root in roots:
+        try:
+            resolved = root.resolve()
+        except OSError:
+            continue
+        if resolved not in seen and resolved.is_dir():
+            seen.add(resolved)
+            unique.append(resolved)
+    return unique
+
+
 def find_binary(layout: Layout, requested: str | None) -> Path:
     if requested:
         path = Path(requested).expanduser()
         if not path.is_file() or not os.access(path, os.X_OK):
             raise RorsmithError("binary_not_executable", str(path))
         return path.resolve()
-    candidates = sorted(
-        layout.repo_root.glob("build-*/bin/RoR-Combined"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
+    roots = build_search_roots(layout)
+    candidates: list[Path] = []
+    for root in roots:
+        candidates.extend(root.glob("build-*/bin/RoR-Combined"))
+    candidates = [p for p in candidates if p.is_file() and os.access(p, os.X_OK)]
     if not candidates:
         raise RorsmithError(
             "combined_binary_not_found",
-            f"no build-*/bin/RoR-Combined under {layout.repo_root}",
+            "no build-*/bin/RoR-Combined under "
+            + ", ".join(str(r) for r in roots)
+            + "; set RORSMITH_BUILD_ROOT or pass binary=",
         )
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return candidates[0].resolve()
 
 
@@ -181,14 +219,25 @@ def verify_live(
     terrain: str = "CityWorldNextLocalOverlay.terrn2",
     truck: str | None = None,
     binary: str | None = None,
-    timeout_seconds: float = 420.0,
+    timeout_seconds: float = 900.0,
     width: int = DEFAULT_EXTENT[0],
     height: int = DEFAULT_EXTENT[1],
     keep_home: bool = False,
     material_filter: str | None = None,
+    home_dir: str | None = None,
 ) -> dict[str, object]:
     executable = find_binary(layout, binary)
-    base = Path(tempfile.mkdtemp(prefix="rorsmith-live-"))
+    if home_dir:
+        # Reusing a warmed profile skips the multi-minute cold `-checkcache`
+        # pass. Only ever reuse one built by the SAME binary: bundle paths in
+        # the cache are absolute and a stale cache makes terrain dependencies
+        # ambiguous.
+        base = Path(home_dir).expanduser()
+        base.mkdir(parents=True, exist_ok=True)
+        reused = (base / "RigsOfRods" / "cache").is_dir()
+    else:
+        base = Path(tempfile.mkdtemp(prefix="rorsmith-live-"))
+        reused = False
     home = stage_home(layout, base)
 
     # Belt and braces: the log we will read must be inside our private tree
@@ -304,7 +353,8 @@ def verify_live(
             ),
             "stderr_tail": stderr_tail[-40:],
         }
-    if not keep_home:
+    result["home_reused"] = reused
+    if not keep_home and not home_dir:
         shutil.rmtree(base, ignore_errors=True)
         result["isolated"] = {**home.as_dict(), "removed": True}
     return result

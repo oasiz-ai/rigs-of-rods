@@ -161,11 +161,12 @@ def _t_verify_live(args: dict) -> Any:
         terrain=args.get("map", "CityWorldNextLocalOverlay.terrn2"),
         truck=args.get("truck"),
         binary=args.get("binary"),
-        timeout_seconds=float(args.get("timeout_seconds", 420.0)),
+        timeout_seconds=float(args.get("timeout_seconds", 900.0)),
         width=int(args.get("width", live.DEFAULT_EXTENT[0])),
         height=int(args.get("height", live.DEFAULT_EXTENT[1])),
         keep_home=bool(args.get("keep_home", False)),
         material_filter=args.get("material_filter"),
+        home_dir=args.get("home_dir"),
     )
 
 
@@ -461,7 +462,12 @@ _register(
                 "map": {"type": "string", "default": "CityWorldNextLocalOverlay.terrn2"},
                 "truck": {"type": "string"},
                 "binary": {"type": "string"},
-                "timeout_seconds": {"type": "number", "default": 420},
+                "timeout_seconds": {"type": "number", "default": 900},
+                "home_dir": {
+                    "type": "string",
+                    "description": "reuse this isolated home (warm cache). Only "
+                    "ever reuse one built by the same binary.",
+                },
                 "width": {"type": "integer", "default": 1280},
                 "height": {"type": "integer", "default": 720},
                 "keep_home": {"type": "boolean", "default": False},

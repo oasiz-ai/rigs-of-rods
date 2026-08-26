@@ -90,9 +90,23 @@ def _png(array: np.ndarray, mode: str) -> bytes:
 
 
 def height_to_alpha(height: np.ndarray, threshold: float, contrast: float) -> np.ndarray:
-    """alpha = saturate((height - t) * k + 0.5) - the agreed coverage curve."""
+    """alpha = saturate((h - t) * k + 0.5) - the agreed coverage curve.
+
+    `h` is the layer's height NORMALISED to 0..1 first. Each generator's raw
+    height has its own range (a noise layer spans 0..0.12, a brick base 0..0.9),
+    so a shared `t` applied to raw values would clamp whole layers to alpha 0
+    and the layer would be invisible while every manifest still claimed it was
+    there. The normalisation is recorded with the literals.
+    """
+    field = np.asarray(height, dtype=F32)
+    low, high = float(field.min()), float(field.max())
+    normalised = (
+        np.full_like(field, F32(0.5))
+        if high - low < 1e-6
+        else (field - F32(low)) / F32(high - low)
+    )
     return np.clip(
-        (np.asarray(height, dtype=F32) - F32(threshold)) * F32(contrast) + F32(0.5),
+        (normalised - F32(threshold)) * F32(contrast) + F32(0.5),
         F32(0.0),
         F32(1.0),
     )
@@ -108,8 +122,17 @@ class LayerRequest:
     blend_mode: str = APPLIED_BLEND_MODE
     coverage_threshold: float = 0.5
     coverage_contrast: float = 6.0
+    #: Where this layer's surface sits in the material's common 0..1 height
+    #: space. 1.0 is the proudest point of the base (a brick face), 0.0 the
+    #: deepest (the mortar bed). A grime layer at 0.35 therefore wins inside
+    #: the mortar line and loses on the brick face - which is the whole point.
+    elevation: float = 0.5
+    #: How much the layer's own height modulates that elevation.
+    elevation_spread: float = 0.25
+    #: Sharpness of the cross-layer height comparison baked into the mask.
+    elevation_contrast: float = 4.0
     placement_cells: int = 4
-    placement_bias: float = 0.0
+    placement_coverage: float = 0.6
     detail_normal: bool = True
     name: str | None = None
 
@@ -136,8 +159,11 @@ def _as_layer(raw: dict) -> LayerRequest:
         blend_mode=blend,
         coverage_threshold=float(raw.get("coverage_threshold", 0.5)),
         coverage_contrast=float(raw.get("coverage_contrast", 6.0)),
+        elevation=float(raw.get("elevation", 0.5)),
+        elevation_spread=float(raw.get("elevation_spread", 0.25)),
+        elevation_contrast=float(raw.get("elevation_contrast", 4.0)),
         placement_cells=int(raw.get("placement_cells", 4)),
-        placement_bias=float(raw.get("placement_bias", 0.0)),
+        placement_coverage=float(raw.get("placement_coverage", 0.6)),
         detail_normal=bool(raw.get("detail_normal", True)),
         name=raw.get("name"),
     )
@@ -200,26 +226,51 @@ def author_layers(
     mask_size = int(mask_resolution)
     if mask_size <= 0 or mask_size & (mask_size - 1):
         raise RorsmithError("mask_resolution_not_power_of_two", str(mask_size))
-    running = _resample(base_result.height, mask_size)
+    # Every generator's height field has its own natural range, so the
+    # cross-layer comparison is done in a COMMON normalised 0..1 space. Raw
+    # ranges would make a 0..0.12 noise layer lose to a 0..0.9 brick base
+    # everywhere and every mask channel would come out zero.
+    running = _normalise(_resample(base_result.height, mask_size))
     channels: list[np.ndarray] = []
+    surfaces: list[dict[str, object]] = []
     for index, (request, result) in enumerate(zip(requests, layer_results)):
-        placement = procedural.fbm(
+        placement_noise = procedural.fbm(
             mask_size,
             cells=max(1, request.placement_cells),
             octaves=4,
             seed=17.0 + index * 3.7,
         )
-        layer_height = _resample(result.height, mask_size)
-        effective = np.clip(
-            layer_height * placement + F32(request.placement_bias), F32(0.0), F32(1.0)
-        )
-        weight = np.clip(
-            (effective - running) * F32(request.coverage_contrast) + F32(0.5),
+        placement = np.clip(
+            (placement_noise - (F32(1.0) - F32(request.placement_coverage)))
+            * F32(3.0)
+            + F32(0.5),
             F32(0.0),
             F32(1.0),
         )
+        layer_height = _normalise(_resample(result.height, mask_size))
+        surface = np.clip(
+            F32(request.elevation)
+            + F32(request.elevation_spread) * (layer_height - F32(0.5)),
+            F32(0.0),
+            F32(1.0),
+        )
+        weight = (
+            np.clip(
+                (surface - running) * F32(request.elevation_contrast) + F32(0.5),
+                F32(0.0),
+                F32(1.0),
+            )
+            * placement
+        )
         channels.append(weight)
-        running = running * (F32(1.0) - weight) + effective * weight
+        surfaces.append(
+            {
+                "index": index,
+                "mean_mask_weight": round(float(weight.mean()), 4),
+                "mask_weight_p95": round(float(np.percentile(weight, 95)), 4),
+            }
+        )
+        running = running * (F32(1.0) - weight) + surface * weight
     while len(channels) < MAX_DETAIL_LAYERS:
         channels.append(np.zeros((mask_size, mask_size), dtype=F32))
     mask_rgba = np.stack([_u8(c) for c in channels], axis=-1)
@@ -274,6 +325,7 @@ def author_layers(
         rgba = np.concatenate(
             [_u8(result.albedo), _u8(alpha)[..., None]], axis=-1
         )
+        surfaces[index]["mean_albedo_alpha"] = round(float(alpha.mean()), 4)
         albedo_name = f"{stem}_detail{index}_albedo.png"
         payload = _png(rgba, "RGBA")
         files[albedo_name] = payload
@@ -282,7 +334,8 @@ def author_layers(
             albedo_name,
             payload,
             "RGBA8 sRGB",
-            f"alpha = saturate((height - {request.coverage_threshold:g}) * "
+            f"alpha = saturate((normalise(height) - "
+            f"{request.coverage_threshold:g}) * "
             f"{request.coverage_contrast:g} + 0.5)",
         )
         entry: dict[str, object] = {
@@ -298,6 +351,12 @@ def author_layers(
             "blend_mode_applied": APPLIED_BLEND_MODE,
             "coverage_threshold_t": request.coverage_threshold,
             "coverage_contrast_k": request.coverage_contrast,
+            "elevation": request.elevation,
+            "elevation_spread": request.elevation_spread,
+            "elevation_contrast": request.elevation_contrast,
+            "placement_cells": request.placement_cells,
+            "placement_coverage": request.placement_coverage,
+            "mask_statistics": surfaces[index],
             "albedo": albedo_name,
             "notes": result.notes,
         }
@@ -405,6 +464,14 @@ def author_layers(
     }
 
 
+def _normalise(field: np.ndarray) -> np.ndarray:
+    """Rescale a height field to 0..1 so layers can be compared at all."""
+    low, high = float(field.min()), float(field.max())
+    if high - low < 1e-6:
+        return np.full_like(field, F32(0.5))
+    return (field - F32(low)) / F32(high - low)
+
+
 def _resample(field: np.ndarray, size: int) -> np.ndarray:
     source = np.asarray(field, dtype=F32)
     if source.shape[0] == size:
@@ -433,46 +500,68 @@ FACADE_PRESET: dict[str, object] = {
     },
     "layers": [
         {
+            # Mortar bed variation: sits just BELOW the brick face, so it only
+            # shows where the base is already recessed.
             "name": "mortar_variation",
             "generator": "surface_noise",
             "params": {"cells": 24, "octaves": 4, "amplitude": 0.2, "color": [0.58, 0.56, 0.52]},
             "uv_scale": [4.0, 4.0],
-            "weight": 0.5,
+            "weight": 0.55,
             "coverage_threshold": 0.45,
             "coverage_contrast": 4.0,
+            "elevation": 0.30,
+            "elevation_spread": 0.30,
+            "elevation_contrast": 5.0,
             "placement_cells": 3,
+            "placement_coverage": 0.85,
         },
         {
+            # Weathering: low elevation and high alpha contrast, so grime runs
+            # down into the joints rather than washing across the brick faces.
             "name": "weathering_grime",
             "generator": "grime",
             "params": {"cells": 5, "coverage": 0.6, "contrast": 1.8},
             "uv_scale": [2.0, 2.0],
-            "weight": 0.85,
-            "coverage_threshold": 0.55,
+            "weight": 0.8,
+            "coverage_threshold": 0.5,
             "coverage_contrast": 9.0,
+            "elevation": 0.38,
+            "elevation_spread": 0.34,
+            "elevation_contrast": 4.0,
             "placement_cells": 2,
-            "placement_bias": -0.05,
+            "placement_coverage": 0.7,
         },
         {
+            # Moss: the deepest layer. It wins only inside what is still the
+            # lowest part of the surface after grime has filled some of it.
             "name": "recess_moss",
             "generator": "moss",
             "params": {"cells": 12, "coverage": 0.35, "contrast": 2.6},
             "uv_scale": [3.0, 3.0],
             "weight": 0.7,
-            "coverage_threshold": 0.6,
+            "coverage_threshold": 0.45,
             "coverage_contrast": 12.0,
+            "elevation": 0.46,
+            "elevation_spread": 0.34,
+            "elevation_contrast": 6.0,
             "placement_cells": 2,
-            "placement_bias": -0.12,
+            "placement_coverage": 0.45,
         },
         {
+            # Fine break-up sits AT the running surface, so it modulates
+            # everything below it instead of choosing a side.
             "name": "fine_surface_noise",
             "generator": "surface_noise",
             "params": {"cells": 96, "octaves": 3, "amplitude": 0.08},
             "uv_scale": [8.0, 8.0],
-            "weight": 0.3,
+            "weight": 0.28,
             "coverage_threshold": 0.5,
             "coverage_contrast": 3.0,
+            "elevation": 0.55,
+            "elevation_spread": 0.5,
+            "elevation_contrast": 1.5,
             "placement_cells": 6,
+            "placement_coverage": 0.95,
         },
     ],
 }
