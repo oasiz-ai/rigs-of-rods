@@ -3629,8 +3629,26 @@ bool OgreNextDemoMaterialSource::VerifyAdditiveEquivalentGlowOverlayContent(
                              ->RevalidateSelectedTextureSource(
                                  *texture, source.ordinary_resolution);
           };
-      return revalidate(base_texture, cached->second.base_source) &&
-             revalidate(overlay_texture, cached->second.overlay_source);
+      if (revalidate(base_texture, cached->second.base_source) &&
+          revalidate(overlay_texture, cached->second.overlay_source)) {
+        return true;
+      }
+      // The stored proof no longer describes sources this resolver will still
+      // vouch for, so it has to be re-established -- not refused. Refusing was
+      // wrong in a way that cost the whole session: an authenticated
+      // resolution carries its owning group's generation, every resolution in
+      // a group goes stale the moment that generation moves, and resolving a
+      // detail-layer companion's artwork out of the same archive moves it.
+      // The memo then held a permanently unrevalidatable proof, the overlay
+      // pass was refused under MATERIAL_BLENDED_OVERLAY_PASS_UNSUPPORTED, and
+      // because that exclusion has no per-object matte path on a frozen
+      // PROJECTED decision it escalated to a terminal snapshot rejection --
+      // every frame, for the rest of the session.
+      //
+      // Falling through re-resolves and re-proves against the bytes as they
+      // stand now. It is self-limiting: it costs one decode per pair per
+      // generation move, not one per frame, because the re-proof overwrites
+      // the stale memo below.
     }
 
     if (!base_texture->isLoaded() || !overlay_texture->isLoaded()) {
@@ -3734,8 +3752,10 @@ bool OgreNextDemoMaterialSource::VerifyAdditiveEquivalentGlowOverlayContent(
       return false;
     }
     EnsurePendingCacheWritable();
-    pending_->cache->glow_overlay_verdicts.emplace(std::move(verdict_key),
-                                                   std::move(verdict));
+    // insert_or_assign, not emplace: a re-proof after a generation move must
+    // replace the stale memo, or the pair would be re-decoded every frame.
+    pending_->cache->glow_overlay_verdicts.insert_or_assign(
+        std::move(verdict_key), std::move(verdict));
     return result;
   } catch (...) {
     return false;
