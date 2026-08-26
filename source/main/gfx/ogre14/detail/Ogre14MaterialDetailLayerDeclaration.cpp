@@ -207,6 +207,10 @@ MaterialDetailLayerRefusalToken(MaterialDetailLayerRefusal refusal) noexcept {
     return "weight_mask_absent";
   case MaterialDetailLayerRefusal::NO_LAYER_DECLARED:
     return "no_layer_declared";
+  case MaterialDetailLayerRefusal::ARTWORK_UNRESOLVABLE:
+    return "artwork_unresolvable";
+  case MaterialDetailLayerRefusal::COUNT:
+    break;
   }
   return "unknown";
 }

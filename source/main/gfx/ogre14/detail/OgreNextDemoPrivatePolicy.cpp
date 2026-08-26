@@ -861,6 +861,12 @@ Render::ValidationResult AccumulateOgreNextDemoTextureSourceCounters(
             candidate.layered_material_projections_by_layer_count[bucket],
             increment.layered_material_projections_by_layer_count[bucket]);
   }
+  for (std::size_t bucket = 0U; bucket < kMaterialDetailLayerRefusalCount;
+       ++bucket) {
+    candidate.layered_material_refusals_by_reason[bucket] =
+        SaturatingAdd(candidate.layered_material_refusals_by_reason[bucket],
+                      increment.layered_material_refusals_by_reason[bucket]);
+  }
   candidate.additive_overlay_legacy_material_projections =
       SaturatingAdd(candidate.additive_overlay_legacy_material_projections,
                     increment.additive_overlay_legacy_material_projections);
@@ -1632,7 +1638,8 @@ Render::ValidationResult ResolveOgreNextDemoBc1AlphaMode(
     bool authoritative_one_bit_alpha,
     Render::Ogre14SourceTextureBc1AlphaMode &output) noexcept {
   if (alpha_policy != OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE &&
-      alpha_policy != OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT) {
+      alpha_policy != OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT &&
+      alpha_policy != OgreNextDemoTextureAlphaPolicy::PRESERVE_DATA) {
     return Failure(Render::ValidationCode::INVALID_ENUM,
                    "ogre_next_demo.material.bc1_alpha.alpha_policy",
                    "texture alpha normalization policy is invalid");
@@ -1647,9 +1654,10 @@ Render::ValidationResult ResolveOgreNextDemoBc1AlphaMode(
           "ogre_next_demo.material.bc1_alpha.authority",
           "legacy DXT1 needs explicit opaque-versus-one-bit alpha authority");
     }
-    candidate = alpha_policy == OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE
-                    ? Render::Ogre14SourceTextureBc1AlphaMode::OPAQUE_COLOR
-                    : Render::Ogre14SourceTextureBc1AlphaMode::ONE_BIT_ALPHA;
+    candidate =
+        OgreNextDemoTextureAlphaPolicyIsCoverage(alpha_policy)
+            ? Render::Ogre14SourceTextureBc1AlphaMode::ONE_BIT_ALPHA
+            : Render::Ogre14SourceTextureBc1AlphaMode::OPAQUE_COLOR;
   }
   output = candidate;
   return Render::ValidationResult::Success();
@@ -1672,7 +1680,8 @@ Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
                    "SRGB RGBA8 2D mip prefix");
   }
   if (alpha_policy != OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE &&
-      alpha_policy != OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT) {
+      alpha_policy != OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT &&
+      alpha_policy != OgreNextDemoTextureAlphaPolicy::PRESERVE_DATA) {
     return Failure(Render::ValidationCode::INVALID_ENUM,
                    "ogre_next_demo.material.texture.alpha_policy",
                    "sRGB PBR alpha normalization policy is invalid");
@@ -1766,8 +1775,7 @@ Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
           alpha_sum += source.bytes[offset + 3U];
         }
         for (std::size_t channel = 0U; channel < 3U; ++channel) {
-          if (alpha_policy ==
-              OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE) {
+          if (!OgreNextDemoTextureAlphaPolicyIsCoverage(alpha_policy)) {
             const std::uint64_t linear_sum =
                 static_cast<std::uint64_t>(
                     kSrgbLinearQ32[source.bytes[offsets[0U] + channel]]) +
@@ -1801,9 +1809,9 @@ Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
           }
         }
         destination.bytes[output + 3U] =
-            alpha_policy == OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE
-                ? 255U
-                : static_cast<std::uint8_t>((alpha_sum + 2U) / 4U);
+            OgreNextDemoTextureAlphaPolicyPreservesAlpha(alpha_policy)
+                ? static_cast<std::uint8_t>((alpha_sum + 2U) / 4U)
+                : 255U;
       }
     }
     candidate.mip_levels.push_back(std::move(destination));
@@ -1820,11 +1828,16 @@ Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
       alpha_policy == OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE
           ? OgreNextDemoTextureNormalizationObservation::Policy::
                 SRGB_OPAQUE_V2
+      : alpha_policy == OgreNextDemoTextureAlphaPolicy::PRESERVE_DATA
+          ? OgreNextDemoTextureNormalizationObservation::Policy::
+                SRGB_DATA_ALPHA_V1
           : OgreNextDemoTextureNormalizationObservation::Policy::
                 SRGB_STRAIGHT_ALPHA_V1;
   candidate_observation.policy_version =
       alpha_policy == OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE
           ? kOgreNextDemoModernSourceNormalizationPolicyVersion
+      : alpha_policy == OgreNextDemoTextureAlphaPolicy::PRESERVE_DATA
+          ? kOgreNextDemoDataAlphaNormalizationPolicyVersion
           : kOgreNextDemoStraightAlphaNormalizationPolicyVersion;
   candidate_observation.authored_mip_prefix_levels = authored_mip_count;
   candidate_observation.generated_mip_tail_levels =
@@ -1843,7 +1856,8 @@ Render::ValidationResult BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
     Render::TextureResourceDescriptor &output,
     OgreNextDemoTextureNormalizationObservation *observation) {
   if (alpha_policy != OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE &&
-      alpha_policy != OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT) {
+      alpha_policy != OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT &&
+      alpha_policy != OgreNextDemoTextureAlphaPolicy::PRESERVE_DATA) {
     return Failure(Render::ValidationCode::INVALID_ENUM,
                    "ogre_next_demo.material.authenticated.alpha_policy",
                    "decoded sRGB alpha normalization policy is invalid");
@@ -2053,7 +2067,7 @@ BuildOgreNextDemoLinearTextureFromDecodedSource(
     Render::TextureResourceDescriptor &output,
     OgreNextDemoTextureNormalizationObservation *observation) {
   const bool preserve_alpha =
-      alpha_policy == OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT;
+      OgreNextDemoTextureAlphaPolicyPreservesAlpha(alpha_policy);
   if (decoded.version != Render::kOgre14DecodedSourceTextureVersion ||
       decoded.width == 0U || decoded.height == 0U ||
       decoded.width != expected_native_width ||

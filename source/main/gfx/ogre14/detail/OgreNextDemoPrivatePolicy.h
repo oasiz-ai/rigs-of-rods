@@ -38,8 +38,40 @@ enum class OgreNextDemoTextureSourceMode : std::uint8_t {
 /// fixed cutoff at every level.
 enum class OgreNextDemoTextureAlphaPolicy : std::uint8_t {
   FORCE_OPAQUE = 0U,
+  /// Alpha is COVERAGE. Generated mips filter RGB weighted by alpha and
+  /// canonicalize fully transparent groups to black, because unpremultiplying
+  /// an invisible colour would amplify arbitrary hidden RGB.
   PRESERVE_STRAIGHT = 1U,
+  /// Alpha is authored DATA that happens to live in the fourth channel: a
+  /// detail layer's baked height field, not a coverage mask.
+  ///
+  /// The distinction is not cosmetic. Filtering RGB weighted by a height field
+  /// biases every generated mip toward the high-height texels, and the
+  /// transparent-is-black rule turns whole zero-height plateaus black. A
+  /// near-binary height bake has large zero plateaus by construction, so under
+  /// the coverage rule exactly the recesses the layer exists to draw would go
+  /// black as the camera pulls back. Under this policy alpha still survives
+  /// byte-exact and box-filters into the tail, while RGB keeps the plain
+  /// linear box average it would have had if alpha were not there at all.
+  PRESERVE_DATA = 2U,
 };
+
+/// True when the policy keeps the authored fourth channel rather than
+/// canonicalizing it opaque.
+[[nodiscard]] inline constexpr bool
+OgreNextDemoTextureAlphaPolicyPreservesAlpha(
+    OgreNextDemoTextureAlphaPolicy policy) noexcept {
+  return policy == OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT ||
+         policy == OgreNextDemoTextureAlphaPolicy::PRESERVE_DATA;
+}
+
+/// True when the policy treats the fourth channel as coverage, which is what
+/// licenses alpha-weighted RGB filtering.
+[[nodiscard]] inline constexpr bool
+OgreNextDemoTextureAlphaPolicyIsCoverage(
+    OgreNextDemoTextureAlphaPolicy policy) noexcept {
+  return policy == OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT;
+}
 
 /// Bounded reasons why an automatic TUS0 remains on the deterministic matte
 /// path.
@@ -202,6 +234,8 @@ constexpr std::size_t kOgreNextDemoTextureProjectionExclusionCount =
 /// declared layer count, 1..4. Zero-layer materials are not layered and are
 /// not counted, so there is no bucket for them.
 constexpr std::size_t kMaterialDetailLayerHistogramBuckets = 4U;
+/// One bucket per MaterialDetailLayerRefusal enumerator.
+constexpr std::size_t kMaterialDetailLayerRefusalCount = 15U;
 
 /// Reviewed CityWorld vertical-slice declaration. This table is intentionally
 /// tiny and content-addressed: the material name is only a lookup hint. Runtime
@@ -422,6 +456,11 @@ struct OgreNextDemoTextureSourceCounters final {
   /// aggregate totals above cannot.
   std::array<std::size_t, kMaterialDetailLayerHistogramBuckets>
       layered_material_projections_by_layer_count{};
+  /// One bucket per MaterialDetailLayerRefusal. The aggregate refusal count
+  /// says a material lost its layers; only this says WHY, which is the
+  /// difference between a content bug and an engine one.
+  std::array<std::size_t, kMaterialDetailLayerRefusalCount>
+      layered_material_refusals_by_reason{};
   /// Distinct new projections admitted through the additive-overlay shape: one
   /// canonical base-colour pass plus one or more purely additive overlay passes
   /// that are observed, counted, and deliberately not presented. A projection
@@ -740,6 +779,11 @@ struct OgreNextDemoTextureNormalizationObservation final {
     /// discards alpha; a projection normalized under this one is asserting
     /// that all four channels survived.
     LINEAR_DATA_RGBA_V1 = 3U,
+    /// sRGB colour whose alpha is authored data. Distinct from
+    /// SRGB_STRAIGHT_ALPHA_V1 because that policy filters RGB weighted by
+    /// alpha; this one does not, and a projection normalized under it is
+    /// asserting that its mip tail is free of coverage bias.
+    SRGB_DATA_ALPHA_V1 = 4U,
   };
   Policy policy = Policy::SRGB_OPAQUE_V2;
   std::uint32_t policy_version = 0U;
@@ -762,6 +806,11 @@ inline constexpr std::uint32_t
 inline constexpr std::string_view
     kOgreNextDemoLinearSpecularNormalizationPolicy =
         "linear_specular_authored_prefix_box_tail_v1";
+inline constexpr std::uint32_t
+    kOgreNextDemoDataAlphaNormalizationPolicyVersion = 1U;
+inline constexpr std::string_view
+    kOgreNextDemoDataAlphaNormalizationPolicy =
+        "srgb_data_alpha_authored_prefix_unweighted_linear_tail_v1";
 inline constexpr std::string_view kMaterialDetailLayerPolicy =
     "companion_declared_weighted_detail_layers_v1";
 inline constexpr std::uint32_t kMaterialDetailLayerPolicyVersion = 1U;

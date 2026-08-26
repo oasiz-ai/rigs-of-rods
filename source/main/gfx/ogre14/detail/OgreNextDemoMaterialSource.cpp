@@ -324,9 +324,11 @@ PreflightTextureIdentity(const Ogre::TexturePtr &native_texture,
 
 Render::Ogre14SourceTextureDecodeOptions BuildAuthenticatedDecodeOptions(
     const Render::Ogre14AuthenticatedTextureReceiptMetadata &metadata,
-    OgreNextDemoTextureAlphaPolicy alpha_policy) {
+    OgreNextDemoTextureAlphaPolicy alpha_policy,
+    Render::Ogre14SourceTextureColorSemantic color_semantic =
+        Render::Ogre14SourceTextureColorSemantic::SRGB_COLOR) {
   Render::Ogre14SourceTextureDecodeOptions options;
-  options.color_semantic = Render::Ogre14SourceTextureColorSemantic::SRGB_COLOR;
+  options.color_semantic = color_semantic;
   const bool legacy_dxt1 =
       metadata.dds.kind == Render::Ogre14SourceDdsHeaderKind::LEGACY &&
       metadata.dds.four_cc == kFourCcDxt1;
@@ -2786,7 +2788,9 @@ Render::ValidationResult CaptureAuthenticatedTextureSource(
     AuthenticatedTextureProvenance &output_provenance,
     std::string &output_content_decode_key,
     OgreNextDemoTextureAlphaPolicy alpha_policy,
-    OgreNextDemoTextureNormalizationObservation &output_normalization) {
+    OgreNextDemoTextureNormalizationObservation &output_normalization,
+    Render::Ogre14SourceTextureColorSemantic color_semantic =
+        Render::Ogre14SourceTextureColorSemantic::SRGB_COLOR) {
   if (!native_texture || !resolution.initialized()) {
     return Failure(Render::ValidationCode::MISSING_REFERENCE,
                    "ogre_next_demo.material.authenticated.resolution",
@@ -2818,7 +2822,8 @@ Render::ValidationResult CaptureAuthenticatedTextureSource(
   }
 
   const Render::Ogre14SourceTextureDecodeOptions options =
-      BuildAuthenticatedDecodeOptions(*metadata, alpha_policy);
+      BuildAuthenticatedDecodeOptions(*metadata, alpha_policy,
+                                      color_semantic);
   AuthenticatedTextureProvenance provenance;
   std::string content_decode_key;
   validation = BuildAuthenticatedTextureProvenance(
@@ -2851,12 +2856,18 @@ Render::ValidationResult CaptureAuthenticatedTextureSource(
 
   Render::TextureResourceDescriptor candidate;
   OgreNextDemoTextureNormalizationObservation normalization;
-  validation = BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
-      std::move(decoded), initial_texture_observation.source_width,
-      initial_texture_observation.source_height,
-      "OgreNextDemoPbrTexture/" + std::string(debug_token), alpha_policy,
-      candidate,
-      &normalization);
+  validation =
+      color_semantic == Render::Ogre14SourceTextureColorSemantic::LINEAR_DATA
+          ? BuildOgreNextDemoLinearTextureFromDecodedSource(
+                std::move(decoded), initial_texture_observation.source_width,
+                initial_texture_observation.source_height,
+                "OgreNextDemoLinearTexture/" + std::string(debug_token),
+                alpha_policy, candidate, &normalization)
+          : BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
+                std::move(decoded), initial_texture_observation.source_width,
+                initial_texture_observation.source_height,
+                "OgreNextDemoPbrTexture/" + std::string(debug_token),
+                alpha_policy, candidate, &normalization);
   if (!validation) {
     return validation;
   }
@@ -3789,15 +3800,6 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
       refusal = Detail::MaterialDetailLayerRefusal::UNIT_TEXTURE_UNSUPPORTED;
       return false;
     }
-    // A detail layer's artwork must be ordinary package content. An
-    // authenticated source would need its own authority plan, which this
-    // path deliberately does not invent.
-    if (texture_resolver_ != nullptr &&
-        texture_resolver_->RequiresAuthenticatedTextureSource(
-            *native_texture)) {
-      refusal = Detail::MaterialDetailLayerRefusal::UNIT_TEXTURE_UNSUPPORTED;
-      return false;
-    }
     OgreNextDemoExactTextureObservation texture_observation;
     if (!ObserveExactTexture(*unit, *native_texture, texture_observation)) {
       refusal = Detail::MaterialDetailLayerRefusal::UNIT_TEXTURE_UNSUPPORTED;
@@ -3808,10 +3810,18 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
     std::string texture_key;
     AppendField(texture_key, native_texture->getGroup());
     AppendField(texture_key, native_texture->getName());
+    // The normalization policy is part of the cache identity: the same source
+    // bytes decoded linear-vs-sRGB, or filtered as coverage-vs-data, are
+    // different payloads and must never share a key.
     AppendField(texture_key, linear
                                  ? kOgreNextDemoLinearDataRgbaNormalizationPolicy
                                  : kOgreNextDemoModernSourceNormalizationPolicy);
-    if (alpha_policy == OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT) {
+    if (alpha_policy == OgreNextDemoTextureAlphaPolicy::PRESERVE_DATA) {
+      AppendField(texture_key, kOgreNextDemoDataAlphaNormalizationPolicy);
+      AppendNumber(texture_key,
+                   kOgreNextDemoDataAlphaNormalizationPolicyVersion);
+    } else if (alpha_policy ==
+               OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT) {
       AppendField(texture_key, kOgreNextDemoStraightAlphaNormalizationPolicy);
       AppendNumber(texture_key,
                    kOgreNextDemoStraightAlphaNormalizationPolicyVersion);
@@ -3820,17 +3830,16 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
 
     auto texture = pending_->cache->textures.find(texture_key);
     if (texture == pending_->cache->textures.end()) {
-      Render::Ogre14SelectedTextureSourceResolution resolution;
-      Render::ValidationResult resolved =
-          ordinary_texture_source_resolver_->ResolveSelectedTextureSource(
-              *native_texture, resolution);
-      if (!resolved || !resolution.initialized()) {
-        refusal = Detail::MaterialDetailLayerRefusal::UNIT_TEXTURE_UNSUPPORTED;
-        return false;
-      }
+      // Layer artwork ships in whatever package the base material's content
+      // does, and the CityWorld overlay that carries it is an authenticated
+      // mount. Both source modes are therefore admitted, exactly as they are
+      // for the base colour; refusing the authenticated one would refuse the
+      // very content this path exists to project.
+      const bool authenticated_required =
+          texture_resolver_ != nullptr &&
+          texture_resolver_->RequiresAuthenticatedTextureSource(
+              *native_texture);
       CapturedTexture captured;
-      captured.source =
-          OgreNextDemoTextureSourceMode::ORDINARY_OBSERVED_SOURCE_BYTES;
       captured.alpha_policy = alpha_policy;
       Render::ValidationResult validation = DeriveOgreNextDemoSourceId(
           kTextureIdDomain, texture_key, captured.source_id);
@@ -3839,23 +3848,68 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
         return false;
       }
       Render::TextureResourceDescriptor descriptor;
-      bool ordinary_captured = false;
-      OgreNextDemoTextureProjectionExclusion slot_exclusion =
-          OgreNextDemoTextureProjectionExclusion::NONE;
-      validation = TryCaptureOrdinaryTextureSource(
-          native_texture, *unit, texture_observation,
-          *ordinary_texture_source_resolver_, resolution,
-          HexId(captured.source_id), descriptor, captured.ordinary_receipt,
-          captured.ordinary_provenance, captured.ordinary_content_decode_key,
-          ordinary_captured, slot_exclusion, alpha_policy,
-          captured.normalization_observation, semantic);
-      if (!validation) {
-        failure = std::move(validation);
-        return false;
-      }
-      if (!ordinary_captured) {
-        refusal = Detail::MaterialDetailLayerRefusal::UNIT_TEXTURE_UNSUPPORTED;
-        return false;
+      if (authenticated_required) {
+        Render::Ogre14AuthenticatedTextureResolution resolution;
+        if (!texture_resolver_->ResolveAuthenticatedTexture(*native_texture,
+                                                            resolution)) {
+          refusal = Detail::MaterialDetailLayerRefusal::ARTWORK_UNRESOLVABLE;
+          return false;
+        }
+        const Render::Ogre14AuthenticatedTextureReceipt *const receipt =
+            resolution.source_receipt();
+        const Render::Ogre14AuthenticatedTextureReceiptMetadata *const
+            metadata = receipt != nullptr ? receipt->metadata() : nullptr;
+        if (metadata == nullptr ||
+            !MapAuthenticatedSourceMode(metadata->source.source_kind,
+                                        captured.source)) {
+          refusal = Detail::MaterialDetailLayerRefusal::ARTWORK_UNRESOLVABLE;
+          return false;
+        }
+        validation = CaptureAuthenticatedTextureSource(
+            native_texture, *unit, texture_observation, *texture_resolver_,
+            resolution, HexId(captured.source_id), descriptor,
+            captured.authenticated_receipt,
+            captured.authenticated_provenance,
+            captured.authenticated_content_decode_key, alpha_policy,
+            captured.normalization_observation, semantic);
+        if (!validation) {
+          failure = std::move(validation);
+          return false;
+        }
+      } else {
+        if (ordinary_texture_source_resolver_ == nullptr) {
+          refusal = Detail::MaterialDetailLayerRefusal::ARTWORK_UNRESOLVABLE;
+          return false;
+        }
+        Render::Ogre14SelectedTextureSourceResolution resolution;
+        Render::ValidationResult resolved =
+            ordinary_texture_source_resolver_->ResolveSelectedTextureSource(
+                *native_texture, resolution);
+        if (!resolved || !resolution.initialized()) {
+          refusal = Detail::MaterialDetailLayerRefusal::ARTWORK_UNRESOLVABLE;
+          return false;
+        }
+        captured.source =
+            OgreNextDemoTextureSourceMode::ORDINARY_OBSERVED_SOURCE_BYTES;
+        bool ordinary_captured = false;
+        OgreNextDemoTextureProjectionExclusion slot_exclusion =
+            OgreNextDemoTextureProjectionExclusion::NONE;
+        validation = TryCaptureOrdinaryTextureSource(
+            native_texture, *unit, texture_observation,
+            *ordinary_texture_source_resolver_, resolution,
+            HexId(captured.source_id), descriptor, captured.ordinary_receipt,
+            captured.ordinary_provenance,
+            captured.ordinary_content_decode_key, ordinary_captured,
+            slot_exclusion, alpha_policy, captured.normalization_observation,
+            semantic);
+        if (!validation) {
+          failure = std::move(validation);
+          return false;
+        }
+        if (!ordinary_captured) {
+          refusal = Detail::MaterialDetailLayerRefusal::ARTWORK_UNRESOLVABLE;
+          return false;
+        }
       }
       captured.native_state_count = native_texture->getStateCount();
       captured.exact_texture_observation = texture_observation;
@@ -3933,7 +3987,7 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
   CapturedDetailLayers candidate;
   if (!capture_slot(Detail::kMaterialDetailWeightUnitName,
                     Render::Ogre14SourceTextureColorSemantic::LINEAR_DATA,
-                    OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT,
+                    OgreNextDemoTextureAlphaPolicy::PRESERVE_DATA,
                     candidate.weight)) {
     return failure ? true : true;
   }
@@ -3963,7 +4017,7 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
       // opaque would flatten exactly the signal the layer exists to carry.
       if (!capture_slot(unit_name,
                         Render::Ogre14SourceTextureColorSemantic::SRGB_COLOR,
-                        OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT,
+                        OgreNextDemoTextureAlphaPolicy::PRESERVE_DATA,
                         candidate.albedo[layer])) {
         return true;
       }
@@ -5390,6 +5444,10 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
       }
     } else if (detail_refusal != Detail::MaterialDetailLayerRefusal::ABSENT) {
       pending_->counters.layered_material_refusals += 1U;
+      const auto reason = static_cast<std::size_t>(detail_refusal);
+      if (reason < kMaterialDetailLayerRefusalCount) {
+        pending_->counters.layered_material_refusals_by_reason[reason] += 1U;
+      }
     }
     captured.material_payload =
         std::make_shared<const Render::RenderAssetPayload>(std::move(material));

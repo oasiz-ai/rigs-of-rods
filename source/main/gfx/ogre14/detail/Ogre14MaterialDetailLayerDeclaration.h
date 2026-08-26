@@ -69,6 +69,9 @@ enum class MaterialDetailLayerRefusal : std::uint8_t {
   WEIGHT_MASK_ABSENT = 12,
   /// The companion declared no layer at all.
   NO_LAYER_DECLARED = 13,
+  /// The layer artwork could not be resolved or decoded from its package.
+  ARTWORK_UNRESOLVABLE = 14,
+  COUNT = 15,
 };
 
 /// Stable lowercase token for one refusal, for audit lines. Never null.
