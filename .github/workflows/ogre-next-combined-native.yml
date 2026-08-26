@@ -22,6 +22,7 @@ on:
       - resources/**/*.fragment
       - resources/**/*.glsl
       - resources/**/*.glsles
+      - resources/**/*.hlsl
       - resources/**/*.material
       - resources/**/*.program
       - resources/**/*.vert
@@ -102,6 +103,7 @@ on:
       - resources/**/*.fragment
       - resources/**/*.glsl
       - resources/**/*.glsles
+      - resources/**/*.hlsl
       - resources/**/*.material
       - resources/**/*.program
       - resources/**/*.vert
@@ -1928,16 +1930,25 @@ jobs:
             throw 'Shader Model 4 HLSL source compilation failed'
           }
           $receipt = Get-Content -Raw -LiteralPath $receiptPath | ConvertFrom-Json
-          if ($receipt.schema -ne 'ror.modern-hlsl-source-compile-evidence.v1') {
+          if ($receipt.schema -ne 'ror.modern-hlsl-source-compile-evidence.v2') {
             throw 'Unexpected HLSL source-compile receipt schema'
           }
-          if ($receipt.case_count -ne 74) {
+          if ($receipt.case_count -ne 97) {
             throw "HLSL source-compile closure is incomplete: $($receipt.case_count)"
+          }
+          if (
+            $receipt.input_integrity.hlsl_source_count -ne 36 -or
+            $receipt.input_integrity.compiled_hlsl_source_count -ne 27 -or
+            $receipt.excluded_sources.rtshader_combined_sampler_compatibility.Count -ne 9
+          ) {
+            throw 'HLSL source/exclusion accounting is incomplete'
           }
           if (-not $receipt.claims.hlsl_source_compile_proven) {
             throw 'HLSL source compilation was not proven'
           }
           if (
+            $receipt.claims.rtshader_compatibility_hlsl_compile_proven -or
+            $receipt.claims.live_ogre14_rtshader_package_compile_proven -or
             $receipt.claims.ogre_resource_load_proven -or
             $receipt.claims.rendered_frame_proven -or
             $receipt.claims.runtime_playability_proven
@@ -2738,10 +2749,14 @@ jobs:
               },
               "shader_source_compile_evidence": {
                   "passed": True,
-                  "scope": "explicit-sm4-hlsl-source-compile-only",
-                  "case_count": 74,
+                  "scope": "declared-and-standalone-strict-sm4-hlsl-source-compile-only",
+                  "case_count": 97,
+                  "compiled_hlsl_source_count": 27,
+                  "excluded_rtshader_compatibility_source_count": 9,
                   "receipt": "qualification/shader-source-compile/hlsl-receipt.json",
                   "compiler_provenance": "qualification/shader-source-compile/fxc-provenance.json",
+                  "rtshader_compatibility_hlsl_compile_proven": False,
+                  "live_ogre14_rtshader_package_compile_proven": False,
                   "ogre_resource_load_proven": False,
                   "rendered_frame_proven": False,
                   "runtime_playability_proven": False,

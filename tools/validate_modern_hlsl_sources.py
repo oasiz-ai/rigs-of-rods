@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Compile every explicit Shader Model 4 resource route with Windows ``fxc``.
+"""Compile the complete desktop resource HLSL closure with Windows ``fxc``.
 
 This is deliberately a source-compiler gate.  A successful receipt proves that
-the declared HLSL entry points compile with their declared targets and defines;
-it does not prove that Ogre loaded the programs, bound their resources, rendered
-a frame, or produced a playable runtime.
+the declared entry points and standalone MyGUI sources compile with strict
+Shader Model 4 settings.  It does not prove that Ogre loaded the programs,
+bound their resources, rendered a frame, or produced a playable runtime.  The
+nine source-tree RTShader HLSL libraries retain their combined-sampler ABI and
+are inventoried but explicitly excluded; they are also distinct from OGRE 14's
+pinned live RTShaderLib package.
 """
 
 from __future__ import annotations
@@ -22,12 +25,50 @@ import tempfile
 from typing import Iterable, Sequence
 
 
-EVIDENCE_SCHEMA = "ror.modern-hlsl-source-compile-evidence.v1"
+EVIDENCE_SCHEMA = "ror.modern-hlsl-source-compile-evidence.v2"
 SCRIPT_SUFFIXES = frozenset({".material", ".program"})
 IMMUTABLE_INPUT_SUFFIXES = SCRIPT_SUFFIXES | frozenset({".hlsl"})
 MODERN_TARGETS = frozenset({"vs_4_0", "ps_4_0"})
 EXPECTED_STAGE_TARGET = {"vertex": "vs_4_0", "fragment": "ps_4_0"}
 EXPECTED_REQUIRED_CASES = {"caelum": 26, "managed_pssm": 5}
+EXPECTED_DECLARED_CASE_COUNTS = {
+    "caelum": 26,
+    "fresnel": 3,
+    "general": 11,
+    "grass": 2,
+    "managed-nicemetal": 10,
+    "managed-pssm": 5,
+    "nicemetal": 10,
+    "postprocess": 2,
+    "skyx": 19,
+    "stdquad": 5,
+}
+EXPECTED_FAMILY_CASE_COUNTS = {
+    **EXPECTED_DECLARED_CASE_COUNTS,
+    "mygui": 4,
+}
+EXPECTED_DECLARED_CASE_COUNT = 93
+EXPECTED_TOTAL_CASE_COUNT = 97
+EXPECTED_HLSL_SOURCE_COUNT = 36
+EXPECTED_COMPILED_HLSL_SOURCE_COUNT = 27
+EXPECTED_EXCLUDED_RTSHADER_SOURCE_COUNT = 9
+EXPECTED_MYGUI_STAGES = {
+    "MyGUI_FP.hlsl": "fragment",
+    "MyGUI_Ogre_FP.hlsl": "fragment",
+    "MyGUI_Ogre_VP.hlsl": "vertex",
+    "MyGUI_VP.hlsl": "vertex",
+}
+EXPECTED_RTSHADER_LIBRARIES = {
+    "FFPLib_Common.hlsl",
+    "FFPLib_Fog.hlsl",
+    "FFPLib_Lighting.hlsl",
+    "FFPLib_Texturing.hlsl",
+    "FFPLib_Transform.hlsl",
+    "SGXLib_IntegratedPSSM.hlsl",
+    "SGXLib_NormalMapLighting.hlsl",
+    "SGXLib_PerPixelLighting.hlsl",
+    "SampleLib_ReflectionMap.hlsl",
+}
 MAX_COMPILER_OUTPUT_BYTES = 1024 * 1024
 MAX_SOURCE_BYTES = 8 * 1024 * 1024
 MAX_CASES = 4096
@@ -56,8 +97,10 @@ class ValidationFailure(RuntimeError):
 
 @dataclass(frozen=True)
 class HlslCase:
-    """One explicit modern HLSL program declaration."""
+    """One declared or standalone modern HLSL compiler case."""
 
+    evidence_kind: str
+    family: str
     program: str
     stage: str
     target: str
@@ -72,6 +115,8 @@ class HlslCase:
 
     @property
     def case_id(self) -> str:
+        if self.evidence_kind == "standalone-resource-source-compile":
+            return f"standalone:{self.family}:{self.source_path.stem}:{self.stage}"
         return f"{self.script_relative}::{self.program}"
 
 
@@ -362,8 +407,34 @@ def _required_group(script_relative: str) -> str | None:
     return None
 
 
+def _declared_family(script_relative: str) -> str:
+    if script_relative.startswith("resources/caelum/"):
+        return "caelum"
+    exact = {
+        "resources/OgreCore/StdQuad_vp.program": "stdquad",
+        "resources/SkyX/SkyX.material": "skyx",
+        "resources/managed_materials/nicemetal_mm.program": "managed-nicemetal",
+        (
+            "resources/managed_materials/shadows/pssm/on/"
+            "depthshadows.program"
+        ): "managed-pssm",
+        "resources/materials/fresnel.material": "fresnel",
+        "resources/materials/general.program": "general",
+        "resources/materials/grass.material": "grass",
+        "resources/materials/nicemetal.program": "nicemetal",
+        "resources/postprocess/ror_postprocess_v0a.program": "postprocess",
+    }
+    family = exact.get(script_relative)
+    if family is None:
+        raise ValidationFailure(
+            "explicit HLSL declaration is outside the reviewed family map: "
+            f"{script_relative}"
+        )
+    return family
+
+
 def discover_cases(repository_root: Path) -> list[HlslCase]:
-    """Resolve every explicit ``vs_4_0``/``ps_4_0`` resource declaration."""
+    """Resolve the exact declared and standalone strict-SM4 compiler closure."""
 
     repository_root = repository_root.expanduser().absolute()
     if repository_root.is_symlink() or not repository_root.is_dir():
@@ -408,7 +479,9 @@ def discover_cases(repository_root: Path) -> list[HlslCase]:
                     raise ValidationFailure(f"missing {required} in {case_label}")
             target = directives.get("target")
             if target not in MODERN_TARGETS:
-                continue
+                raise ValidationFailure(
+                    f"legacy or unsupported HLSL target {target} in {case_label}"
+                )
             if kind not in EXPECTED_STAGE_TARGET:
                 raise ValidationFailure(f"unsupported SM4 shader stage {kind} in {case_label}")
             if target != EXPECTED_STAGE_TARGET[kind]:
@@ -458,6 +531,8 @@ def discover_cases(repository_root: Path) -> list[HlslCase]:
 
             cases.append(
                 HlslCase(
+                    evidence_kind="declared-resource-program-source-compile",
+                    family=_declared_family(script_relative),
                     program=program,
                     stage=kind,
                     target=target,
@@ -478,10 +553,35 @@ def discover_cases(repository_root: Path) -> list[HlslCase]:
         raise ValidationFailure("no HLSL program declarations were discovered")
     if not cases:
         raise ValidationFailure("no explicit Shader Model 4 HLSL cases were discovered")
+    family_counts = {
+        family: sum(case.family == family for case in cases)
+        for family in EXPECTED_DECLARED_CASE_COUNTS
+    }
+    for family, expected in EXPECTED_DECLARED_CASE_COUNTS.items():
+        actual = family_counts[family]
+        if actual != expected:
+            legacy_label = family.replace("-", "_")
+            raise ValidationFailure(
+                f"required {legacy_label} SM4 case closure is incomplete: "
+                f"expected {expected}, found {actual}"
+            )
+    if len(cases) != EXPECTED_DECLARED_CASE_COUNT:
+        raise ValidationFailure(
+            "explicit resource HLSL closure is incomplete: "
+            f"expected {EXPECTED_DECLARED_CASE_COUNT}, found {len(cases)}"
+        )
+
+    cases.extend(_discover_mygui_cases(resources, repository_root))
+    _assert_hlsl_source_closure(resources, repository_root, cases)
+    if len(cases) != EXPECTED_TOTAL_CASE_COUNT:
+        raise ValidationFailure(
+            f"desktop HLSL compiler closure must contain {EXPECTED_TOTAL_CASE_COUNT} "
+            f"cases, found {len(cases)}"
+        )
     if len(cases) > MAX_CASES:
         raise ValidationFailure(f"discovered more than {MAX_CASES} SM4 cases")
 
-    cases.sort(key=lambda case: (case.script_relative, case.program))
+    cases.sort(key=lambda case: case.case_id)
     group_counts = {key: 0 for key in EXPECTED_REQUIRED_CASES}
     for case in cases:
         group = _required_group(case.script_relative)
@@ -495,6 +595,130 @@ def discover_cases(repository_root: Path) -> list[HlslCase]:
                 f"expected {expected}, found {actual}"
             )
     return cases
+
+
+def _discover_mygui_cases(resources: Path, repository_root: Path) -> list[HlslCase]:
+    mygui_root = resources / "mygui"
+    _assert_no_repository_symlink(repository_root, mygui_root, "MyGUI HLSL root")
+    source_paths = sorted(mygui_root.glob("*.hlsl"))
+    actual_names = {path.name for path in source_paths}
+    if actual_names != set(EXPECTED_MYGUI_STAGES):
+        raise ValidationFailure(
+            "standalone MyGUI HLSL closure changed: "
+            f"expected {sorted(EXPECTED_MYGUI_STAGES)}, found {sorted(actual_names)}"
+        )
+
+    cases: list[HlslCase] = []
+    for source_path in source_paths:
+        source_relative = source_path.relative_to(repository_root).as_posix()
+        _assert_no_repository_symlink(
+            repository_root, source_path, f"standalone HLSL source {source_relative}"
+        )
+        payload = _read_regular_file(
+            source_path, "standalone MyGUI HLSL source", MAX_SOURCE_BYTES
+        )
+        try:
+            payload.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValidationFailure(
+                f"standalone MyGUI HLSL source is not UTF-8: {source_relative}"
+            ) from exc
+        stage = EXPECTED_MYGUI_STAGES[source_path.name]
+        cases.append(
+            HlslCase(
+                evidence_kind="standalone-resource-source-compile",
+                family="mygui",
+                program=source_path.stem,
+                stage=stage,
+                target=EXPECTED_STAGE_TARGET[stage],
+                entry_point="main",
+                defines=(),
+                script_path=source_path,
+                script_relative="",
+                source_path=source_path,
+                source_relative=source_relative,
+                script_sha256="",
+                source_sha256=_sha256_bytes(payload),
+            )
+        )
+    return cases
+
+
+def _excluded_rtshader_sources(
+    resources: Path, repository_root: Path
+) -> tuple[Path, ...]:
+    rtshader_root = resources / "rtshader"
+    _assert_no_repository_symlink(
+        repository_root, rtshader_root, "RTShader compatibility HLSL root"
+    )
+    source_paths = tuple(sorted(rtshader_root.glob("*.hlsl")))
+    actual_names = {path.name for path in source_paths}
+    if actual_names != EXPECTED_RTSHADER_LIBRARIES:
+        raise ValidationFailure(
+            "excluded RTShader HLSL compatibility closure changed: "
+            f"expected {sorted(EXPECTED_RTSHADER_LIBRARIES)}, "
+            f"found {sorted(actual_names)}"
+        )
+    for source_path in source_paths:
+        relative = source_path.relative_to(repository_root).as_posix()
+        _assert_no_repository_symlink(
+            repository_root, source_path, f"excluded RTShader HLSL source {relative}"
+        )
+        payload = _read_regular_file(
+            source_path, "excluded RTShader HLSL source", MAX_SOURCE_BYTES
+        )
+        try:
+            payload.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValidationFailure(
+                f"excluded RTShader HLSL source is not UTF-8: {relative}"
+            ) from exc
+    return source_paths
+
+
+def _assert_hlsl_source_closure(
+    resources: Path, repository_root: Path, cases: Sequence[HlslCase]
+) -> None:
+    excluded_paths = {
+        path.absolute()
+        for path in _excluded_rtshader_sources(resources, repository_root)
+    }
+    if len(excluded_paths) != EXPECTED_EXCLUDED_RTSHADER_SOURCE_COUNT:
+        raise ValidationFailure("excluded RTShader HLSL source count changed")
+    actual_paths = {
+        path.absolute()
+        for path in resources.rglob("*.hlsl")
+        if path.is_file() or path.is_symlink()
+    }
+    if len(actual_paths) != EXPECTED_HLSL_SOURCE_COUNT:
+        raise ValidationFailure(
+            "resource HLSL inventory changed: "
+            f"expected {EXPECTED_HLSL_SOURCE_COUNT}, found {len(actual_paths)}"
+        )
+    compiled_paths = {case.source_path.absolute() for case in cases}
+    if len(compiled_paths) != EXPECTED_COMPILED_HLSL_SOURCE_COUNT:
+        raise ValidationFailure(
+            "compiled resource HLSL source closure changed: "
+            f"expected {EXPECTED_COMPILED_HLSL_SOURCE_COUNT}, "
+            f"found {len(compiled_paths)}"
+        )
+    if compiled_paths & excluded_paths:
+        raise ValidationFailure("an excluded RTShader HLSL source entered the compiler cases")
+    accounted_paths = compiled_paths | excluded_paths
+    if accounted_paths != actual_paths:
+        missing_cases = sorted(
+            path.relative_to(repository_root).as_posix()
+            for path in actual_paths - accounted_paths
+        )
+        missing_sources = sorted(
+            path.relative_to(repository_root).as_posix()
+            for path in accounted_paths - actual_paths
+        )
+        raise ValidationFailure(
+            "resource HLSL source closure is not fully accounted: "
+            f"missing compiler/exclusion cases={missing_cases}, "
+            f"missing sources={missing_sources}"
+        )
 
 
 def _normalise_output(payload: bytes) -> str:
@@ -600,9 +824,11 @@ def compile_cases(
                     "case_id": case.case_id,
                     "defines": list(case.defines),
                     "entry_point": case.entry_point,
+                    "evidence_kind": case.evidence_kind,
+                    "family": case.family,
                     "program": case.program,
-                    "script": case.script_relative,
-                    "script_sha256": case.script_sha256,
+                    "script": case.script_relative or None,
+                    "script_sha256": case.script_sha256 or None,
                     "source": case.source_relative,
                     "source_sha256": case.source_sha256,
                     "stage": case.stage,
@@ -630,11 +856,16 @@ def validate_repository(
         item.relative: item for item in immutable_inputs.repository_files
     }
     for case in cases:
-        script_snapshot = snapshot_by_relative.get(case.script_relative)
         source_snapshot = snapshot_by_relative.get(case.source_relative)
+        script_changed = False
+        if case.evidence_kind == "declared-resource-program-source-compile":
+            script_snapshot = snapshot_by_relative.get(case.script_relative)
+            script_changed = (
+                script_snapshot is None
+                or script_snapshot.sha256 != case.script_sha256
+            )
         if (
-            script_snapshot is None
-            or script_snapshot.sha256 != case.script_sha256
+            script_changed
             or source_snapshot is None
             or source_snapshot.sha256 != case.source_sha256
         ):
@@ -650,11 +881,34 @@ def validate_repository(
         group = _required_group(case.script_relative)
         if group is not None:
             required_counts[group] += 1
+    family_counts = {
+        family: sum(case.family == family for case in cases)
+        for family in EXPECTED_FAMILY_CASE_COUNTS
+    }
+    excluded_rtshader = []
+    for path in _excluded_rtshader_sources(
+        repository_root.absolute() / "resources", repository_root.absolute()
+    ):
+        relative = path.relative_to(repository_root.absolute()).as_posix()
+        snapshot = snapshot_by_relative.get(relative)
+        if snapshot is None:
+            raise ValidationFailure(
+                f"excluded RTShader HLSL input escaped immutable inventory: {relative}"
+            )
+        excluded_rtshader.append(
+            {
+                "path": relative,
+                "reason": "combined-sampler ABI requires generator-coupled conversion",
+                "sha256": snapshot.sha256,
+            }
+        )
     return {
         "case_count": len(compiled_cases),
         "cases": compiled_cases,
         "claims": {
             "hlsl_source_compile_proven": True,
+            "rtshader_compatibility_hlsl_compile_proven": False,
+            "live_ogre14_rtshader_package_compile_proven": False,
             "ogre_resource_load_proven": False,
             "rendered_frame_proven": False,
             "runtime_playability_proven": False,
@@ -664,8 +918,15 @@ def validate_repository(
             "sha256": _sha256_bytes(compiler_payload),
             "size": len(compiler_payload),
         },
+        "excluded_sources": {
+            "rtshader_combined_sampler_compatibility": excluded_rtshader,
+        },
+        "family_case_counts": family_counts,
         "input_integrity": {
             "compiler_reverified": True,
+            "compiled_hlsl_source_count": len(
+                {case.source_relative for case in cases}
+            ),
             "declaration_script_count": sum(
                 item.path.suffix.lower() in SCRIPT_SUFFIXES
                 for item in immutable_inputs.repository_files
@@ -677,7 +938,9 @@ def validate_repository(
             "repository_input_manifest_sha256": immutable_inputs.manifest_sha256,
             "reverified_before_and_after_each_compile": True,
         },
-        "qualification_scope": "explicit-sm4-hlsl-source-compile-only",
+        "qualification_scope": (
+            "declared-and-standalone-strict-sm4-hlsl-source-compile-only"
+        ),
         "required_case_counts": required_counts,
         "schema": EVIDENCE_SCHEMA,
     }

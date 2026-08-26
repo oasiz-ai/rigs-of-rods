@@ -3,7 +3,7 @@
 This source file is part of SkyX.
 Visit http://www.paradise-studios.net/products/skyx/
 
-Copyright (C) 2009-2012 Xavier VerguÌn Gonz·lez <xavyiy@gmail.com>
+Copyright (C) 2009-2012 Xavier Vergu√≠n Gonz√°lez <xavyiy@gmail.com>
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU Lesser General Public License as published by the Free Software
@@ -33,7 +33,7 @@ void main_vp(
     // IN
 	float4 iPosition	        : POSITION,
 	// OUT
-	out float4 oPosition		: POSITION,
+	out float4 oPosition		: SV_Position,
 	out float3 oRayleighColor   : TEXCOORD0,
 	out float3 oDirection       : TEXCOORD1,
 	// UNIFORM
@@ -63,7 +63,7 @@ void main_vp(
 	oPosition = mul(uWorldViewProj, iPosition);
 	
 	// Calculate vertex world position
-	float3 vertexWorldPos = mul(uWorld, iPosition);
+	float3 vertexWorldPos = mul(uWorld, iPosition).xyz;
 	
 	// Get the ray from the camera to the vertex, and its length (which is the far point of the ray passing through the atmosphere)
 	float3 v3Pos;
@@ -113,7 +113,7 @@ void main_fp(
 	float3 iRayleighColor   : TEXCOORD0,
 	float3 iDirection       : TEXCOORD1,
 	// OUT 
-	out float4 oColor		: COLOR,
+	out float4 oColor		: SV_Target,
 	// UNIFORM
 	uniform float3 uLightDir
 #ifdef LDR
@@ -129,6 +129,6 @@ void main_fp(
 	oColor = float4(rayleighPhase*iRayleighColor,1);
 	
 #ifdef LDR
-	oColor.xyz = 1 - exp(-uExposure * oColor);
+	oColor.xyz = 1 - exp(-uExposure * oColor.xyz);
 #endif // LDR
 }

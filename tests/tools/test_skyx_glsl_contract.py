@@ -59,6 +59,22 @@ COMPATIBILITY_TOKEN = re.compile(
     r"\b(?:attribute|varying|texture2D|texture3D|gl_FragColor|"
     r"gl_ModelViewProjectionMatrix|gl_TexCoord|gl_Color|gl_Vertex)\b"
 )
+HLSL_COMPATIBILITY_TOKEN = re.compile(
+    r"\b(?:sampler1D|sampler2D|sampler3D|samplerCUBE|"
+    r"tex1D|tex2D|tex3D|texCUBE)\b"
+)
+HLSL_LEGACY_OUTPUT = re.compile(
+    r"\bout\s+float4\s+[A-Za-z_]\w*\s*:\s*(?:POSITION|COLOR)\b"
+)
+HLSL_RESOURCE_COUNTS = {
+    "SkyX_Clouds.hlsl": (3, 3, 4),
+    "SkyX_Ground.hlsl": (0, 0, 0),
+    "SkyX_Lightning.hlsl": (0, 0, 0),
+    "SkyX_Moon.hlsl": (2, 2, 3),
+    "SkyX_Skydome.hlsl": (1, 1, 2),
+    "SkyX_VolClouds.hlsl": (3, 3, 3),
+    "SkyX_VolClouds_Lightning.hlsl": (3, 3, 3),
+}
 
 
 def declarations(source: str, direction: str) -> dict[str, str]:
@@ -70,6 +86,38 @@ def declarations(source: str, direction: str) -> dict[str, str]:
 
 
 class SkyXGlslContractTests(unittest.TestCase):
+    def test_hlsl_routes_and_sources_are_strict_shader_model_4(self) -> None:
+        material = MATERIAL_PATH.read_text(encoding="utf-8")
+        self.assertEqual(material.count("target vs_4_0"), 7)
+        self.assertEqual(material.count("target ps_4_0"), 12)
+        self.assertNotRegex(material, r"(?m)^\s*target\s+(?:vs_[12]|ps_[123])")
+        self.assertNotIn("enable_backward_compatibility", material)
+
+        self.assertEqual(
+            {path.name for path in SKYX.glob("*.hlsl")},
+            set(HLSL_RESOURCE_COUNTS),
+        )
+        for name, (texture_count, sampler_count, sample_count) in sorted(
+            HLSL_RESOURCE_COUNTS.items()
+        ):
+            with self.subTest(source=name):
+                source = (SKYX / name).read_text(encoding="utf-8")
+                self.assertEqual(source.count("void main_vp("), 1)
+                self.assertEqual(source.count("void main_fp("), 1)
+                self.assertEqual(source.count(": SV_Position"), 1)
+                self.assertEqual(source.count(": SV_Target"), 1)
+                self.assertIsNone(HLSL_COMPATIBILITY_TOKEN.search(source))
+                self.assertIsNone(HLSL_LEGACY_OUTPUT.search(source))
+                self.assertEqual(
+                    len(re.findall(r"(?m)^Texture(?:1D|2D|3D|Cube)\b", source)),
+                    texture_count,
+                )
+                self.assertEqual(
+                    len(re.findall(r"(?m)^SamplerState\b", source)),
+                    sampler_count,
+                )
+                self.assertEqual(source.count(".Sample("), sample_count)
+
     def test_all_shader_pairs_are_core_glsl150_with_exact_interfaces(self) -> None:
         expected_stems = set(SHADER_INTERFACES)
         self.assertEqual(

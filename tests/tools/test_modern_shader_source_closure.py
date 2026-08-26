@@ -85,6 +85,8 @@ class ModernShaderSourceClosureTests(unittest.TestCase):
         )
         self.assertEqual(native.count("      - .gitattributes\n"), 2)
         self.assertEqual(tsan.count("      - .gitattributes\n"), 1)
+        self.assertEqual(native.count("      - resources/**/*.hlsl\n"), 2)
+        self.assertEqual(tsan.count("      - resources/**/*.hlsl\n"), 1)
 
     def test_success_artifacts_retain_compiler_receipts(self) -> None:
         native = NATIVE_WORKFLOW.read_text(encoding="utf-8")
@@ -126,6 +128,18 @@ class ModernShaderSourceClosureTests(unittest.TestCase):
             '"compiler_provenance": "qualification/shader-source-compile/fxc-provenance.json"',
         ):
             self.assertIn(required, native)
+        self.assertIn(
+            "ror.modern-hlsl-source-compile-evidence.v2", native
+        )
+        self.assertIn("$receipt.case_count -ne 97", native)
+        self.assertIn(
+            "$receipt.input_integrity.compiled_hlsl_source_count -ne 27",
+            native,
+        )
+        self.assertIn(
+            "$receipt.excluded_sources.rtshader_combined_sampler_compatibility.Count -ne 9",
+            native,
+        )
         staged_upload_path = "path: ${{ runner.temp }}/ror-combined-stage/"
         self.assertEqual(native.count(staged_upload_path), 2)
         self.assertIn(staged_upload_path, native[linux_upload:windows_stage])

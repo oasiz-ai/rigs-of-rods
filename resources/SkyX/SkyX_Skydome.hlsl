@@ -3,7 +3,7 @@
 This source file is part of SkyX.
 Visit http://www.paradise-studios.net/products/skyx/
 
-Copyright (C) 2009-2012 Xavier VerguÌn Gonz·lez <xavyiy@gmail.com>
+Copyright (C) 2009-2012 Xavier Vergu√≠n Gonz√°lez <xavyiy@gmail.com>
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU Lesser General Public License as published by the Free Software
@@ -23,6 +23,11 @@ http://www.gnu.org/copyleft/lesser.txt.
 
 // --------------------- SkyX skydome material ------------------------
 
+#ifdef STARFIELD
+Texture2D uStarfield : register(t0);
+SamplerState uStarfieldSampler : register(s0);
+#endif
+
 float scale(float cos, float uScaleDepth)
 {
 	float x = 1.0 - cos;
@@ -36,7 +41,7 @@ void main_vp(
 	float2 iUV                  : TEXCOORD1,
 	float  iOpacity             : TEXCOORD2,
 	// OUT
-	out float4 oPosition		: POSITION,
+	out float4 oPosition		: SV_Position,
 	out float2 oUV              : TEXCOORD0,
 	out float3 oRayleighColor   : TEXCOORD1,
 	out float3 oMieColor        : TEXCOORD2,
@@ -127,7 +132,7 @@ void main_fp(
 	float  iOpacity         : TEXCOORD4,
 	float  iHeight          : TEXCOORD5,
 	// OUT 
-	out float4 oColor		: COLOR,
+	out float4 oColor		: SV_Target,
 	// UNIFORM
 #ifdef STARFIELD
 	uniform float  uTime,
@@ -136,12 +141,7 @@ void main_fp(
     // Phase function
 	uniform float  uG,
 	uniform float  uG2,
-	uniform float  uExposure
-#ifdef STARFIELD
-    ,
-	uniform sampler2D uStarfield : register(s0)
-#endif // STARFIELD
-	)
+	uniform float  uExposure)
 {
     float cos = dot(uLightDir, iDirection) / length(iDirection);
 	float cos2 = cos*cos;
@@ -162,9 +162,9 @@ void main_fp(
 	
 #ifdef STARFIELD
 	#ifdef LDR
-		oColor.xyz += nightmult *(float3(0.05, 0.05, 0.1)*(2-0.75*saturate(-uLightDir.y))*pow(iHeight,3) + tex2D(uStarfield, iUV+uTime)*(0.35f + saturate(-uLightDir.y*0.45f))); 
+		oColor.xyz += nightmult *(float3(0.05, 0.05, 0.1)*(2-0.75*saturate(-uLightDir.y))*pow(iHeight,3) + uStarfield.Sample(uStarfieldSampler, iUV+uTime).xyz*(0.35f + saturate(-uLightDir.y*0.45f)));
 	#else // HDR (Linear pipeline -> Gamma correction)
-		oColor.xyz += nightmult *(pow(float3(0.05, 0.05, 0.1)*(2-0.75*saturate(-uLightDir.y))*pow(iHeight,3),2.2) + tex2D(uStarfield, iUV+uTime)*(0.35f + saturate(-uLightDir.y*0.45f))); 
+		oColor.xyz += nightmult *(pow(float3(0.05, 0.05, 0.1)*(2-0.75*saturate(-uLightDir.y))*pow(iHeight,3),2.2) + uStarfield.Sample(uStarfieldSampler, iUV+uTime).xyz*(0.35f + saturate(-uLightDir.y*0.45f)));
 	#endif // LDR
 #else // NO STARFIELD
 	#ifdef LDR

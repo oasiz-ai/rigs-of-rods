@@ -3,7 +3,7 @@
 This source file is part of SkyX.
 Visit http://www.paradise-studios.net/products/skyx/
 
-Copyright (C) 2009-2012 Xavier VerguÌn Gonz·lez <xavyiy@gmail.com>
+Copyright (C) 2009-2012 Xavier Vergu√≠n Gonz√°lez <xavyiy@gmail.com>
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU Lesser General Public License as published by the Free Software
@@ -23,12 +23,20 @@ http://www.gnu.org/copyleft/lesser.txt.
 
 // ------------------------- SkyX clouds -----------------------------
 
+Texture2D uClouds       : register(t0);
+Texture2D uCloudsNormal : register(t1);
+Texture2D uCloudsTile   : register(t2);
+
+SamplerState uCloudsSampler       : register(s0);
+SamplerState uCloudsNormalSampler : register(s1);
+SamplerState uCloudsTileSampler   : register(s2);
+
 void main_vp(
     // IN
 	float4 iPosition	        : POSITION,
 	float3 iNPosition           : TEXCOORD0,
 	// OUT
-	out float4 oPosition		: POSITION,
+	out float4 oPosition		: SV_Position,
 	out float3 oPosition_       : TEXCOORD0,
 	// UNIFORM
 	uniform float4x4 uWorldViewProj)
@@ -43,7 +51,7 @@ void main_fp(
     // IN
     float3 iPosition       : TEXCOORD0,
 	// OUT 
-	out float4 oColor		: COLOR,
+	out float4 oColor		: SV_Target,
 	// UNIFORM
 	uniform float     uExposure,
 	// Sun information
@@ -58,10 +66,7 @@ void main_fp(
 	uniform float     uCloudLayerVolumetricDisplacement, // 0.01
 	uniform float3    uAmbientLuminosity, // 0.55 0.55 0.55
 	uniform float     uDetailAttenuation, // 0.45
-	uniform float     uDistanceAttenuation, // 0.05
-	uniform sampler2D uClouds : register(s0),
-	uniform sampler2D uCloudsNormal : register(s1),
-	uniform sampler2D uCloudsTile : register(s2))
+	uniform float     uDistanceAttenuation) // 0.05
 {
     // Get the cloud pixel lenght on the projected plane
     float vh = uHeight / iPosition.y;
@@ -70,8 +75,8 @@ void main_fp(
     
     // Get texture coords
     float2 TexCoord = CloudPosition.xz*uScale;
-    float Density   = tex2D(uClouds, TexCoord+uTime*uWindDirection*0.25f).r;
-    float3 Normal    = -(2*tex2D(uCloudsNormal, TexCoord+uTime*uWindDirection*0.25f)-1);
+    float Density   = uClouds.Sample(uCloudsSampler, TexCoord+uTime*uWindDirection*0.25f).r;
+    float3 Normal    = -(2*uCloudsNormal.Sample(uCloudsNormalSampler, TexCoord+uTime*uWindDirection*0.25f).xyz-1);
     Normal.zy = Normal.yz;
  
     ///------------ Volumetric effect:
@@ -81,10 +86,10 @@ void main_fp(
     vh = (uHeight+uHeight*(1-Density)*CloudLayerHeightVolume) / iNewPosition.y;
     CloudPosition = iNewPosition * vh;
     TexCoord = CloudPosition.xz*uScale;                               // Little offset
-    Density    = tex2D(uClouds, TexCoord+uTime*uWindDirection*0.25f + float2(0.2,0.6)).r;
+    Density    = uClouds.Sample(uCloudsSampler, TexCoord+uTime*uWindDirection*0.25f + float2(0.2,0.6)).r;
     ///------------
     
-    float  CloudTile     = tex2D(uCloudsTile, TexCoord-uTime*uWindDirection*0.25).r;
+    float  CloudTile     = uCloudsTile.Sample(uCloudsTileSampler, TexCoord-uTime*uWindDirection*0.25).r;
 
     float3 PixelColor = uAmbientLuminosity + uSunColor*Density;
     

@@ -3,7 +3,7 @@
 This source file is part of SkyX.
 Visit http://www.paradise-studios.net/products/skyx/
 
-Copyright (C) 2009-2012 Xavier VerguÌn Gonz·lez <xavyiy@gmail.com>
+Copyright (C) 2009-2012 Xavier Vergu√≠n Gonz√°lez <xavyiy@gmail.com>
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU Lesser General Public License as published by the Free Software
@@ -25,12 +25,18 @@ http://www.gnu.org/copyleft/lesser.txt.
 
 // ---------------------------- HLSL -------------------------------
 
+Texture2D uMoon     : register(t0);
+Texture2D uMoonHalo : register(t1);
+
+SamplerState uMoonSampler     : register(s0);
+SamplerState uMoonHaloSampler : register(s1);
+
 void main_vp(
     // IN
 	float4 iPosition	        : POSITION,
 	float2 iUV                  : TEXCOORD0,
 	// OUT
-	out float4 oPosition		: POSITION,
+	out float4 oPosition		: SV_Position,
 	out float4 oUVYLength       : TEXCOORD0,
 	// UNIFORM
 	uniform float4x4 uWorldViewProj,
@@ -40,7 +46,7 @@ void main_vp(
     // Clip space position
 	oPosition   = mul(uWorldViewProj, iPosition);
 	// World position
-	float3 ObjectSpacePosition = mul(uWorld, iPosition) - uSkydomeCenter;
+	float3 ObjectSpacePosition = mul(uWorld, iPosition).xyz - uSkydomeCenter;
 
     // UV
     oUVYLength.xy = iUV;
@@ -54,17 +60,15 @@ void main_fp(
     // IN
     float4 iUVYLength       : TEXCOORD0,
 	// OUT 
-	out float4 oColor		: COLOR,
+	out float4 oColor		: SV_Target,
 	// UNIFORM
 	uniform float3    uMoonPhase,
 	uniform float3    uMoonHalo1,
 	uniform float3    uMoonHalo2,
-	uniform float     uMoonHaloFlip,
-	uniform sampler2D uMoon : register(s0),
-	uniform sampler2D uMoonHalo : register(s1))
+	uniform float     uMoonHaloFlip)
 {
     // Output color
-    oColor = tex2D(uMoon, iUVYLength.xy);
+    oColor = uMoon.Sample(uMoonSampler, iUVYLength.xy);
 	
 	// Moon phase + halo
 	float radius = abs(uMoonPhase.x);
@@ -81,7 +85,7 @@ void main_fp(
 	float2 halo1UV = float2(uMoonHalo1.x + haloUV.x, uMoonHalo1.y + haloUV.y);
 	float2 halo2UV = float2(uMoonHalo2.x + haloUV.x, uMoonHalo2.y + haloUV.y);
 	
-	float haloIntensity = tex2D(uMoonHalo, halo1UV).w*uMoonHalo1.z + tex2D(uMoonHalo, halo2UV).w*uMoonHalo2.z;
+	float haloIntensity = uMoonHalo.Sample(uMoonHaloSampler, halo1UV).w*uMoonHalo1.z + uMoonHalo.Sample(uMoonHaloSampler, halo2UV).w*uMoonHalo2.z;
 	
 	haloIntensity = pow(haloIntensity, uMoonPhase.z);
 	

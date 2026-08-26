@@ -16,6 +16,7 @@ on:
       - resources/**/*.fragment
       - resources/**/*.glsl
       - resources/**/*.glsles
+      - resources/**/*.hlsl
       - resources/**/*.material
       - resources/**/*.program
       - resources/**/*.vert

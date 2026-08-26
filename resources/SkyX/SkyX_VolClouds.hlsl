@@ -3,7 +3,7 @@
 This source file is part of SkyX.
 Visit http://www.paradise-studios.net/products/skyx/
 
-Copyright (C) 2009-2012 Xavier VerguÌn Gonz·lez <xavyiy@gmail.com>
+Copyright (C) 2009-2012 Xavier Vergu√≠n Gonz√°lez <xavyiy@gmail.com>
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU Lesser General Public License as published by the Free Software
@@ -23,6 +23,14 @@ http://www.gnu.org/copyleft/lesser.txt.
 
 // ------------------------- SkyX volumetric clouds -----------------------------
 
+Texture3D uDensity0 : register(t0);
+Texture3D uDensity1 : register(t1);
+Texture2D uNoise    : register(t2);
+
+SamplerState uDensity0Sampler : register(s0);
+SamplerState uDensity1Sampler : register(s1);
+SamplerState uNoiseSampler    : register(s2);
+
 void main_vp(
     // IN
 	float4 iPosition	        : POSITION,
@@ -30,7 +38,7 @@ void main_vp(
 	float2 iNoiseUV             : TEXCOORD1,
 	float  iOpacity             : TEXCOORD2,
 	// OUT
-	out float4 oPosition		: POSITION,
+	out float4 oPosition		: SV_Position,
 	out float3 o3DCoord         : TEXCOORD0,
 	out float2 oNoiseUV         : TEXCOORD1,
 	out float  oOpacity         : TEXCOORD2,
@@ -65,17 +73,14 @@ void main_fp(
     float3 iEyePixel : TEXCOORD3,
     float  iDistance : TEXCOORD4,
 	// OUT 
-	out float4 oColor		: COLOR,
+	out float4 oColor		: SV_Target,
 	// UNIFORM
 	uniform float     uInterpolation,
 	uniform float3    uSunDirection,
 	uniform float3    uAmbientColor,
 	uniform float3    uSunColor,
 	uniform float4    uLightResponse,
-	uniform float4    uAmbientFactors,
-	uniform sampler3D uDensity0 : register(s0),
-	uniform sampler3D uDensity1 : register(s1),
-	uniform sampler2D uNoise    : register(s2))
+	uniform float4    uAmbientFactors)
 {    
     // x - Sun light power
     // y - Sun beta multiplier
@@ -87,12 +92,12 @@ void main_fp(
 	// x - constant, y - linear, z - cuadratic, w - cubic
 	// float4 uAmbientFactors = float4(0.4,1,1,1);
 
-	float3 Noise = tex2D(uNoise, iNoiseUV*5);
+	float3 Noise = uNoise.Sample(uNoiseSampler, iNoiseUV*5).xyz;
 	float3 Final3DCoord = i3DCoord+0.002575*(Noise-0.5f)*2;
 	Final3DCoord.z = saturate(Final3DCoord.z);
 	
-	float3 Density0 = tex3D(uDensity0, Final3DCoord);
-	float3 Density1 = tex3D(uDensity1, Final3DCoord);
+	float3 Density0 = uDensity0.Sample(uDensity0Sampler, Final3DCoord).xyz;
+	float3 Density1 = uDensity1.Sample(uDensity1Sampler, Final3DCoord).xyz;
 	float3 Density  = Density0*(1-uInterpolation) + Density1*uInterpolation;
 	
 	float3 finalcolor = float3(0,0,0);

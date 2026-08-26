@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Hostile tests for the fail-closed Shader Model 4 source compiler gate."""
+"""Hostile orchestration tests for the strict-SM4 source compiler gate.
+
+The fake ``fxc.exe`` validates command construction, closure accounting, input
+immutability, and receipt publication only.  It does not parse or compile HLSL;
+terminal Windows CI with the real SDK compiler remains the compiler proof.
+"""
 
 from __future__ import annotations
 
@@ -116,6 +121,8 @@ def _program(
 
 
 class ModernHlslValidatorTests(unittest.TestCase):
+    """Exercise fail-closed orchestration with a deliberately non-compiling fake."""
+
     maxDiff = None
 
     def setUp(self) -> None:
@@ -132,74 +139,120 @@ class ModernHlslValidatorTests(unittest.TestCase):
         self._write_complete_fixture()
 
     def _write_complete_fixture(self) -> None:
-        caelum = self.repository / "resources/caelum"
-        pssm = (
-            self.repository
-            / "resources/managed_materials/shadows/pssm/on"
-        )
-        other = self.repository / "resources/materials"
-        caelum.mkdir(parents=True)
-        pssm.mkdir(parents=True)
-        other.mkdir(parents=True)
-        (caelum / "caelum.hlsl").write_text(
+        resources = self.repository / "resources"
+        shader_body = (
             "float4 MainVS(float4 p : POSITION) : SV_POSITION { return p; }\n"
-            "float4 MainPS() : SV_TARGET { return 1; }\n",
-            encoding="utf-8",
+            "float4 MainPS() : SV_TARGET { return 1; }\n"
         )
-        (pssm / "pssm.hlsl").write_text(
-            "float4 MainVS(float4 p : POSITION) : SV_POSITION { return p; }\n"
-            "float4 MainPS() : SV_TARGET { return 1; }\n",
-            encoding="utf-8",
-        )
-        (other / "other.hlsl").write_text(
-            "float4 MainVS(float4 p : POSITION) : SV_POSITION { return p; }\n",
-            encoding="utf-8",
-        )
-        caelum_blocks = []
-        for index in range(26):
-            stage = "vertex" if index % 2 == 0 else "fragment"
-            target = "vs_4_0" if stage == "vertex" else "ps_4_0"
-            entry = "MainVS" if stage == "vertex" else "MainPS"
-            caelum_blocks.append(
-                _program(
-                    f"Caelum/Test{index}/D3D11",
-                    "caelum.hlsl",
-                    stage,
-                    entry,
-                    target,
-                    (f"CAELUM_TEST_{index}=1", "SHARED=1"),
-                )
-            )
-        (caelum / "all.program").write_text("\n".join(caelum_blocks), encoding="utf-8")
 
-        pssm_blocks = []
-        for index in range(5):
-            stage = "vertex" if index in {0, 3} else "fragment"
-            target = "vs_4_0" if stage == "vertex" else "ps_4_0"
-            entry = "MainVS" if stage == "vertex" else "MainPS"
-            pssm_blocks.append(
-                _program(
-                    f"PSSM/Test{index}/D3D11",
-                    "pssm.hlsl",
-                    stage,
-                    entry,
-                    target,
-                    (f"PSSM_TEST_{index}=1",),
-                )
-            )
-        (pssm / "depthshadows.program").write_text(
-            "\n".join(pssm_blocks), encoding="utf-8"
-        )
-        (other / "other.program").write_text(
-            _program(
-                "Other/NoDefines/D3D11",
-                "other.hlsl",
-                "vertex",
-                "MainVS",
-                "vs_4_0",
+        families = (
+            (
+                "caelum/all.program",
+                "Caelum",
+                26,
+                (
+                    "caelum.hlsl",
+                    *tuple(f"caelum_{index}.hlsl" for index in range(1, 8)),
+                ),
             ),
-            encoding="utf-8",
+            (
+                "OgreCore/StdQuad_vp.program",
+                "StdQuad",
+                5,
+                ("StdQuad_vp_d3d11.hlsl",),
+            ),
+            (
+                "SkyX/SkyX.material",
+                "SkyX",
+                19,
+                tuple(f"SkyX_{index}.hlsl" for index in range(7)),
+            ),
+            (
+                "managed_materials/nicemetal_mm.program",
+                "ManagedNiceMetal",
+                10,
+                ("nicemetal_mm_d3d11.hlsl",),
+            ),
+            (
+                "managed_materials/shadows/pssm/on/depthshadows.program",
+                "PSSM",
+                5,
+                ("pssm.hlsl",),
+            ),
+            (
+                "materials/fresnel.material",
+                "Fresnel",
+                3,
+                ("fresnel_d3d11.hlsl",),
+            ),
+            (
+                "materials/general.program",
+                "General",
+                11,
+                ("general_d3d11.hlsl",),
+            ),
+            (
+                "materials/grass.material",
+                "Grass",
+                2,
+                ("grass_d3d11.hlsl",),
+            ),
+            (
+                "materials/nicemetal.program",
+                "NiceMetal",
+                10,
+                ("nicemetal_d3d11.hlsl",),
+            ),
+            (
+                "postprocess/ror_postprocess_v0a.program",
+                "PostProcess",
+                2,
+                ("ror_postprocess_v0a_d3d11.hlsl",),
+            ),
         )
+        for script_relative, prefix, count, source_names in families:
+            script_path = resources / script_relative
+            script_path.parent.mkdir(parents=True, exist_ok=True)
+            for source_name in source_names:
+                (script_path.parent / source_name).write_text(
+                    shader_body, encoding="utf-8"
+                )
+            blocks = []
+            for index in range(count):
+                stage = "vertex" if index % 2 == 0 else "fragment"
+                target = "vs_4_0" if stage == "vertex" else "ps_4_0"
+                entry = "MainVS" if stage == "vertex" else "MainPS"
+                defines = (
+                    (f"{prefix.upper()}_TEST_{index}=1", "SHARED=1")
+                    if prefix == "Caelum"
+                    else ()
+                )
+                blocks.append(
+                    _program(
+                        f"{prefix}/Test{index}/D3D11",
+                        source_names[index % len(source_names)],
+                        stage,
+                        entry,
+                        target,
+                        defines,
+                    )
+                )
+            script_path.write_text("\n".join(blocks), encoding="utf-8")
+
+        mygui = resources / "mygui"
+        mygui.mkdir()
+        for name in VALIDATOR.EXPECTED_MYGUI_STAGES:
+            (mygui / name).write_text(
+                shader_body.replace("MainVS", "main", 1), encoding="utf-8"
+            )
+
+        rtshader = resources / "rtshader"
+        rtshader.mkdir()
+        for index, name in enumerate(sorted(VALIDATOR.EXPECTED_RTSHADER_LIBRARIES)):
+            (rtshader / name).write_text(
+                f"void RorCompatibilityFunction{index}(in float v, out float o) {{ o = v; }}\n",
+                encoding="utf-8",
+            )
 
     def _run(
         self,
@@ -240,14 +293,37 @@ class ModernHlslValidatorTests(unittest.TestCase):
         first_bytes = self.evidence.read_bytes()
         receipt = json.loads(first_bytes)
         self.assertEqual(receipt["schema"], VALIDATOR.EVIDENCE_SCHEMA)
-        self.assertEqual(receipt["case_count"], 32)
+        self.assertEqual(receipt["case_count"], 97)
         self.assertEqual(receipt["required_case_counts"], {"caelum": 26, "managed_pssm": 5})
+        self.assertEqual(
+            receipt["qualification_scope"],
+            "declared-and-standalone-strict-sm4-hlsl-source-compile-only",
+        )
+        self.assertEqual(
+            receipt["family_case_counts"], VALIDATOR.EXPECTED_FAMILY_CASE_COUNTS
+        )
+        excluded = receipt["excluded_sources"][
+            "rtshader_combined_sampler_compatibility"
+        ]
+        self.assertEqual(len(excluded), 9)
+        self.assertTrue(
+            all(
+                record["reason"]
+                == "combined-sampler ABI requires generator-coupled conversion"
+                for record in excluded
+            )
+        )
+        kinds = [case["evidence_kind"] for case in receipt["cases"]]
+        self.assertEqual(kinds.count("declared-resource-program-source-compile"), 93)
+        self.assertEqual(kinds.count("standalone-resource-source-compile"), 4)
         self.assertEqual(
             receipt["claims"],
             {
                 "hlsl_source_compile_proven": True,
+                "live_ogre14_rtshader_package_compile_proven": False,
                 "ogre_resource_load_proven": False,
                 "rendered_frame_proven": False,
+                "rtshader_compatibility_hlsl_compile_proven": False,
                 "runtime_playability_proven": False,
             },
         )
@@ -255,8 +331,9 @@ class ModernHlslValidatorTests(unittest.TestCase):
             receipt["input_integrity"],
             {
                 "compiler_reverified": True,
-                "declaration_script_count": 3,
-                "hlsl_source_count": 3,
+                "compiled_hlsl_source_count": 27,
+                "declaration_script_count": 10,
+                "hlsl_source_count": 36,
                 "repository_input_manifest_sha256": receipt["input_integrity"][
                     "repository_input_manifest_sha256"
                 ],
@@ -278,7 +355,7 @@ class ModernHlslValidatorTests(unittest.TestCase):
         self.assertEqual(second_evidence.read_bytes(), first_bytes)
 
         records = [json.loads(line) for line in self.log.read_text().splitlines()]
-        self.assertEqual(len(records), 32)
+        self.assertEqual(len(records), 97)
         for record in records:
             arguments = record["arguments"]
             self.assertEqual(
@@ -294,29 +371,42 @@ class ModernHlslValidatorTests(unittest.TestCase):
                 ],
             )
             self.assertIn("/Fo", arguments)
+            self.assertNotIn("/Gec", arguments)
             self.assertTrue(record["cwd_source_exists"])
         defined = next(record for record in records if record["defines"])
         self.assertGreaterEqual(defined["arguments"].count("/D"), 1)
         no_defines = next(record for record in records if not record["defines"])
         self.assertNotIn("/D", no_defines["arguments"])
 
-    def test_current_repository_discovers_and_fake_compiles_every_explicit_sm4_route(self) -> None:
+    def test_current_repository_fake_fxc_only_exercises_the_97_case_orchestration_matrix(self) -> None:
         evidence = VALIDATOR.validate_repository(ROOT, self.compiler)
         self.assertEqual(
             evidence["required_case_counts"], {"caelum": 26, "managed_pssm": 5}
         )
-        self.assertEqual(evidence["case_count"], 74)
+        self.assertEqual(evidence["case_count"], 97)
+        self.assertEqual(
+            evidence["family_case_counts"],
+            VALIDATOR.EXPECTED_FAMILY_CASE_COUNTS,
+        )
+        self.assertEqual(
+            len(
+                evidence["excluded_sources"][
+                    "rtshader_combined_sampler_compatibility"
+                ]
+            ),
+            9,
+        )
         self.assertEqual(
             len({case["case_id"] for case in evidence["cases"]}),
             evidence["case_count"],
         )
 
     def test_crlf_declaration_is_not_silently_dropped(self) -> None:
-        script = self.repository / "resources/materials/other.program"
+        script = self.repository / "resources/materials/general.program"
         script.write_bytes(script.read_bytes().replace(b"\n", b"\r\n"))
         result = self._run()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(self.evidence.read_text())["case_count"], 32)
+        self.assertEqual(json.loads(self.evidence.read_text())["case_count"], 97)
 
     def test_missing_required_case_fails_before_compiler_execution(self) -> None:
         script = self.repository / "resources/caelum/all.program"
@@ -368,10 +458,24 @@ class ModernHlslValidatorTests(unittest.TestCase):
         self.assertIn("stage/target mismatch", mismatch.stderr)
         self.assertFalse(self.log.exists())
 
+        script.write_text(
+            original.replace("target vs_4_0", "target vs_2_0", 1),
+            encoding="utf-8",
+        )
+        legacy_target = self._run()
+        self.assertNotEqual(legacy_target.returncode, 0)
+        self.assertIn(
+            "legacy or unsupported HLSL target vs_2_0", legacy_target.stderr
+        )
+        self.assertFalse(self.log.exists())
+
     def test_malformed_declaration_and_missing_target_fail_closed(self) -> None:
-        script = self.repository / "resources/materials/other.program"
+        script = self.repository / "resources/materials/general.program"
         original = script.read_text(encoding="utf-8")
-        script.write_text(original.replace(" hlsl\n", " hlsl unexpected\n"), encoding="utf-8")
+        script.write_text(
+            original.replace(" hlsl\n", " hlsl unexpected\n", 1),
+            encoding="utf-8",
+        )
         malformed = self._run()
         self.assertNotEqual(malformed.returncode, 0)
         self.assertIn("malformed HLSL program declaration", malformed.stderr)
@@ -426,6 +530,42 @@ class ModernHlslValidatorTests(unittest.TestCase):
                 self.assertIn(expected, result.stderr)
                 self.assertFalse(self.evidence.exists())
                 self.assertFalse(list(self.repository.rglob("*.cso")))
+
+    def test_compiled_and_excluded_source_inventories_fail_closed(self) -> None:
+        rtshader = self.repository / "resources/rtshader/FFPLib_Common.hlsl"
+        rtshader_bytes = rtshader.read_bytes()
+        rtshader.unlink()
+        missing_exclusion = self._run()
+        self.assertNotEqual(missing_exclusion.returncode, 0)
+        self.assertIn(
+            "excluded RTShader HLSL compatibility closure changed",
+            missing_exclusion.stderr,
+        )
+        self.assertFalse(self.log.exists())
+
+        rtshader.write_bytes(rtshader_bytes)
+        mygui = self.repository / "resources/mygui/MyGUI_FP.hlsl"
+        mygui_bytes = mygui.read_bytes()
+        mygui.unlink()
+        missing_compiler_case = self._run()
+        self.assertNotEqual(missing_compiler_case.returncode, 0)
+        self.assertIn(
+            "standalone MyGUI HLSL closure changed", missing_compiler_case.stderr
+        )
+        self.assertFalse(self.log.exists())
+
+        mygui.write_bytes(mygui_bytes)
+        added = self.repository / "resources/materials/unreviewed.hlsl"
+        added.write_text(
+            "float4 main() : SV_Target { return 1; }\n", encoding="utf-8"
+        )
+        unreviewed_source = self._run()
+        self.assertNotEqual(unreviewed_source.returncode, 0)
+        self.assertIn(
+            "resource HLSL inventory changed: expected 36, found 37",
+            unreviewed_source.stderr,
+        )
+        self.assertFalse(self.log.exists())
 
     def test_existing_evidence_is_preserved_without_compiler_execution(self) -> None:
         sentinel = b"caller-owned evidence must remain byte-exact\n"

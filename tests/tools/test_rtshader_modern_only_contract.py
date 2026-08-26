@@ -9,6 +9,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 RTSHADER = ROOT / "resources/rtshader"
+HLSL_VALIDATOR = ROOT / "tools/validate_modern_hlsl_sources.py"
+NATIVE_WORKFLOW = ROOT / ".github/workflows/ogre-next-combined-native.yml"
 
 FAMILY_SYMBOLS = {
     "FFPLib_Common": {
@@ -178,6 +180,38 @@ class RTShaderModernOnlyContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertNotRegex(material, r"(?i)\bsource\s+\S+")
+
+    def test_combined_sampler_hlsl_abi_is_inventoried_but_not_false_qualified(self) -> None:
+        texturing = (RTSHADER / "FFPLib_Texturing.hlsl").read_text(
+            encoding="utf-8"
+        )
+        pssm = (RTSHADER / "SGXLib_IntegratedPSSM.hlsl").read_text(
+            encoding="utf-8"
+        )
+        normal_map = (RTSHADER / "SGXLib_NormalMapLighting.hlsl").read_text(
+            encoding="utf-8"
+        )
+        reflection = (RTSHADER / "SampleLib_ReflectionMap.hlsl").read_text(
+            encoding="utf-8"
+        )
+        for source in (texturing, pssm, normal_map, reflection):
+            self.assertRegex(source, r"\bsampler(?:1D|2D|3D|CUBE)\b")
+            self.assertRegex(source, r"\btex(?:1D|2D|3D|CUBE)\s*\(")
+
+        validator = HLSL_VALIDATOR.read_text(encoding="utf-8")
+        workflow = NATIVE_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("EXPECTED_EXCLUDED_RTSHADER_SOURCE_COUNT = 9", validator)
+        self.assertIn(
+            '"reason": "combined-sampler ABI requires generator-coupled conversion"',
+            validator,
+        )
+        self.assertNotIn("rtshader-wrapper:", validator)
+        self.assertIn(
+            '"excluded_rtshader_compatibility_source_count": 9', workflow
+        )
+        self.assertIn(
+            '"rtshader_compatibility_hlsl_compile_proven": False', workflow
+        )
 
     def test_glsl_environment_mapping_applies_rotation_matrices(self) -> None:
         texturing = (RTSHADER / "FFPLib_Texturing.glsl").read_text(
