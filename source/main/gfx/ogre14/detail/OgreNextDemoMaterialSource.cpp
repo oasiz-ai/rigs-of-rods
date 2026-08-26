@@ -3138,8 +3138,25 @@ struct RetainedOwnerAssetPublication final {
   std::string material_projection_key;
 };
 
+/// One material's companion declaration, resolved once.
+///
+/// Re-deriving this per observation makes a frozen projection depend on
+/// whatever the resource system happens to report that frame, and a companion
+/// material is never drawn, so nothing keeps its state pinned. Resolving once
+/// per material per structural cache removes the whole class of drift by
+/// construction, and also stops re-parsing one script for every section that
+/// uses the material.
+struct CachedDetailLayerResolution final {
+  CapturedDetailLayers layers;
+  Detail::MaterialDetailLayerRefusal refusal =
+      Detail::MaterialDetailLayerRefusal::ABSENT;
+  std::string declaration_identity;
+};
+
 struct MaterialCache final {
   OgreNextDemoIdentityRegistry identities;
+  std::map<std::string, CachedDetailLayerResolution, std::less<>>
+      detail_layer_resolutions;
   std::map<std::string, CapturedTexture, std::less<>> textures;
   std::map<std::string, CapturedSampler, std::less<>> samplers;
   std::map<std::string, CapturedManagedSpecularTexture, std::less<>>
@@ -3759,6 +3776,28 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
     return true;
   }
 
+  std::string resolution_key;
+  AppendField(resolution_key, native_material->getGroup());
+  AppendField(resolution_key, native_material->getName());
+  const auto resolved =
+      pending_->cache->detail_layer_resolutions.find(resolution_key);
+  if (resolved != pending_->cache->detail_layer_resolutions.end()) {
+    layers = resolved->second.layers;
+    refusal = resolved->second.refusal;
+    declaration_identity = resolved->second.declaration_identity;
+    return true;
+  }
+  // Whatever this resolution concludes is what the material means for the
+  // life of this structural cache, success or refusal alike.
+  const auto remember = [&]() {
+    CachedDetailLayerResolution record;
+    record.layers = layers;
+    record.refusal = refusal;
+    record.declaration_identity = declaration_identity;
+    pending_->cache->detail_layer_resolutions.insert_or_assign(
+        resolution_key, std::move(record));
+  };
+
   Ogre::MaterialPtr companion;
   Detail::MaterialDetailLayerDeclaration declaration;
   try {
@@ -3767,11 +3806,13 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
             native_material->getName()),
         native_material->getGroup());
     if (!companion) {
+      remember();
       return true;
     }
     companion->load();
   } catch (...) {
     refusal = Detail::MaterialDetailLayerRefusal::COMPANION_SHAPE_UNSUPPORTED;
+    remember();
     return true;
   }
   if (!Detail::ReadMaterialDetailLayerDeclaration(companion, declaration,
@@ -3782,6 +3823,7 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
     declaration_identity.push_back('\x1f');
     declaration_identity.append(
         Detail::MaterialDetailLayerRefusalToken(refusal));
+    remember();
     return true;
   }
   declaration_identity =
@@ -4005,7 +4047,8 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
                     Render::Ogre14SourceTextureColorSemantic::LINEAR_DATA,
                     OgreNextDemoTextureAlphaPolicy::PRESERVE_DATA,
                     candidate.weight)) {
-    return failure ? true : true;
+    remember();
+    return true;
   }
 
   std::size_t admitted = 0U;
@@ -4035,6 +4078,7 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
                         Render::Ogre14SourceTextureColorSemantic::SRGB_COLOR,
                         OgreNextDemoTextureAlphaPolicy::PRESERVE_DATA,
                         candidate.albedo[layer])) {
+        remember();
         return true;
       }
     }
@@ -4046,6 +4090,7 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
                         Render::Ogre14SourceTextureColorSemantic::LINEAR_DATA,
                         OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE,
                         candidate.normal[layer])) {
+        remember();
         return true;
       }
       ++candidate.normal_layer_count;
@@ -4059,6 +4104,7 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
   }
   if (admitted == 0U) {
     refusal = Detail::MaterialDetailLayerRefusal::NO_LAYER_DECLARED;
+    remember();
     return true;
   }
   candidate.layer_count = admitted;
@@ -4088,6 +4134,7 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
   candidate.declared = true;
   refusal = Detail::MaterialDetailLayerRefusal::NONE;
   layers = std::move(candidate);
+  remember();
   return true;
 }
 
