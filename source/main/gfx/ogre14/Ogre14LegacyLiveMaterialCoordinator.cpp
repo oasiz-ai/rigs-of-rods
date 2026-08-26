@@ -356,10 +356,14 @@ ValidationResult ValidateObservation(
       validation.element_index = index;
       return validation;
     }
+    // A compressed SOURCE is admitted; the payload is still required to be
+    // canonical RGBA8, which is what the extractor produces for every source
+    // by reading it back. See the matching note in
+    // Ogre14LegacyAssetTranslator: the flag records where the texels came
+    // from, and the pixel_encoding check below records what they are.
     if (texture.type != Ogre14LegacyTextureType::TEXTURE_2D ||
         texture.pixel_encoding != Ogre14LegacyPixelEncoding::RGBA8_BYTES ||
-        texture.compressed || texture.render_target || texture.generated ||
-        texture.procedural) {
+        texture.render_target || texture.generated || texture.procedural) {
       return Failure(
           ValidationCode::UNSUPPORTED_FEATURE,
           "material_observations.texture_payload",
