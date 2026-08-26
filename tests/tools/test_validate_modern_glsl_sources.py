@@ -38,8 +38,8 @@ except (ValueError, IndexError):
 if stage not in {"vert", "frag"}:
     print("invalid shader stage", file=sys.stderr)
     raise SystemExit(82)
-if not source.startswith("#version 330"):
-    print("source is not GLSL 330", file=sys.stderr)
+if not source.startswith(("#version 130", "#version 150", "#version 330")):
+    print("source is not a reviewed desktop GLSL version", file=sys.stderr)
     raise SystemExit(83)
 if "void main" not in source:
     print("source has no selected main", file=sys.stderr)
@@ -84,17 +84,22 @@ class ModernGLSLCompilerValidatorTests(unittest.TestCase):
 
     def _copy_shader_fixture(self, name: str = "fixture") -> Path:
         fixture = self.temp_path / name
-        copies = [
-            (ROOT / "resources/caelum", fixture / "resources/caelum"),
-            (
-                ROOT / "resources/managed_materials/shadows/pssm/on",
-                fixture / "resources/managed_materials/shadows/pssm/on",
-            ),
-            (ROOT / "resources/rtshader", fixture / "resources/rtshader"),
-        ]
-        for source, destination in copies:
+        included_suffixes = {
+            ".frag",
+            ".fragment",
+            ".glsl",
+            ".glsles",
+            ".material",
+            ".program",
+            ".vert",
+            ".vertex",
+        }
+        for source in sorted((ROOT / "resources").rglob("*")):
+            if not source.is_file() or source.suffix.lower() not in included_suffixes:
+                continue
+            destination = fixture / source.relative_to(ROOT)
             destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(source, destination)
+            shutil.copy2(source, destination)
         return fixture
 
     def _write_mutating_compiler(self, name: str, mutation: str) -> Path:
@@ -120,7 +125,7 @@ class ModernGLSLCompilerValidatorTests(unittest.TestCase):
         compiler.chmod(0o755)
         return compiler
 
-    def test_real_declarations_drive_a_deterministic_49_case_receipt(self) -> None:
+    def test_all_desktop_sources_drive_a_deterministic_115_case_receipt(self) -> None:
         first, first_receipt = self._run()
         second, second_receipt = self._run()
         relocated_compiler = self.temp_path / "relocated-glslangValidator"
@@ -136,23 +141,44 @@ class ModernGLSLCompilerValidatorTests(unittest.TestCase):
         self.assertEqual(first_receipt, relocated_receipt)
         self.assertEqual(first_receipt["schema"], "ror.modern-glsl-source-compile@1")
         self.assertEqual(first_receipt["result"], "passed")
-        self.assertEqual(first_receipt["caseCount"], 49)
-        self.assertEqual(first_receipt["executedCaseCount"], 49)
+        self.assertEqual(first_receipt["caseCount"], 115)
+        self.assertEqual(first_receipt["executedCaseCount"], 115)
         self.assertEqual(
             first_receipt["familyCaseCounts"],
-            {"caelum": 26, "managed-pssm": 5, "rtshader": 18},
+            {
+                "caelum": 26,
+                "fresnel": 3,
+                "general": 11,
+                "grass": 2,
+                "managed-nicemetal": 10,
+                "managed-pssm": 5,
+                "mygui": 4,
+                "nicemetal": 10,
+                "postprocess": 2,
+                "rtshader": 18,
+                "skyx": 19,
+                "stdquad": 5,
+            },
         )
         cases = first_receipt["cases"]
-        self.assertEqual(len(cases), 49)
-        self.assertEqual(len({case["caseId"] for case in cases}), 49)
+        self.assertEqual(len(cases), 115)
+        self.assertEqual(len({case["caseId"] for case in cases}), 115)
         self.assertEqual(
             sum(
                 case["evidenceKind"]
-                == "declared-gl3plus-program-source-compile"
+                == "declared-resource-program-source-compile"
                 for case in cases
             ),
-            31,
+            93,
         )
+        standalone = [
+            case
+            for case in cases
+            if case["evidenceKind"] == "standalone-resource-source-compile"
+        ]
+        self.assertEqual(len(standalone), 4)
+        self.assertEqual({case["family"] for case in standalone}, {"mygui"})
+        self.assertEqual({case["stage"] for case in standalone}, {"vert", "frag"})
         wrappers = [
             case
             for case in cases
@@ -162,6 +188,32 @@ class ModernGLSLCompilerValidatorTests(unittest.TestCase):
         self.assertEqual(len(wrappers), 18)
         self.assertEqual({case["stage"] for case in wrappers}, {"vert", "frag"})
         self.assertTrue(all(case["probeFunction"] for case in wrappers))
+        self.assertEqual(len(first_receipt["inputs"]["sourceFiles"]), 44)
+        self.assertEqual(
+            first_receipt["coverage"],
+            {
+                "compiledDesktopResourceSourceCount": 44,
+                "declaredProgramCaseCount": 93,
+                "excludedResourceGlsles": {
+                    "reason": "separate-glsles-compiler-gate-required",
+                    "sourceCount": 7,
+                    "sourcePaths": [
+                        "resources/OgreCore/StdQuad_Tex2_vp.glsles",
+                        "resources/OgreCore/StdQuad_Tex2a_vp.glsles",
+                        "resources/OgreCore/StdQuad_Tex3_vp.glsles",
+                        "resources/OgreCore/StdQuad_Tex4_vp.glsles",
+                        "resources/OgreCore/StdQuad_vp.glsles",
+                        "resources/mygui/MyGUI_Ogre_FP.glsles",
+                        "resources/mygui/MyGUI_Ogre_VP.glsles",
+                    ],
+                },
+                "standaloneSourceCaseCount": 4,
+                "syntheticRtshaderCaseCount": 18,
+                "toolsShaderSourcesIncluded": False,
+            },
+        )
+        self.assertIn("glsles-source-compilation", first_receipt["doesNotProve"])
+        self.assertIn("tools-shader-source-compilation", first_receipt["doesNotProve"])
         self.assertIn("ogre-next-rendering", first_receipt["doesNotProve"])
         self.assertIn("playability", first_receipt["doesNotProve"])
 
@@ -180,6 +232,26 @@ class ModernGLSLCompilerValidatorTests(unittest.TestCase):
         self.assertEqual(receipt["result"], "failed")
         self.assertEqual(receipt["error"]["code"], "missing_cases")
         self.assertEqual(receipt["error"]["context"]["family"], "caelum")
+
+    def test_unmapped_glsl_declaration_fails_before_compilation(self) -> None:
+        fixture = self._copy_shader_fixture()
+        hostile_root = fixture / "resources/hostile"
+        hostile_root.mkdir()
+        (hostile_root / "hostile.glsl").write_text(
+            "#version 330 core\nvoid main() {}\n", encoding="utf-8"
+        )
+        (hostile_root / "hostile.program").write_text(
+            "vertex_program Hostile/GL3Plus glsl\n"
+            "{\n"
+            "    syntax glsl330\n"
+            "    source hostile.glsl\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        completed, receipt = self._run(repository_root=fixture)
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertEqual(receipt["error"]["code"], "unmapped_glsl_declaration")
+        self.assertEqual(receipt["executedCaseCount"], 0)
 
     def test_legacy_source_fails_before_compilation(self) -> None:
         fixture = self._copy_shader_fixture()
@@ -253,9 +325,9 @@ class ModernGLSLCompilerValidatorTests(unittest.TestCase):
                 self.assertNotEqual(completed.returncode, 0)
                 self.assertEqual(receipt["result"], "failed")
                 self.assertEqual(receipt["error"]["code"], expected_error)
-                self.assertEqual(receipt["caseCount"], 49)
-                self.assertEqual(receipt["executedCaseCount"], 49)
-                self.assertEqual(len(receipt["cases"]), 49)
+                self.assertEqual(receipt["caseCount"], 115)
+                self.assertEqual(receipt["executedCaseCount"], 115)
+                self.assertEqual(len(receipt["cases"]), 115)
 
     def test_late_source_and_compiler_mutations_report_executed_cases(self) -> None:
         source_fixture = self._copy_shader_fixture("fixture-source-mutation")
@@ -298,9 +370,9 @@ class ModernGLSLCompilerValidatorTests(unittest.TestCase):
                 self.assertNotEqual(completed.returncode, 0)
                 self.assertEqual(receipt["result"], "failed")
                 self.assertEqual(receipt["error"]["code"], expected_error)
-                self.assertEqual(receipt["caseCount"], 49)
-                self.assertEqual(receipt["executedCaseCount"], 49)
-                self.assertEqual(len(receipt["cases"]), 49)
+                self.assertEqual(receipt["caseCount"], 115)
+                self.assertEqual(receipt["executedCaseCount"], 115)
+                self.assertEqual(len(receipt["cases"]), 115)
 
     def test_compiler_path_with_symlinked_ancestor_fails(self) -> None:
         real_parent = self.temp_path / "real-compiler-parent"
@@ -333,7 +405,7 @@ class ModernGLSLCompilerValidatorTests(unittest.TestCase):
         completed, receipt = self._run(compiler=Path(REAL_COMPILER))
         self.assertEqual(completed.returncode, 0, completed.stdout)
         self.assertEqual(receipt["result"], "passed")
-        self.assertEqual(receipt["caseCount"], 49)
+        self.assertEqual(receipt["caseCount"], 115)
 
 
 if __name__ == "__main__":

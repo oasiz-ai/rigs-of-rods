@@ -32,7 +32,6 @@ in vec3 uv0;    // i3DCoord
 in vec2 uv1;    // iNoiseUV
 in float uv2;   // iOpacity
 // OUT
-out gl_PerVertex { vec4 gl_Position; };
 out vec3 v3DCoord;
 out vec2 vNoiseUV;
 out float vOpacity;

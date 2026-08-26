@@ -69,6 +69,7 @@ class Ogre14RemainingGlslContractTests(unittest.TestCase):
                 self.assertFalse(path.is_symlink())
                 source = path.read_text(encoding="utf-8")
                 self.assertIsNone(COMPATIBILITY_TOKEN.search(source))
+                self.assertNotIn("gl_PerVertex", source)
                 versions = re.findall(
                     r"(?m)^\s*#version\s+([0-9]+)\b", source
                 )
@@ -99,9 +100,9 @@ class Ogre14RemainingGlslContractTests(unittest.TestCase):
         self.assertTrue(shader.startswith("#version 330 core\n"))
         self.assertEqual(shader.count("#version 330 core"), 1)
         self.assertIsNone(COMPATIBILITY_TOKEN.search(shader))
+        self.assertNotIn("gl_PerVertex", shader)
         for contract in (
             "in vec4 vertex;",
-            "out gl_PerVertex { vec4 gl_Position; };",
             "uniform mat4 worldViewProj;",
             "gl_Position = worldViewProj * vertex;",
             "vec2 signedPosition = sign(vertex.xy);",

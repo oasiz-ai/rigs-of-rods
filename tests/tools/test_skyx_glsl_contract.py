@@ -96,10 +96,7 @@ class SkyXGlslContractTests(unittest.TestCase):
                         self.assertEqual(source.count("#version 150"), 1)
                         self.assertIsNone(COMPATIBILITY_TOKEN.search(source))
 
-                self.assertEqual(
-                    vertex.count("out gl_PerVertex { vec4 gl_Position; };"),
-                    1,
-                )
+                self.assertNotIn("gl_PerVertex", vertex)
                 self.assertEqual(vertex.count("uniform mat4 uWorldViewProj;"), 1)
                 self.assertEqual(
                     vertex.count("gl_Position = uWorldViewProj * vertex;"),

@@ -32,7 +32,6 @@ in vec3 uv0;    // iNPosition
 in vec2 uv1;    // iUV
 in float uv2;   // iOpacity
 // OUT
-out gl_PerVertex { vec4 gl_Position; };
 out vec2 vUV;
 out vec3 vRayleighColor;
 out vec3 vMieColor;

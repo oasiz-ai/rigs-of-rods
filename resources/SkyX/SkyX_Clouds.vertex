@@ -30,7 +30,6 @@ http://www.gnu.org/copyleft/lesser.txt.
 in vec4 vertex; // iPosition
 in vec3 uv0;    // iNPosition
 // OUT
-out gl_PerVertex { vec4 gl_Position; };
 out vec3 vPosition;
 // UNIFORM
 uniform mat4 uWorldViewProj;

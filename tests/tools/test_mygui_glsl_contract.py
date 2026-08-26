@@ -16,14 +16,11 @@ TSAN_WORKFLOW = (
 
 
 class MyGuiGlslContractTests(unittest.TestCase):
-    def test_vertex_source_declares_the_glsl150_per_vertex_interface(self) -> None:
+    def test_vertex_source_uses_the_glsl150_builtin_position_output(self) -> None:
         vertex = (MYGUI / "MyGUI_VP.glsl").read_text(encoding="utf-8")
 
         self.assertTrue(vertex.startswith("#version 150\n"))
-        self.assertEqual(
-            vertex.count("out gl_PerVertex { vec4 gl_Position; };"),
-            1,
-        )
+        self.assertNotIn("gl_PerVertex", vertex)
         for contract in (
             "in vec4 position;",
             "in vec4 uv0;",

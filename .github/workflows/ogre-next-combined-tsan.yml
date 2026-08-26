@@ -12,6 +12,14 @@ on:
       - content-source/native_render/**
       - doc/nextgen/FORWARD_NATIVE_ASSET_LEDGER.md
       - resources/nextgen/native/**
+      - resources/**/*.frag
+      - resources/**/*.fragment
+      - resources/**/*.glsl
+      - resources/**/*.glsles
+      - resources/**/*.material
+      - resources/**/*.program
+      - resources/**/*.vert
+      - resources/**/*.vertex
       - resources/mygui/**
       - resources/SkyX/**
       - resources/OgreCore/StdQuad_vp.program
@@ -28,6 +36,7 @@ on:
       - resources/managed_materials/nicemetal_mm*
       - resources/managed_materials/managed_mats_vehicles_nicemetal.material
       - resources/managed_materials/managed_mats_vehicles_transparent_nicemetal.material
+      - resources/postprocess/**
       - source/main/gfx/GfxWater.cpp
       - resources/scripts/example_jbeam_multi_actor_tsan_soak.as
       - source/main/CMakeLists.txt
@@ -228,12 +237,21 @@ jobs:
               raise SystemExit("unexpected GLSL source-compile receipt schema")
           if receipt.get("result") != "passed":
               raise SystemExit("GLSL source compilation did not pass")
-          if receipt.get("caseCount") != 49 or receipt.get("executedCaseCount") != 49:
+          if receipt.get("caseCount") != 115 or receipt.get("executedCaseCount") != 115:
               raise SystemExit("GLSL source-compile closure is incomplete")
           if receipt.get("familyCaseCounts") != {
               "caelum": 26,
+              "fresnel": 3,
+              "general": 11,
+              "grass": 2,
+              "managed-nicemetal": 10,
               "managed-pssm": 5,
+              "mygui": 4,
+              "nicemetal": 10,
+              "postprocess": 2,
               "rtshader": 18,
+              "skyx": 19,
+              "stdquad": 5,
           }:
               raise SystemExit("GLSL source-compile family counts changed")
           PY

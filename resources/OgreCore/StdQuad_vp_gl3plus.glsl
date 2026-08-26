@@ -4,7 +4,6 @@
 // The program script selects exactly one public coordinate-layout variant.
 
 in vec4 vertex;
-out gl_PerVertex { vec4 gl_Position; };
 
 uniform mat4 worldViewProj;
 

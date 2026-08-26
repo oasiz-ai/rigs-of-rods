@@ -26,13 +26,35 @@ EVIDENCE_SCOPE = "glsl-source-preprocess-parse-semantic-link-only"
 DOES_NOT_PROVE = [
     "ogre-resource-script-loading",
     "graphics-driver-compilation",
+    "glsles-source-compilation",
+    "tools-shader-source-compilation",
     "ogre-next-rendering",
     "rendered-frame-correctness",
     "runtime-readiness",
     "playability",
 ]
 
-EXPECTED_DECLARED_CASE_COUNTS = {"caelum": 26, "managed-pssm": 5}
+EXPECTED_DECLARED_CASE_COUNTS = {
+    "caelum": 26,
+    "fresnel": 3,
+    "general": 11,
+    "grass": 2,
+    "managed-nicemetal": 10,
+    "managed-pssm": 5,
+    "nicemetal": 10,
+    "postprocess": 2,
+    "skyx": 19,
+    "stdquad": 5,
+}
+EXPECTED_FAMILY_CASE_COUNTS = {
+    **EXPECTED_DECLARED_CASE_COUNTS,
+    "mygui": 4,
+    "rtshader": 18,
+}
+EXPECTED_DECLARED_CASE_COUNT = 93
+EXPECTED_DESKTOP_SOURCE_COUNT = 44
+EXPECTED_GLSLES_SOURCE_COUNT = 7
+EXPECTED_TOTAL_CASE_COUNT = 115
 EXPECTED_RTSHADER_LIBRARIES = {
     "FFPLib_Common.glsl",
     "FFPLib_Fog.glsl",
@@ -44,9 +66,19 @@ EXPECTED_RTSHADER_LIBRARIES = {
     "SGXLib_PerPixelLighting.glsl",
     "SampleLib_ReflectionMap.glsl",
 }
+EXPECTED_MYGUI_STAGES = {
+    "MyGUI_FP.glsl": "frag",
+    "MyGUI_Ogre_FP.glsl": "frag",
+    "MyGUI_Ogre_VP.glsl": "vert",
+    "MyGUI_VP.glsl": "vert",
+}
 
 SCRIPT_SUFFIXES = {".material", ".program"}
 LEGACY_SUFFIXES = {".asm", ".cg"}
+DESKTOP_SOURCE_SUFFIXES = {".frag", ".fragment", ".glsl", ".vert", ".vertex"}
+PROTECTED_RESOURCE_SUFFIXES = (
+    SCRIPT_SUFFIXES | LEGACY_SUFFIXES | DESKTOP_SOURCE_SUFFIXES
+)
 STAGES = {"vertex": "vert", "fragment": "frag"}
 PROGRAM_HEADER = re.compile(
     r"(?m)^[ \t]*(?P<kind>[A-Za-z_]+)_program[ \t]+"
@@ -120,6 +152,17 @@ class RTShaderCase:
     @property
     def case_id(self) -> str:
         return f"rtshader-wrapper:{self.source.path.stem}:{self.stage}"
+
+
+@dataclass(frozen=True)
+class StandaloneCase:
+    family: str
+    stage: str
+    source: Snapshot
+
+    @property
+    def case_id(self) -> str:
+        return f"standalone:{self.family}:{self.source.path.stem}:{self.stage}"
 
 
 def _sha256(data: bytes) -> str:
@@ -203,7 +246,7 @@ def _single_directive(
     if len(values) > 1:
         raise ValidationFailure(
             "ambiguous_program_directive",
-            f"A GL3Plus program has multiple {directive} directives",
+            f"A resource GLSL program has multiple {directive} directives",
             path=path,
             program=program,
         )
@@ -244,36 +287,58 @@ def _protected_tree_manifest(
     _validate_tree_inputs(target_root, repository_root)
     entries: list[str] = []
     for path in sorted(target_root.rglob("*")):
-        relative_path = _relative(path, repository_root)
-        if path.is_dir():
-            entries.append(f"directory:{relative_path}")
-        elif path.is_file():
-            entries.append(f"file:{relative_path}")
-        else:
+        if path.is_file() and path.suffix.lower() in PROTECTED_RESOURCE_SUFFIXES:
+            entries.append(f"file:{_relative(path, repository_root)}")
+        elif not path.is_dir() and not path.is_file():
             raise ValidationFailure(
                 "non_regular_input",
                 "Protected shader trees may contain only directories and regular files",
-                path=relative_path,
+                path=_relative(path, repository_root),
             )
     return tuple(entries)
 
 
+def _declared_family(script_relative: str) -> str:
+    if script_relative.startswith("resources/caelum/"):
+        return "caelum"
+    exact = {
+        "resources/OgreCore/StdQuad_vp.program": "stdquad",
+        "resources/SkyX/SkyX.material": "skyx",
+        "resources/managed_materials/nicemetal_mm.program": "managed-nicemetal",
+        (
+            "resources/managed_materials/shadows/pssm/on/"
+            "depthshadows.program"
+        ): "managed-pssm",
+        "resources/materials/fresnel.material": "fresnel",
+        "resources/materials/general.program": "general",
+        "resources/materials/grass.material": "grass",
+        "resources/materials/nicemetal.program": "nicemetal",
+        "resources/postprocess/ror_postprocess_v0a.program": "postprocess",
+    }
+    family = exact.get(script_relative)
+    if family is None:
+        raise ValidationFailure(
+            "unmapped_glsl_declaration",
+            "An explicit resource GLSL declaration is outside the reviewed family map",
+            path=script_relative,
+        )
+    return family
+
+
 def _parse_declared_cases(
-    target_root: Path,
+    resources_root: Path,
     repository_root: Path,
-    family: str,
 ) -> tuple[list[DeclaredCase], list[Snapshot]]:
-    _validate_tree_inputs(target_root, repository_root)
+    _validate_tree_inputs(resources_root, repository_root)
     scripts = sorted(
         path
-        for path in target_root.rglob("*")
+        for path in resources_root.rglob("*")
         if path.is_file() and path.suffix.lower() in SCRIPT_SUFFIXES
     )
     if not scripts:
         raise ValidationFailure(
             "missing_cases",
-            "No material/program scripts were found for a required GLSL family",
-            family=family,
+            "No material/program scripts were found in the resource tree",
         )
 
     cases: list[DeclaredCase] = []
@@ -300,22 +365,15 @@ def _parse_declared_cases(
 
         for header in PROGRAM_HEADER.finditer(clean):
             program_name = header.group("name")
-            if not program_name.endswith("/GL3Plus"):
-                continue
             language = header.group("language").lower()
             if language != "glsl":
-                raise ValidationFailure(
-                    "invalid_gl3plus_language",
-                    "A GL3Plus program must use the GLSL language",
-                    path=declaration.relative_path,
-                    program=program_name,
-                    language=language,
-                )
+                continue
+            family = _declared_family(declaration.relative_path)
             kind = header.group("kind").lower()
             if kind not in STAGES:
                 raise ValidationFailure(
-                    "unsupported_gl3plus_stage",
-                    "The validator found an unsupported GL3Plus program stage",
+                    "unsupported_glsl_stage",
+                    "The validator found an unsupported resource GLSL program stage",
                     path=declaration.relative_path,
                     program=program_name,
                     stage=kind,
@@ -323,7 +381,7 @@ def _parse_declared_cases(
             if program_name in seen_programs:
                 raise ValidationFailure(
                     "duplicate_program",
-                    "A GL3Plus program name is declared more than once",
+                    "A resource GLSL program name is declared more than once",
                     program=program_name,
                 )
             seen_programs.add(program_name)
@@ -336,7 +394,7 @@ def _parse_declared_cases(
                 if cursor >= len(clean) or clean[cursor] != "{":
                     raise ValidationFailure(
                         "malformed_program_script",
-                        "A GL3Plus program declaration has no body",
+                        "A resource GLSL program declaration has no body",
                         path=declaration.relative_path,
                         program=program_name,
                     )
@@ -354,22 +412,22 @@ def _parse_declared_cases(
             if source_name is None:
                 raise ValidationFailure(
                     "missing_source_directive",
-                    "A GL3Plus program has no source directive",
+                    "A resource GLSL program has no source directive",
                     path=declaration.relative_path,
                     program=program_name,
                 )
             if Path(source_name).suffix.lower() in LEGACY_SUFFIXES:
                 raise ValidationFailure(
                     "legacy_source",
-                    "A GL3Plus program references a legacy shader source",
+                    "A resource GLSL program references a legacy shader source",
                     path=declaration.relative_path,
                     program=program_name,
                     source=source_name,
                 )
-            if Path(source_name).suffix.lower() != ".glsl":
+            if Path(source_name).suffix.lower() not in DESKTOP_SOURCE_SUFFIXES:
                 raise ValidationFailure(
                     "invalid_glsl_source",
-                    "A GL3Plus GLSL program must reference a .glsl source",
+                    "A desktop resource GLSL program references an unsupported suffix",
                     path=declaration.relative_path,
                     program=program_name,
                     source=source_name,
@@ -382,12 +440,14 @@ def _parse_declared_cases(
                 declaration.relative_path,
                 program_name,
             )
-            if syntax != "glsl330":
+            expected_syntax = None if family == "skyx" else "glsl330"
+            if syntax != expected_syntax:
                 raise ValidationFailure(
                     "invalid_glsl_syntax",
-                    "A converted GL3Plus program must declare syntax glsl330",
+                    "A resource GLSL program changed its reviewed syntax contract",
                     path=declaration.relative_path,
                     program=program_name,
+                    expectedSyntax=expected_syntax,
                     syntax=syntax,
                 )
             entry_point = _single_directive(
@@ -416,20 +476,23 @@ def _parse_declared_cases(
             defines: tuple[str, ...] = ()
             if defines_text is not None:
                 parsed = tuple(
-                    item.strip() for item in defines_text.split(",") if item.strip()
+                    item.strip()
+                    for item in re.split(r"[,;]", defines_text)
+                    if item.strip()
                 )
                 if not parsed or any(not MACRO.fullmatch(item) for item in parsed):
                     raise ValidationFailure(
                         "invalid_preprocessor_defines",
-                        "A GL3Plus program has invalid preprocessor definitions",
+                        "A resource GLSL program has invalid preprocessor definitions",
                         path=declaration.relative_path,
                         program=program_name,
                         definitions=defines_text,
                     )
-                if len(set(parsed)) != len(parsed):
+                define_names = [item.partition("=")[0] for item in parsed]
+                if len(set(define_names)) != len(define_names):
                     raise ValidationFailure(
                         "duplicate_preprocessor_define",
-                        "A GL3Plus program repeats a preprocessor definition",
+                        "A resource GLSL program repeats a preprocessor definition",
                         path=declaration.relative_path,
                         program=program_name,
                     )
@@ -441,7 +504,7 @@ def _parse_declared_cases(
             except FileNotFoundError as exc:
                 raise ValidationFailure(
                     "missing_input",
-                    "A GL3Plus program source is missing",
+                    "A resource GLSL program source is missing",
                     path=declaration.relative_path,
                     program=program_name,
                     source=source_name,
@@ -449,15 +512,15 @@ def _parse_declared_cases(
             if unresolved_source.is_symlink():
                 raise ValidationFailure(
                     "symlink_input",
-                    "GL3Plus source references must not be symbolic links",
+                    "Resource GLSL source references must not be symbolic links",
                     path=_relative(unresolved_source, repository_root),
                 )
             try:
-                resolved_source.relative_to(target_root.resolve())
+                resolved_source.relative_to(resources_root.resolve())
             except ValueError as exc:
                 raise ValidationFailure(
                     "path_escape",
-                    "A GL3Plus source resolves outside its shader family",
+                    "A resource GLSL source resolves outside the resource tree",
                     path=declaration.relative_path,
                     program=program_name,
                     source=source_name,
@@ -474,31 +537,27 @@ def _parse_declared_cases(
                 )
             )
 
-    expected_count = EXPECTED_DECLARED_CASE_COUNTS[family]
-    if len(cases) != expected_count:
+    family_counts = {
+        family: sum(case.family == family for case in cases)
+        for family in EXPECTED_DECLARED_CASE_COUNTS
+    }
+    for family, expected_count in EXPECTED_DECLARED_CASE_COUNTS.items():
+        actual_count = family_counts[family]
+        if actual_count == expected_count:
+            continue
         raise ValidationFailure(
             "missing_cases",
-            "The parsed GL3Plus declaration count does not match the fail-closed contract",
+            "A resource GLSL family declaration count changed",
             family=family,
             expectedCaseCount=expected_count,
-            actualCaseCount=len(cases),
+            actualCaseCount=actual_count,
         )
-
-    referenced_sources = {case.source.path for case in cases}
-    actual_sources = set(target_root.rglob("*.glsl"))
-    if referenced_sources != actual_sources:
+    if len(cases) != EXPECTED_DECLARED_CASE_COUNT:
         raise ValidationFailure(
-            "source_closure_mismatch",
-            "Every converted GLSL source must be referenced by a parsed GL3Plus program",
-            family=family,
-            missingReferences=sorted(
-                _relative(path, repository_root)
-                for path in actual_sources - referenced_sources
-            ),
-            missingSources=sorted(
-                _relative(path, repository_root)
-                for path in referenced_sources - actual_sources
-            ),
+            "missing_cases",
+            "The explicit resource GLSL declaration closure must contain 93 cases",
+            expectedCaseCount=EXPECTED_DECLARED_CASE_COUNT,
+            actualCaseCount=len(cases),
         )
     return cases, declarations
 
@@ -641,6 +700,82 @@ def _rtshader_cases(
             actualCaseCount=len(cases),
         )
     return cases, snapshots
+
+
+def _mygui_cases(
+    mygui_root: Path, repository_root: Path
+) -> tuple[list[StandaloneCase], list[Snapshot]]:
+    _validate_tree_inputs(mygui_root, repository_root)
+    source_paths = sorted(mygui_root.glob("*.glsl"))
+    actual_names = {path.name for path in source_paths}
+    if actual_names != set(EXPECTED_MYGUI_STAGES):
+        raise ValidationFailure(
+            "missing_cases",
+            "The standalone MyGUI desktop GLSL closure is not the required four files",
+            expected=sorted(EXPECTED_MYGUI_STAGES),
+            actual=sorted(actual_names),
+        )
+    snapshots = [_snapshot(path, repository_root) for path in source_paths]
+    cases = [
+        StandaloneCase(
+            family="mygui",
+            stage=EXPECTED_MYGUI_STAGES[source.path.name],
+            source=source,
+        )
+        for source in snapshots
+    ]
+    return cases, snapshots
+
+
+def _assert_desktop_source_closure(
+    resources_root: Path,
+    repository_root: Path,
+    expected_sources: Iterable[Snapshot],
+) -> None:
+    actual_paths = {
+        path.resolve()
+        for path in resources_root.rglob("*")
+        if path.is_file() and path.suffix.lower() in DESKTOP_SOURCE_SUFFIXES
+    }
+    if len(actual_paths) != EXPECTED_DESKTOP_SOURCE_COUNT:
+        raise ValidationFailure(
+            "source_closure_mismatch",
+            "The desktop resource GLSL source inventory must contain 44 files",
+            expectedSourceCount=EXPECTED_DESKTOP_SOURCE_COUNT,
+            actualSourceCount=len(actual_paths),
+        )
+    referenced_paths = {source.path.resolve() for source in expected_sources}
+    if referenced_paths != actual_paths:
+        raise ValidationFailure(
+            "source_closure_mismatch",
+            "Every desktop resource GLSL source must have a compiler case",
+            missingCompilerCases=sorted(
+                _relative(path, repository_root)
+                for path in actual_paths - referenced_paths
+            ),
+            missingSources=sorted(
+                _relative(path, repository_root)
+                for path in referenced_paths - actual_paths
+            ),
+        )
+
+
+def _excluded_glsles_paths(
+    resources_root: Path, repository_root: Path
+) -> list[str]:
+    paths = sorted(
+        _relative(path, repository_root)
+        for path in resources_root.rglob("*.glsles")
+        if path.is_file()
+    )
+    if len(paths) != EXPECTED_GLSLES_SOURCE_COUNT:
+        raise ValidationFailure(
+            "excluded_scope_changed",
+            "The explicitly excluded GLSLES source inventory changed",
+            expectedSourceCount=EXPECTED_GLSLES_SOURCE_COUNT,
+            actualSourceCount=len(paths),
+        )
+    return paths
 
 
 def _first_symlink_component(path: Path) -> Path | None:
@@ -802,42 +937,47 @@ def validate(
             compilerSha256=compiler_sha,
         )
 
-    caelum_root = repository_root / "resources/caelum"
-    pssm_root = repository_root / "resources/managed_materials/shadows/pssm/on"
-    rtshader_root = repository_root / "resources/rtshader"
-    protected_roots = {
-        "caelum": caelum_root,
-        "managed-pssm": pssm_root,
-        "rtshader": rtshader_root,
-    }
+    resources_root = repository_root / "resources"
+    mygui_root = resources_root / "mygui"
+    rtshader_root = resources_root / "rtshader"
+    protected_roots = {"desktop-resource-inputs": resources_root}
     protected_tree_manifests = {
         family: _protected_tree_manifest(target, repository_root)
         for family, target in protected_roots.items()
     }
-    declared_cases: list[DeclaredCase] = []
-    declaration_snapshots: list[Snapshot] = []
-    for target, family in ((caelum_root, "caelum"), (pssm_root, "managed-pssm")):
-        family_cases, family_declarations = _parse_declared_cases(
-            target, repository_root, family
-        )
-        declared_cases.extend(family_cases)
-        declaration_snapshots.extend(family_declarations)
+    declared_cases, declaration_snapshots = _parse_declared_cases(
+        resources_root, repository_root
+    )
+    mygui_cases, mygui_snapshots = _mygui_cases(mygui_root, repository_root)
     rtshader_cases, rtshader_snapshots = _rtshader_cases(
         rtshader_root, repository_root
     )
+    _assert_desktop_source_closure(
+        resources_root,
+        repository_root,
+        [
+            *(case.source for case in declared_cases),
+            *mygui_snapshots,
+            *rtshader_snapshots,
+        ],
+    )
+    excluded_glsles_paths = _excluded_glsles_paths(resources_root, repository_root)
 
-    all_case_ids = [case.case_id for case in [*declared_cases, *rtshader_cases]]
+    all_case_ids = [
+        case.case_id
+        for case in [*declared_cases, *mygui_cases, *rtshader_cases]
+    ]
     if len(all_case_ids) != len(set(all_case_ids)):
         raise ValidationFailure(
             "duplicate_case_id",
             "Shader compiler evidence case IDs must be unique",
         )
     planned_case_count = len(all_case_ids)
-    if planned_case_count != 49:
+    if planned_case_count != EXPECTED_TOTAL_CASE_COUNT:
         raise ValidationFailure(
             "missing_cases",
-            "The complete modern GLSL compile matrix must contain 49 cases",
-            expectedCaseCount=49,
+            "The complete desktop resource GLSL compile matrix must contain 115 cases",
+            expectedCaseCount=EXPECTED_TOTAL_CASE_COUNT,
             actualCaseCount=planned_case_count,
         )
 
@@ -860,7 +1000,7 @@ def validate(
             "declarationPath": case.declaration.relative_path,
             "declarationSha256": case.declaration.sha256,
             "defines": list(case.defines),
-            "evidenceKind": "declared-gl3plus-program-source-compile",
+            "evidenceKind": "declared-resource-program-source-compile",
             "family": case.family,
             "programName": case.program_name,
             "sourcePath": case.source.relative_path,
@@ -874,7 +1014,39 @@ def validate(
         if not passed:
             raise ValidationFailure(
                 "compile_error",
-                "A declared GL3Plus shader variant failed source compilation",
+                "A declared resource GLSL variant failed source compilation",
+                caseId=case.case_id,
+                caseResult=case_result,
+                executedCases=results,
+                plannedCaseCount=planned_case_count,
+            )
+
+    for case in mygui_cases:
+        argv = ["-l", "--stdin", "-S", case.stage]
+        compiler_result, passed = _run_compiler(
+            compiler,
+            argv,
+            argv,
+            case.source.data,
+            timeout_seconds,
+        )
+        case_result = {
+            "caseId": case.case_id,
+            "defines": [],
+            "evidenceKind": "standalone-resource-source-compile",
+            "family": case.family,
+            "sourcePath": case.source.relative_path,
+            "sourceSha256": case.source.sha256,
+            "stage": case.stage,
+            "stdinSha256": case.source.sha256,
+            **compiler_result,
+        }
+        case_result["status"] = "passed" if passed else "failed"
+        results.append(case_result)
+        if not passed:
+            raise ValidationFailure(
+                "compile_error",
+                "A standalone MyGUI desktop GLSL source failed compilation",
                 caseId=case.case_id,
                 caseResult=case_result,
                 executedCases=results,
@@ -919,6 +1091,7 @@ def validate(
     input_snapshots = [
         *declaration_snapshots,
         *(case.source for case in declared_cases),
+        *mygui_snapshots,
         *rtshader_snapshots,
     ]
     try:
@@ -937,6 +1110,14 @@ def validate(
                     addedEntries=sorted(current_entries - initial_entries),
                     removedEntries=sorted(initial_entries - current_entries),
                 )
+        if (
+            _excluded_glsles_paths(resources_root, repository_root)
+            != excluded_glsles_paths
+        ):
+            raise ValidationFailure(
+                "excluded_scope_changed",
+                "The excluded GLSLES source inventory changed during validation",
+            )
     except ValidationFailure as failure:
         raise _late_failure(failure, results, planned_case_count) from failure
     except OSError as exc:
@@ -964,12 +1145,18 @@ def validate(
         )
 
     family_counts = {
-        "caelum": sum(case.family == "caelum" for case in declared_cases),
-        "managed-pssm": sum(
-            case.family == "managed-pssm" for case in declared_cases
-        ),
-        "rtshader": len(rtshader_cases),
+        family: sum(case.family == family for case in declared_cases)
+        for family in EXPECTED_DECLARED_CASE_COUNTS
     }
+    family_counts["mygui"] = len(mygui_cases)
+    family_counts["rtshader"] = len(rtshader_cases)
+    if family_counts != EXPECTED_FAMILY_CASE_COUNTS:
+        raise ValidationFailure(
+            "missing_cases",
+            "The desktop resource GLSL family compile matrix changed",
+            expectedFamilyCaseCounts=EXPECTED_FAMILY_CASE_COUNTS,
+            actualFamilyCaseCounts=family_counts,
+        )
     return {
         "caseCount": planned_case_count,
         "cases": results,
@@ -978,6 +1165,18 @@ def validate(
             "sha256": compiler_sha,
             "version": version_lines,
             "versionCommandResult": version_result,
+        },
+        "coverage": {
+            "compiledDesktopResourceSourceCount": EXPECTED_DESKTOP_SOURCE_COUNT,
+            "declaredProgramCaseCount": EXPECTED_DECLARED_CASE_COUNT,
+            "excludedResourceGlsles": {
+                "reason": "separate-glsles-compiler-gate-required",
+                "sourceCount": len(excluded_glsles_paths),
+                "sourcePaths": excluded_glsles_paths,
+            },
+            "standaloneSourceCaseCount": len(mygui_cases),
+            "syntheticRtshaderCaseCount": len(rtshader_cases),
+            "toolsShaderSourcesIncluded": False,
         },
         "doesNotProve": DOES_NOT_PROVE,
         "evidenceScope": EVIDENCE_SCOPE,
@@ -998,7 +1197,11 @@ def validate(
                 for family in sorted(protected_roots)
             ],
             "sourceFiles": _file_records(
-                [*(case.source for case in declared_cases), *rtshader_snapshots]
+                [
+                    *(case.source for case in declared_cases),
+                    *mygui_snapshots,
+                    *rtshader_snapshots,
+                ]
             ),
         },
         "result": "passed",
