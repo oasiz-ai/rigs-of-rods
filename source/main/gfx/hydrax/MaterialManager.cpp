@@ -270,13 +270,14 @@ namespace Hydrax
 			return false;
 		}
 
-		Ogre::String ShaderModesStr[3] = {"hlsl", "cg", "glsl"};
+		Ogre::String ShaderModeStr;
 		Ogre::String Profiles[2];
 
 		switch (SM)
 		{
 		    case SM_HLSL:
 			{
+				ShaderModeStr = "hlsl";
 				Profiles[0] = "target";
 
 				if (GPUP == GPUP_VERTEX)
@@ -290,23 +291,9 @@ namespace Hydrax
 			}
 			break;
 
-			case SM_CG:
-			{
-				Profiles[0] = "profiles";
-
-				if (GPUP == GPUP_VERTEX)
-				{
-				    Profiles[1] = "vs_1_1 arbvp1";
-				}
-				else
-				{
-					Profiles[1] = "ps_2_0 arbfp1 fp20";
-				}
-			}
-			break;
-
 			case SM_GLSL:
 			{
+				ShaderModeStr = "glsl";
 				Profiles[0] = "";       // Dont needed
 				if (GPUP == GPUP_VERTEX)
 				{
@@ -318,6 +305,10 @@ namespace Hydrax
 				}
             }
 			break;
+
+			default:
+				HydraxLOG("Error in bool MaterialManager::createGpuProgram(): Unsupported shader mode.");
+				return false;
 		}
 
 		Ogre::GpuProgramType GpuPType;
@@ -335,7 +326,7 @@ namespace Hydrax
 			Ogre::HighLevelGpuProgramManager::getSingleton().
 			      createProgram(Name,
 			                    Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
-					  		    ShaderModesStr[SM],
+			                    ShaderModeStr,
 			                    GpuPType);
 
 	    HLGpuProgram->setSource(Data);
@@ -364,7 +355,7 @@ namespace Hydrax
 		    {
 				switch (Options.SM)
 				{
-				    case SM_HLSL: case SM_CG:
+				    case SM_HLSL:
 					{
 						VertexProgramData +=
 						Ogre::String(
@@ -451,7 +442,7 @@ namespace Hydrax
 		    {
 				switch (Options.SM)
 				{
-				    case SM_HLSL: case SM_CG:
+				    case SM_HLSL:
 					{
 						VertexProgramData +=
 						Ogre::String(
@@ -538,7 +529,7 @@ namespace Hydrax
 		    {
 				switch (Options.SM)
 				{
-				    case SM_HLSL: case SM_CG:
+				    case SM_HLSL:
 					{
 						VertexProgramData +=
 						Ogre::String(
@@ -626,7 +617,7 @@ namespace Hydrax
 		    {
 				switch (Options.SM)
 				{
-				    case SM_HLSL: case SM_CG:
+				    case SM_HLSL:
 					{
 						FragmentProgramData +=
 							Ogre::String("float3 expand(float3 v)\n") +
@@ -1209,7 +1200,7 @@ namespace Hydrax
 
 		switch (Options.SM)
 		{
-		    case SM_HLSL: case SM_CG:
+		    case SM_HLSL:
 			{
 				// No caustics
 				if (!cCaustics)
@@ -1377,7 +1368,7 @@ namespace Hydrax
 		// Fragment program
 		switch (Options.SM)
 		{
-		    case SM_HLSL: case SM_CG:
+		    case SM_HLSL:
 			{
 				// No caustics
 				if (!cCaustics)
@@ -1576,7 +1567,7 @@ namespace Hydrax
 
 		switch (Options.SM)
 		{
-		    case SM_HLSL: case SM_CG:
+		    case SM_HLSL:
 			{
 				// No caustics
 				if (!cCaustics)
@@ -1677,7 +1668,7 @@ namespace Hydrax
 
 		switch (Options.SM)
 		{
-		    case SM_HLSL: case SM_CG:
+		    case SM_HLSL:
 			{
 				// No caustics
 				if (!cCaustics)
@@ -1824,7 +1815,7 @@ namespace Hydrax
 		    {
 				switch (Options.SM)
 				{
-				    case SM_HLSL: case SM_CG:
+				    case SM_HLSL:
 					{
 						VertexProgramData +=
 						Ogre::String(
@@ -1929,7 +1920,7 @@ namespace Hydrax
 		    {
 				switch (Options.SM)
 				{
-				    case SM_HLSL: case SM_CG:
+				    case SM_HLSL:
 					{
 						VertexProgramData +=
 						Ogre::String(
@@ -2033,7 +2024,7 @@ namespace Hydrax
 		    {
 				switch (Options.SM)
 				{
-				    case SM_HLSL: case SM_CG:
+				    case SM_HLSL:
 					{
 						VertexProgramData +=
 						Ogre::String(
@@ -2137,7 +2128,7 @@ namespace Hydrax
 		    {
 				switch (Options.SM)
 				{
-				    case SM_HLSL: case SM_CG:
+				    case SM_HLSL:
 					{
                             FragmentProgramData +=
 							Ogre::String("float3 expand(float3 v)\n") +
@@ -2775,7 +2766,7 @@ namespace Hydrax
 		// Vertex program
 		switch (Options.SM)
 		{
-		    case SM_HLSL: case SM_CG:
+		    case SM_HLSL:
 			{
 				VertexProgramData +=
 					Ogre::String(
@@ -2852,7 +2843,7 @@ namespace Hydrax
 		// Fragment program
 		switch (Options.SM)
 		{
-		    case SM_HLSL: case SM_CG:
+		    case SM_HLSL:
 			{
 				FragmentProgramData +=
 					Ogre::String(

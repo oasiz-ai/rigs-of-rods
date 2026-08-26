@@ -455,7 +455,7 @@ namespace Hydrax
 
 		switch (mHydrax->getShaderMode())
 		{
-		    case MaterialManager::SM_HLSL: case MaterialManager::SM_CG:
+		    case MaterialManager::SM_HLSL:
 			{
 				VertexProgramData +=
 					Ogre::String(
@@ -529,7 +529,7 @@ namespace Hydrax
 
 		switch (mHydrax->getShaderMode())
 		{
-		    case MaterialManager::SM_HLSL: case MaterialManager::SM_CG:
+		    case MaterialManager::SM_HLSL:
 			{
 				if (mObjectsIntersections)
 				FragmentProgramData +=
@@ -673,7 +673,7 @@ namespace Hydrax
 
 		switch (mHydrax->getShaderMode())
 		{
-		    case MaterialManager::SM_HLSL: case MaterialManager::SM_CG:
+		    case MaterialManager::SM_HLSL:
 			{
 				VertexProgramData +=
 					Ogre::String(
@@ -718,7 +718,7 @@ namespace Hydrax
 
 		switch (mHydrax->getShaderMode())
 		{
-		    case MaterialManager::SM_HLSL: case MaterialManager::SM_CG:
+		    case MaterialManager::SM_HLSL:
 			{
 				FragmentProgramData +=
 					Ogre::String(

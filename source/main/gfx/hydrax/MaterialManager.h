@@ -89,8 +89,6 @@ namespace Hydrax
 		{
 			// HLSL
 			SM_HLSL = 0,
-			// Cg
-			SM_CG   = 1,
 			// GLSL
 			SM_GLSL = 2
 		};

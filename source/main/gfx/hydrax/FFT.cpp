@@ -206,7 +206,7 @@ namespace Hydrax{namespace Noise
 
 		switch (g->getHydrax()->getShaderMode())
 		{
-		    case MaterialManager::SM_HLSL: case MaterialManager::SM_CG:
+		    case MaterialManager::SM_HLSL:
 			{
 				VertexProgramData +=
 					Ogre::String(
@@ -247,7 +247,7 @@ namespace Hydrax{namespace Noise
 
 		switch (g->getHydrax()->getShaderMode())
 		{
-		    case MaterialManager::SM_HLSL: case MaterialManager::SM_CG:
+		    case MaterialManager::SM_HLSL:
 			{
 				FragmentProgramData +=
 					Ogre::String(
