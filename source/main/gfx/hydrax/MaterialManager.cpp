@@ -258,11 +258,50 @@ namespace Hydrax
 		return true;
 	}
 
+	bool MaterialManager::fillGpuProgramsToPass(Ogre::Pass* Pass,
+							                    const Ogre::String GpuProgramNames[2],
+						                        const ShaderMode& SM,
+						                        const Ogre::String EntryPoints[2],
+						                        const Ogre::String Data[2],
+						                        const Ogre::String HlslTargets[2])
+	{
+		if (SM != SM_HLSL || HlslTargets[0] != "vs_4_0" || HlslTargets[1] != "ps_4_0")
+		{
+			HydraxLOG("Error in bool MaterialManager::fillGpuProgramsToPass(): Invalid modern HLSL targets.");
+			return false;
+		}
+
+		GpuProgram GpuPrograms[2] = {GPUP_VERTEX, GPUP_FRAGMENT};
+
+		for (int k = 0; k < 2; k++)
+		{
+			if (!createGpuProgram(GpuProgramNames[k], SM, GpuPrograms[k], EntryPoints[k], Data[k], HlslTargets[k]))
+			{
+				return false;
+			}
+		}
+
+		Pass->setVertexProgram(GpuProgramNames[0]);
+		Pass->setFragmentProgram(GpuProgramNames[1]);
+
+		return true;
+	}
+
 	bool MaterialManager::createGpuProgram(const Ogre::String &Name,
 			                               const ShaderMode& SM,
 							               const GpuProgram& GPUP,
 							               const Ogre::String& EntryPoint,
 							               const Ogre::String& Data)
+	{
+		return createGpuProgram(Name, SM, GPUP, EntryPoint, Data, Ogre::String());
+	}
+
+	bool MaterialManager::createGpuProgram(const Ogre::String &Name,
+			                               const ShaderMode& SM,
+							               const GpuProgram& GPUP,
+							               const Ogre::String& EntryPoint,
+							               const Ogre::String& Data,
+							               const Ogre::String& HlslTarget)
 	{
 		if (Ogre::HighLevelGpuProgramManager::getSingleton().resourceExists(Name))
 		{
@@ -279,8 +318,19 @@ namespace Hydrax
 			{
 				ShaderModeStr = "hlsl";
 				Profiles[0] = "target";
+				const Ogre::String ExpectedTarget =
+					(GPUP == GPUP_VERTEX) ? "vs_4_0" : "ps_4_0";
+				if (!HlslTarget.empty() && HlslTarget != ExpectedTarget)
+				{
+					HydraxLOG("Error in bool MaterialManager::createGpuProgram(): Invalid modern HLSL target.");
+					return false;
+				}
 
-				if (GPUP == GPUP_VERTEX)
+				if (!HlslTarget.empty())
+				{
+					Profiles[1] = HlslTarget;
+				}
+				else if (GPUP == GPUP_VERTEX)
 				{
 				    Profiles[1] = "vs_1_1";
 				}
@@ -293,6 +343,11 @@ namespace Hydrax
 
 			case SM_GLSL:
 			{
+				if (!HlslTarget.empty())
+				{
+					HydraxLOG("Error in bool MaterialManager::createGpuProgram(): HLSL target supplied for GLSL.");
+					return false;
+				}
 				ShaderModeStr = "glsl";
 				Profiles[0] = "";       // Dont needed
 				if (GPUP == GPUP_VERTEX)

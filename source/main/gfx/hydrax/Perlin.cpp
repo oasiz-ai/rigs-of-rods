@@ -29,6 +29,7 @@ http://graphics.cs.lth.se/theses/projects/projgrid/
 #include <Perlin.h>
 
 #include <Hydrax.h>
+#include "GpuNormalMapModernHlsl.h"
 
 #define _def_PackedNoise true
 
@@ -161,6 +162,7 @@ namespace Hydrax{namespace Noise
 		Ogre::String VertexProgramData, FragmentProgramData;
 		Ogre::GpuProgramParametersSharedPtr VP_Parameters, FP_Parameters;
 		Ogre::String EntryPoints[2]     = {"main_vp", "main_fp"};
+		const Ogre::String HlslTargets[2] = {ModernHlsl::vertexTarget(), ModernHlsl::fragmentTarget()};
 		Ogre::String GpuProgramsData[2]; Ogre::String GpuProgramNames[2];
 
 		// Vertex program
@@ -169,33 +171,7 @@ namespace Hydrax{namespace Noise
 		{
 		    case MaterialManager::SM_HLSL:
 			{
-				VertexProgramData +=
-					Ogre::String(
-					"void main_vp(\n") +
-					    // IN
-						"float4 iPosition       : POSITION,\n" +
-						// OUT
-						"out float4 oPosition   : POSITION,\n" +
-						"out float3 oPosition_  : TEXCOORD0,\n" +
-						"out float4 oWorldUV    : TEXCOORD1,\n" +
-						"out float  oScale      : TEXCOORD2,\n" +
-						"out float3 oCameraPos  : TEXCOORD3,\n" +
-						"out float3 oCameraToPixel : TEXCOORD4,\n" +
-						// UNIFORM
-						"uniform float4x4 uWorldViewProj,\n" +
-						"uniform float4x4 uWorld, \n" +
-						"uniform float3   uCameraPos,\n"+
-						"uniform float    uScale)\n" +
-					"{\n" +
-					    "oPosition    = mul(uWorldViewProj, iPosition);\n" +
-						"oPosition_   = iPosition.xyz;\n" +
-						"float2 Scale = uScale*mul(uWorld, iPosition).xz*0.0078125;\n" +
-						"oWorldUV.xy  = Scale;\n" +
-						"oWorldUV.zw  = Scale*16;\n" +
-						"oScale = uScale;\n" +
-						"oCameraPos = uCameraPos,\n" +
-						"oCameraToPixel = iPosition - uCameraPos;\n"+
-					"}\n";
+				VertexProgramData = ModernHlsl::gpuNormalMapVertexSource();
 			}
 			break;
 
@@ -210,79 +186,7 @@ namespace Hydrax{namespace Noise
 		{
 		    case MaterialManager::SM_HLSL:
 			{
-				FragmentProgramData +=
-					Ogre::String(
-				    "void main_fp(\n") +
-						// IN
-	                    "float3 iPosition     : TEXCOORD0,\n" +
-						"float4 iWorldCoord   : TEXCOORD1,\n" +
-						"float  iScale        : TEXCOORD2,\n" +
-						"float3 iCameraPos    : TEXCOORD3,\n" +
-						"float3 iCameraToPixel : TEXCOORD4,\n" +
-					    // OUT
-						"out float4 oColor    : COLOR,\n" +
-						// UNIFORM
-						"uniform float     uStrength,\n" +
-						"uniform float3    uLODParameters,\n" +  // x: Initial derivation, y: Final derivation, z: Step
-						"uniform float3    uCameraPos,\n" +
-						"uniform sampler2D uNoise0 : register(s0),\n" +
-	                    "uniform sampler2D uNoise1 : register(s1))\n" +
-					"{\n" +
-						"float Distance = length(iCameraToPixel);\n" +
-						"float Attenuation = saturate(Distance/uLODParameters.z);\n" +
-
-						"uLODParameters.x += (uLODParameters.y-uLODParameters.x)*Attenuation;\n"+
-						"uLODParameters.x *= iScale;\n" +
-
-						"float AngleAttenuation = 1/abs(normalize(iCameraToPixel).y);\n"+
-						"uLODParameters.x *= AngleAttenuation;\n"+
-
-						"float2 dx = float2(uLODParameters.x*0.0078125, 0);\n" +
-						"float2 dy = float2(0, dx.x);\n" +
-
-						"float3 p_dx, m_dx, p_dy, m_dy;\n" +
-
-						"p_dx = float3(\n" +
-						              // x+
-						              "iPosition.x+uLODParameters.x,\n" +
-									  // y+
-									  "tex2D(uNoise0, iWorldCoord.xy+dx).x + tex2D(uNoise1, iWorldCoord.zw+dx*16).x,\n" +
-									  // z
-									  "iPosition.z);\n" +
-
-					    "m_dx = float3(\n" +
-						              // x-
-						              "iPosition.x-uLODParameters.x,\n" +
-									  // y-
-									  "tex2D(uNoise0, iWorldCoord.xy-dx).x + tex2D(uNoise1, iWorldCoord.zw-dx*16).x,\n" +
-									  // z
-									  "iPosition.z);\n" +
-
-                       "p_dy = float3(\n" +
-						              // x
-						              "iPosition.x,\n" +
-									  // y+
-									  "tex2D(uNoise0, iWorldCoord.xy+dy).x + tex2D(uNoise1, iWorldCoord.zw+dy*16).x,\n" +
-									  // z+
-									  "iPosition.z+uLODParameters.x);\n" +
-
-					   "m_dy = float3(\n" +
-						              // x
-						              "iPosition.x,\n" +
-									  // y-
-									  "tex2D(uNoise0, iWorldCoord.xy-dy).x + tex2D(uNoise1, iWorldCoord.zw-dy*16).x,\n" +
-									  // z-
-									  "iPosition.z-uLODParameters.x);\n" +
-
-		               "uStrength *= (1-Attenuation);\n" +
-					   "p_dx.y *= uStrength; m_dx.y *= uStrength;\n" +
-	                   "p_dy.y *= uStrength; m_dy.y *= uStrength;\n" +
-
-					   "float3 normal = normalize(cross(p_dx-m_dx, p_dy-m_dy));\n" +
-
-					   "oColor = float4(saturate(1-(0.5+0.5*normal)),1);\n" +
-					"}\n";
-
+				FragmentProgramData = ModernHlsl::perlinGpuNormalMapFragmentSource();
 			}
 			break;
 
@@ -306,7 +210,19 @@ namespace Hydrax{namespace Noise
 		GpuProgramsData[0] = VertexProgramData; GpuProgramsData[1] =  FragmentProgramData;
 		GpuProgramNames[0] = "_Hydrax_GPU_Normal_Map_VP"; GpuProgramNames[1] = "_Hydrax_GPU_Normal_Map_FP";
 
-		mMaterialManager->fillGpuProgramsToPass(Technique0_Pass0, GpuProgramNames, g->getHydrax()->getShaderMode(), EntryPoints, GpuProgramsData);
+		bool gpuProgramsCreated = false;
+		if (g->getHydrax()->getShaderMode() == MaterialManager::SM_HLSL)
+		{
+			gpuProgramsCreated = mMaterialManager->fillGpuProgramsToPass(Technique0_Pass0, GpuProgramNames, g->getHydrax()->getShaderMode(), EntryPoints, GpuProgramsData, HlslTargets);
+		}
+		else
+		{
+			gpuProgramsCreated = mMaterialManager->fillGpuProgramsToPass(Technique0_Pass0, GpuProgramNames, g->getHydrax()->getShaderMode(), EntryPoints, GpuProgramsData);
+		}
+		if (!gpuProgramsCreated)
+		{
+			return false;
+		}
 
 		VP_Parameters = Technique0_Pass0->getVertexProgramParameters();
 

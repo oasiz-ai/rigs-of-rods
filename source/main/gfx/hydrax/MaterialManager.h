@@ -191,6 +191,21 @@ namespace Hydrax
 							       const Ogre::String EntryPoints[2],
 							       const Ogre::String Data[2]);
 
+		/** Fill modern HLSL vertex and fragment programs to a pass
+		    @param Pass Pass to fill GPU programs
+			@param GpuProgramNames [0]: Vertex program name, [1]: Fragment program name
+			@param SM Must be SM_HLSL
+			@param EntryPoints [0]: Vertex program entry point, [1]: Fragment program entry point
+			@param Data [0]: Vertex program data, [1]: Fragment program data
+			@param HlslTargets [0]: Vertex target, [1]: Fragment target
+		 */
+		bool fillGpuProgramsToPass(Ogre::Pass* Pass,
+							       const Ogre::String GpuProgramNames[2],
+							       const ShaderMode& SM,
+							       const Ogre::String EntryPoints[2],
+							       const Ogre::String Data[2],
+							       const Ogre::String HlslTargets[2]);
+
 		/** Create GPU program
 			@param Name HighLevelGpuProgram name
 			@param SM Shader mode
@@ -203,6 +218,14 @@ namespace Hydrax
 							  const GpuProgram& GPUP,
 							  const Ogre::String& EntryPoint,
 							  const Ogre::String& Data);
+
+		/** Create a GPU program with an explicit modern HLSL target. */
+		bool createGpuProgram(const Ogre::String &Name,
+			                  const ShaderMode& SM,
+							  const GpuProgram& GPUP,
+							  const Ogre::String& EntryPoint,
+							  const Ogre::String& Data,
+							  const Ogre::String& HlslTarget);
 
 		/** Is createMaterials() already called?
 		    @return true If yes

@@ -73,6 +73,7 @@ on:
       - tests/tools/test_modern_shader_source_closure.py
       - tests/tools/test_validate_modern_glsl_sources.py
       - tests/tools/test_validate_modern_hlsl_sources.py
+      - tests/tools/test_hydrax_gpu_normal_hlsl.py
       - tests/tools/test_cg_runtime_route_retired_contract.py
       - tests/tools/test_rtshader_modern_only_contract.py
       - tests/tools/test_managed_pssm_shader_contract.py
@@ -154,6 +155,7 @@ on:
       - tests/tools/test_modern_shader_source_closure.py
       - tests/tools/test_validate_modern_glsl_sources.py
       - tests/tools/test_validate_modern_hlsl_sources.py
+      - tests/tools/test_hydrax_gpu_normal_hlsl.py
       - tests/tools/test_cg_runtime_route_retired_contract.py
       - tests/tools/test_rtshader_modern_only_contract.py
       - tests/tools/test_managed_pssm_shader_contract.py
@@ -327,6 +329,10 @@ jobs:
           }:
               raise SystemExit("GLSL source-compile family counts changed")
           PY
+          ROR_HYDRAX_GLSLANG="$glslang_validator" CXX=g++-11 \
+            python tests/tools/test_hydrax_gpu_normal_hlsl.py
+          ROR_HYDRAX_GLSLANG="$glslang_validator" CXX=g++-11 \
+            python -O tests/tools/test_hydrax_gpu_normal_hlsl.py
 
       - name: Run combined-runtime fail-closed contracts
         shell: bash
