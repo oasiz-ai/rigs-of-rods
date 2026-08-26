@@ -51,9 +51,11 @@ void main(void)
 	float cos2 = cos*cos;
 	
 	float rayleighPhase = 0.75 * (1.0 + 0.5*cos2);
-	
+	float mieBase = max(
+		1.0 + uG2 - 2.0 * uG * cos, 1.0e-6);
+
 	float miePhase = 1.5 * ((1.0 - uG2) / (2.0 + uG2)) * // <<< TODO
-					 (1.0 + cos2) / pow(1.0 + uG2 - 2.0 * uG * cos, 1.5);
+					 (1.0 + cos2) / pow(mieBase, 1.5);
 
 #ifdef LDR
 	fragColor = vec4((1.0 - exp(-uExposure * (rayleighPhase * vRayleighColor + miePhase * vMieColor))), vOpacity);
@@ -63,18 +65,20 @@ void main(void)
 	
 	// For night rendering
 	float nightmult = clamp(1.0 - max(fragColor.x, max(fragColor.y, fragColor.z))*10.0, 0.0, 1.0);
+	vec3 nightSky = vec3(0.05, 0.05, 0.1) *
+		(2.0-0.75*clamp(-uLightDir.y, 0.0, 1.0)) * pow(vHeight,3.0);
 	
 #ifdef STARFIELD
 	#ifdef LDR
-		fragColor.xyz += nightmult *(vec3(0.05, 0.05, 0.1)*(2.0-0.75*clamp(-uLightDir.y, 0.0, 1.0))*pow(vHeight,3.0) + texture(uStarfield, vUV+uTime).xyz*(0.35 + clamp(-uLightDir.y*0.45, 0.0, 1.0)));
+		fragColor.xyz += nightmult *(nightSky + texture(uStarfield, vUV+uTime).xyz*(0.35 + clamp(-uLightDir.y*0.45, 0.0, 1.0)));
 	#else // HDR (Linear pipeline -> Gamma correction)
-		fragColor.xyz += nightmult *(pow(vec3(0.05, 0.05, 0.1)*(2.0-0.75*clamp(-uLightDir.y, 0.0, 1.0))*pow(vHeight,3.0), vec3(2.2)) + texture(uStarfield, vUV+uTime).xyz*(0.35 + clamp(-uLightDir.y*0.45, 0.0, 1.0)));
+		fragColor.xyz += nightmult *(pow(max(nightSky, vec3(0.0)), vec3(2.2)) + texture(uStarfield, vUV+uTime).xyz*(0.35 + clamp(-uLightDir.y*0.45, 0.0, 1.0)));
 	#endif // LDR
 #else // NO STARFIELD
 	#ifdef LDR
-		fragColor.xyz += nightmult *(vec3(0.05, 0.05, 0.1)*(2.0-0.75*clamp(-uLightDir.y, 0.0, 1.0))*pow(vHeight,3.0));
+		fragColor.xyz += nightmult * nightSky;
 	#else // HDR (Linear pipeline -> Gamma correction)
-		fragColor.xyz += nightmult * pow(vec3(0.05, 0.05, 0.1)*(2.0-0.75*clamp(-uLightDir.y, 0.0, 1.0))*pow(vHeight,3.0), vec3(2.2));
+		fragColor.xyz += nightmult * pow(max(nightSky, vec3(0.0)), vec3(2.2));
 	#endif // LDR
 #endif // STARFIELD	
 }

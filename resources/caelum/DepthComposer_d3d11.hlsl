@@ -94,7 +94,7 @@ float4 CaelumCalculateHaze(
         atmosphereLightAbsorptionFactor);
     float inverseHazeHeight = 100.0;
     float hazeAbsorption = CaelumFogExp(
-        pow(1.0 - sunY, inverseHazeHeight),
+        pow(max(1.0 - sunY, 0.0), inverseHazeHeight),
         fogDensity);
 
     if (incidenceAngleCos > 0.0)

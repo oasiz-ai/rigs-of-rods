@@ -345,6 +345,10 @@ class ManagedPssmShaderContractTests(unittest.TestCase):
                 self.assertIn(specular_sample, source)
                 self.assertIn("float shininess = specularColour.a;", source)
                 self.assertIn("shininess * 52.0", source)
+                self.assertIn(
+                    "pow(max(nDotH, 0.0), shininess * 52.0)", source
+                )
+                self.assertNotIn("pow(nDotH,", source)
                 self.assertIn("0.3 + 0.7 * shadowing", source)
                 self.assertIn("lightDiffuse * diffuseTerm * shadowScale", source)
                 self.assertIn(

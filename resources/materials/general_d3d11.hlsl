@@ -99,13 +99,13 @@ float4 GeneralRenderPS(GeneralRenderVertexOutput input) : SV_Target
 {
     float bridge = input.colour.r;
     float pipe = input.colour.g;
-    float normalY = abs(input.objectNormal.y);
+    float normalY = saturate(abs(input.objectNormal.y));
 
     float power = lerp(lerp(8.0, 8.0, bridge), 4.0, pipe);
     float terrain = lerp(lerp(1.0, 0.0, bridge), 0.0, pipe);
     float diffuse = 1.0 - lerp(
         1.0 - lerp(pow(normalY, power), pow(normalY, power), pipe),
-        pow(1.0 - 2.0 * acos(normalY) / 3.141592654, power),
+        pow(max(1.0 - 2.0 * acos(normalY) / 3.141592654, 0.0), power),
         terrain);
     float3 litColour = ambient + diffuse * matDif.rgb;
 

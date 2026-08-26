@@ -74,13 +74,13 @@ void main()
 {
     float bridge = generalColour.r;
     float pipe = generalColour.g;
-    float normalY = abs(generalObjectNormal.y);
+    float normalY = clamp(abs(generalObjectNormal.y), 0.0, 1.0);
 
     float power = mix(mix(8.0, 8.0, bridge), 4.0, pipe);
     float terrain = mix(mix(1.0, 0.0, bridge), 0.0, pipe);
     float diffuse = 1.0 - mix(
         1.0 - mix(pow(normalY, power), pow(normalY, power), pipe),
-        pow(1.0 - 2.0 * acos(normalY) / 3.141592654, power),
+        pow(max(1.0 - 2.0 * acos(normalY) / 3.141592654, 0.0), power),
         terrain);
     vec3 litColour = ambient + diffuse * matDif.rgb;
 

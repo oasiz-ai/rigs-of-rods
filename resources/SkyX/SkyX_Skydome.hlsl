@@ -147,9 +147,11 @@ void main_fp(
 	float cos2 = cos*cos;
 	
 	float rayleighPhase = 0.75 * (1.0 + 0.5*cos2);
-	
+	float mieBase = max(
+		1.0f + uG2 - 2.0f * uG * cos, 1.0e-6f);
+
 	float miePhase = 1.5f * ((1.0f - uG2) / (2.0f + uG2)) * // <<< TODO
-					 (1.0f + cos2) / pow(1.0f + uG2 - 2.0f * uG * cos, 1.5f);
+					 (1.0f + cos2) / pow(mieBase, 1.5f);
 
 #ifdef LDR
 	oColor = float4((1 - exp(-uExposure * (rayleighPhase * iRayleighColor + miePhase * iMieColor))), iOpacity);
@@ -159,18 +161,20 @@ void main_fp(
 	
 	// For night rendering
 	float nightmult = saturate(1 - max(oColor.x, max(oColor.y, oColor.z))*10);
+	float3 nightSky = float3(0.05, 0.05, 0.1) *
+		(2-0.75*saturate(-uLightDir.y)) * pow(iHeight,3);
 	
 #ifdef STARFIELD
 	#ifdef LDR
-		oColor.xyz += nightmult *(float3(0.05, 0.05, 0.1)*(2-0.75*saturate(-uLightDir.y))*pow(iHeight,3) + uStarfield.Sample(uStarfieldSampler, iUV+uTime).xyz*(0.35f + saturate(-uLightDir.y*0.45f)));
+		oColor.xyz += nightmult *(nightSky + uStarfield.Sample(uStarfieldSampler, iUV+uTime).xyz*(0.35f + saturate(-uLightDir.y*0.45f)));
 	#else // HDR (Linear pipeline -> Gamma correction)
-		oColor.xyz += nightmult *(pow(float3(0.05, 0.05, 0.1)*(2-0.75*saturate(-uLightDir.y))*pow(iHeight,3),2.2) + uStarfield.Sample(uStarfieldSampler, iUV+uTime).xyz*(0.35f + saturate(-uLightDir.y*0.45f)));
+		oColor.xyz += nightmult *(pow(max(nightSky, float3(0.0f, 0.0f, 0.0f)), 2.2f) + uStarfield.Sample(uStarfieldSampler, iUV+uTime).xyz*(0.35f + saturate(-uLightDir.y*0.45f)));
 	#endif // LDR
 #else // NO STARFIELD
 	#ifdef LDR
-		oColor.xyz += nightmult *(float3(0.05, 0.05, 0.1)*(2-0.75*saturate(-uLightDir.y))*pow(iHeight,3)); 
+		oColor.xyz += nightmult * nightSky;
 	#else // HDR (Linear pipeline -> Gamma correction)
-		oColor.xyz += nightmult * pow(float3(0.05, 0.05, 0.1)*(2-0.75*saturate(-uLightDir.y))*pow(iHeight,3), 2.2); 
+		oColor.xyz += nightmult * pow(max(nightSky, float3(0.0f, 0.0f, 0.0f)), 2.2f);
 	#endif // LDR
 #endif // STARFIELD	
 }

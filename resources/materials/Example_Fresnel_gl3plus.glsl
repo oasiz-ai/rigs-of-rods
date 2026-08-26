@@ -40,7 +40,7 @@ void main()
 
     vec3 eyeDirection = normalize(vertex.xyz - eyePosition);
     fresnelFactor = fresnelBias + fresnelScale * pow(
-        1.0 + dot(eyeDirection, normal), fresnelPower);
+        max(1.0 + dot(eyeDirection, normal), 0.0), fresnelPower);
 }
 
 #elif defined(FRESNEL_WATER_FRAGMENT_FULL)

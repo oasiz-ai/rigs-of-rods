@@ -147,6 +147,55 @@ class SkyXGlslContractTests(unittest.TestCase):
             "pow(max(fragColor.a, 0.0),2.0*haloIntensity)", moon_glsl
         )
 
+    def test_fractional_pow_inputs_are_domain_safe_in_both_backends(self) -> None:
+        skydome_hlsl = (SKYX / "SkyX_Skydome.hlsl").read_text(
+            encoding="utf-8"
+        )
+        skydome_glsl = (SKYX / "SkyX_Skydome.fragment").read_text(
+            encoding="utf-8"
+        )
+        normalized_hlsl = " ".join(skydome_hlsl.split())
+        normalized_glsl = " ".join(skydome_glsl.split())
+
+        self.assertIn(
+            "float mieBase = max( 1.0f + uG2 - 2.0f * uG * cos, "
+            "1.0e-6f);",
+            normalized_hlsl,
+        )
+        self.assertIn("pow(mieBase, 1.5f)", normalized_hlsl)
+        self.assertIn(
+            "pow(max(nightSky, float3(0.0f, 0.0f, 0.0f)), 2.2f)",
+            normalized_hlsl,
+        )
+        self.assertIn(
+            "float mieBase = max( 1.0 + uG2 - 2.0 * uG * cos, 1.0e-6);",
+            normalized_glsl,
+        )
+        self.assertIn("pow(mieBase, 1.5)", normalized_glsl)
+        self.assertIn(
+            "pow(max(nightSky, vec3(0.0)), vec3(2.2))",
+            normalized_glsl,
+        )
+
+        for hlsl_name, glsl_name in (
+            ("SkyX_VolClouds.hlsl", "SkyX_VolClouds.fragment"),
+            (
+                "SkyX_VolClouds_Lightning.hlsl",
+                "SkyX_VolClouds_Lightning.fragment",
+            ),
+        ):
+            with self.subTest(shader=hlsl_name):
+                hlsl = " ".join(
+                    (SKYX / hlsl_name).read_text(encoding="utf-8").split()
+                )
+                glsl = " ".join(
+                    (SKYX / glsl_name).read_text(encoding="utf-8").split()
+                )
+                self.assertIn("pow(max(iDistance, 0.0f), 1.5f)", hlsl)
+                self.assertIn("pow(max(vDistance, 0.0), 1.5)", glsl)
+                self.assertNotIn("pow(iDistance,", hlsl)
+                self.assertNotIn("pow(vDistance,", glsl)
+
     def test_all_shader_pairs_are_core_glsl150_with_exact_interfaces(self) -> None:
         expected_stems = set(SHADER_INTERFACES)
         self.assertEqual(

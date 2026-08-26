@@ -209,7 +209,7 @@ float4 CaelumHazePS(CaelumHazeVertexOutput input) : SV_Target
         atmosphereLightAbsorptionFactor);
     float inverseHazeHeight = 100.0;
     float hazeAbsorption = CaelumFogExp(
-        pow(1.0 - sunY, inverseHazeHeight),
+        pow(max(1.0 - sunY, 0.0), inverseHazeHeight),
         fogDensity);
 
     float4 hazeOutput = fogColour;

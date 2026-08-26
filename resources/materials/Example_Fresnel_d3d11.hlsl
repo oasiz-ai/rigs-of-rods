@@ -46,7 +46,7 @@ FresnelWaterVertexOutput FresnelWaterVS(FresnelWaterVertexInput input)
 
     float3 eyeDirection = normalize(input.position.xyz - eyePosition);
     output.fresnelFactor = fresnelBias + fresnelScale * pow(
-        1.0 + dot(eyeDirection, input.normal), fresnelPower);
+        max(1.0 + dot(eyeDirection, input.normal), 0.0), fresnelPower);
     return output;
 }
 

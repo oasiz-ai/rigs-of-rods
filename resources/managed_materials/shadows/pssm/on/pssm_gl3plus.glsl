@@ -171,7 +171,7 @@ void main()
     float diffuseTerm = max(nDotL, 0.0);
     float specularTerm = (nDotL < 0.0 || nDotH < 0.0)
         ? 0.0
-        : pow(nDotH, shininess * 52.0);
+        : pow(max(nDotH, 0.0), shininess * 52.0);
     float shadowScale = 0.3 + 0.7 * shadowing;
 
     fragColour = diffuseColour * clamp(

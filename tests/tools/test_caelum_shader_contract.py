@@ -631,6 +631,25 @@ class CaelumShaderContractTests(unittest.TestCase):
                     with self.subTest(stem=stem, backend=backend, marker=marker):
                         self.assertIn(marker.lower(), source.lower())
 
+    def test_haze_fractional_pow_inputs_are_domain_safe_in_both_backends(self) -> None:
+        for stem in ("CaelumSkyDome", "DepthComposer"):
+            glsl = (CAELUM / f"{stem}_gl3plus.glsl").read_text(
+                encoding="utf-8"
+            )
+            hlsl = (CAELUM / f"{stem}_d3d11.hlsl").read_text(
+                encoding="utf-8"
+            )
+            with self.subTest(stem=stem, backend="GL3Plus"):
+                self.assertIn(
+                    "pow(max(1.0 - sunY, 0.0), inverseHazeHeight)", glsl
+                )
+                self.assertNotIn("pow(1.0 - sunY,", glsl)
+            with self.subTest(stem=stem, backend="D3D11"):
+                self.assertIn(
+                    "pow(max(1.0 - sunY, 0.0), inverseHazeHeight)", hlsl
+                )
+                self.assertNotIn("pow(1.0 - sunY,", hlsl)
+
     def test_materials_still_bind_only_the_public_aliases(self) -> None:
         references = re.findall(
             r"^\s*(?:vertex|fragment)_program_ref\s+(\S+)",

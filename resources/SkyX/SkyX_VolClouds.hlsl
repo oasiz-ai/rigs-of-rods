@@ -110,7 +110,7 @@ void main_fp(
 	
 		float Beta = c2*uLightResponse.y*(0.5f+2.5f*saturate(1-2*uSunDirection.y)*Density.y);
 
-		float sunaccumulation = max(0.2, saturate(Beta+Density.y*uLightResponse.x+pow(iDistance,1.5)*uLightResponse.w));
+		float sunaccumulation = max(0.2, saturate(Beta+Density.y*uLightResponse.x+pow(max(iDistance, 0.0f), 1.5f)*uLightResponse.w));
 		float ambientaccumulation = 
 			  saturate(uAmbientFactors.x + uAmbientFactors.y*i3DCoord.z + uAmbientFactors.z*pow(i3DCoord.z,2) + uAmbientFactors.w*pow(i3DCoord.z,3))*uLightResponse.z;
 	    

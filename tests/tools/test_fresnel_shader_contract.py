@@ -328,6 +328,10 @@ class FresnelShaderContractTests(unittest.TestCase):
                     source,
                 )
                 self.assertIn(f"dot(eyeDirection, {normal_name})", source)
+                self.assertIn(
+                    f"max(1.0 + dot(eyeDirection, {normal_name}), 0.0)",
+                    source,
+                )
                 self.assertNotIn("clamp(", source)
                 self.assertNotIn("saturate(", source)
 

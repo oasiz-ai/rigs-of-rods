@@ -416,6 +416,8 @@ class GeneralShaderContractTests(unittest.TestCase):
                 self.assertRegex(GLSL, rf"defined\({re.escape(name)}\)")
 
         required_fragments = (
+            "float normalY = clamp(abs(generalObjectNormal.y), 0.0, 1.0);",
+            "pow(max(1.0 - 2.0 * acos(normalY) / 3.141592654, 0.0), power)",
             "generalObjectBitangent = cross(tangent, normal);",
             "fogParams.x * (gl_Position.z - fogParams.y) * fogParams.w",
             "mat3(iTWMat) * objectNormal",
@@ -477,6 +479,8 @@ class GeneralShaderContractTests(unittest.TestCase):
         )
 
         required_fragments = (
+            "float normalY = saturate(abs(input.objectNormal.y));",
+            "pow(max(1.0 - 2.0 * acos(normalY) / 3.141592654, 0.0), power)",
             "output.objectBitangent = cross(input.tangent, input.normal);",
             "fogParams.x * (output.clipPosition.z - fogParams.y) * fogParams.w",
             "mul((float3x3)iTWMat, objectNormal)",
