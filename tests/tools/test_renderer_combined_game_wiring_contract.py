@@ -1079,12 +1079,27 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             "actor->ar_engine->getAcc()",
             "last_native_renderer_frame_id != frame_id",
             "scene.last_dynamic_updates == 0U",
+            "schema=ror.ogre_next_actor_control_press.v1",
+            "press_presented=true",
             "schema=ror.ogre_next_actor_control_receipt.v1",
             "input_source=visible_window_sdl",
             "presenter=ogre-next",
             "legacy_visible_fallback=false",
         ):
             self.assertIn(token, receipt)
+        press_state = receipt.index("press_presented_ = true;")
+        press_marker = receipt.index(
+            "schema=ror.ogre_next_actor_control_press.v1"
+        )
+        release_frame = receipt.index(
+            "release_presented_frame_ = frame_id;"
+        )
+        final_receipt = receipt.index(
+            "schema=ror.ogre_next_actor_control_receipt.v1"
+        )
+        self.assertLess(press_state, press_marker)
+        self.assertLess(press_marker, release_frame)
+        self.assertLess(release_frame, final_receipt)
         self.assertNotIn("SDL_PushEvent", receipt)
 
 

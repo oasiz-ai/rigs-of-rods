@@ -30,7 +30,7 @@ import struct
 import subprocess
 import sys
 import time
-from typing import Mapping, Sequence
+from typing import Callable, Mapping, Sequence
 
 
 RECEIPT_FORMAT = "ror-frame-time-budget-v1"
@@ -320,6 +320,11 @@ ACTOR_CONTROL_SPAWN_MARKER = "== Spawning vehicle:"
 ACTOR_CONTROL_PRESENTED_SCENE_MARKER = (
     "[RoR|RendererCombined|RetainedScene]"
 )
+ACTOR_CONTROL_PRESS_PRESENTED_MARKER = (
+    "[RoR|RendererCombined|ActorControlPress] "
+    "schema=ror.ogre_next_actor_control_press.v1 press_presented=true"
+)
+ACTOR_CONTROL_RECEIPT_MARKER = "[RoR|RendererCombined|ActorControl]"
 
 
 def effective_graphics_settings(text: str) -> dict[str, str]:
@@ -1591,14 +1596,14 @@ def wait_for_runtime_marker(
     marker: str,
     process: subprocess.Popen[bytes],
     timeout_seconds: float,
+    poll_seconds: float = 0.1,
 ) -> None:
+    if not 0.0 < poll_seconds <= 1.0:
+        raise PerformanceSceneFailure(
+            "the runtime marker poll interval must be within (0, 1] seconds"
+        )
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
-        returncode = process.poll()
-        if returncode is not None:
-            raise PerformanceSceneFailure(
-                f"the runtime exited with code {returncode} before {marker!r}"
-            )
         try:
             if marker in log_path.read_text(
                 encoding="utf-8", errors="replace"
@@ -1606,13 +1611,49 @@ def wait_for_runtime_marker(
                 return
         except FileNotFoundError:
             pass
-        time.sleep(0.1)
+        returncode = process.poll()
+        if returncode is not None:
+            raise PerformanceSceneFailure(
+                f"the runtime exited with code {returncode} before {marker!r}"
+            )
+        time.sleep(poll_seconds)
     raise PerformanceSceneFailure(
         f"the runtime did not emit {marker!r} within {timeout_seconds:.0f}s"
     )
 
 
-def drive_linux_up_key(process_id: int, hold_seconds: float) -> str:
+def complete_external_key_interval(
+    wait_for_pressed_scene: Callable[[], None],
+    release: Callable[[], None],
+) -> float:
+    """Release a real OS key only after its next native scene completes.
+
+    The release is still attempted if that wait fails, and a release failure
+    remains fatal. This keeps an external-input failure from leaving a live
+    runtime with a latched accelerator while preserving the original cause.
+    """
+
+    pressed_at = time.monotonic()
+    try:
+        wait_for_pressed_scene()
+    except BaseException as wait_error:
+        try:
+            release()
+        except BaseException as release_error:
+            raise PerformanceSceneFailure(
+                f"{wait_error}; Up Arrow release also failed: "
+                f"{release_error}"
+            ) from wait_error
+        raise
+    release()
+    return time.monotonic() - pressed_at
+
+
+def drive_linux_up_key(
+    process_id: int,
+    hold_seconds: float,
+    wait_for_pressed_scene: Callable[[], None] | None = None,
+) -> tuple[str, float]:
     xdotool = shutil.which("xdotool")
     if xdotool is None:
         raise PerformanceSceneFailure(
@@ -1651,15 +1692,22 @@ def drive_linux_up_key(process_id: int, hold_seconds: float) -> str:
         stderr=subprocess.PIPE,
         timeout=10,
     )
-    time.sleep(hold_seconds)
-    subprocess.run(
-        [xdotool, "keyup", "Up"],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        timeout=10,
+    def release() -> None:
+        subprocess.run(
+            [xdotool, "keyup", "Up"],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=10,
+        )
+
+    held_seconds = complete_external_key_interval(
+        wait_for_pressed_scene
+        if wait_for_pressed_scene is not None
+        else lambda: time.sleep(hold_seconds),
+        release,
     )
-    return "x11-xtest-xdotool"
+    return "x11-xtest-xdotool", held_seconds
 
 
 def find_windows_process_window(process_id: int) -> int:
@@ -1681,7 +1729,11 @@ def find_windows_process_window(process_id: int) -> int:
     return windows[-1] if windows else 0
 
 
-def drive_windows_up_key(process_id: int, hold_seconds: float) -> str:
+def drive_windows_up_key(
+    process_id: int,
+    hold_seconds: float,
+    wait_for_pressed_scene: Callable[[], None] | None = None,
+) -> tuple[str, float]:
     user32 = ctypes.windll.user32
     user32.ShowWindow.argtypes = (ctypes.c_void_p, ctypes.c_int)
     user32.PostMessageW.argtypes = (
@@ -1710,15 +1762,26 @@ def drive_windows_up_key(process_id: int, hold_seconds: float) -> str:
         raise PerformanceSceneFailure(
             "User32 could not post Up Arrow down to the runtime window"
         )
-    time.sleep(hold_seconds)
-    if not user32.PostMessageW(window, 0x0101, 0x26, 0xC1480001):
-        raise PerformanceSceneFailure(
-            "User32 could not post Up Arrow release to the runtime window"
-        )
-    return "win32-user32-window-message"
+    def release() -> None:
+        if not user32.PostMessageW(window, 0x0101, 0x26, 0xC1480001):
+            raise PerformanceSceneFailure(
+                "User32 could not post Up Arrow release to the runtime window"
+            )
+
+    held_seconds = complete_external_key_interval(
+        wait_for_pressed_scene
+        if wait_for_pressed_scene is not None
+        else lambda: time.sleep(hold_seconds),
+        release,
+    )
+    return "win32-user32-window-message", held_seconds
 
 
-def drive_macos_up_key(process_id: int, hold_seconds: float) -> str:
+def drive_macos_up_key(
+    process_id: int,
+    hold_seconds: float,
+    wait_for_pressed_scene: Callable[[], None] | None = None,
+) -> tuple[str, float]:
     osascript = shutil.which("osascript")
     if osascript is None:
         raise PerformanceSceneFailure(
@@ -1779,32 +1842,47 @@ def drive_macos_up_key(process_id: int, hold_seconds: float) -> str:
             core_foundation.CFRelease(event)
 
     post(True)
-    time.sleep(hold_seconds)
-    post(False)
-    return "macos-coregraphics-hid-event"
+    held_seconds = complete_external_key_interval(
+        wait_for_pressed_scene
+        if wait_for_pressed_scene is not None
+        else lambda: time.sleep(hold_seconds),
+        lambda: post(False),
+    )
+    return "macos-coregraphics-hid-event", held_seconds
 
 
 def drive_external_actor_control(
     target_platform: str,
     process_id: int,
     hold_seconds: float = 3.0,
+    wait_for_pressed_scene: Callable[[], None] | None = None,
 ) -> dict[str, object]:
+    held_seconds = hold_seconds
     if target_platform == "linux":
-        backend = drive_linux_up_key(process_id, hold_seconds)
+        backend, held_seconds = drive_linux_up_key(
+            process_id, hold_seconds, wait_for_pressed_scene
+        )
     elif target_platform == "win32":
-        backend = drive_windows_up_key(process_id, hold_seconds)
+        backend, held_seconds = drive_windows_up_key(
+            process_id, hold_seconds, wait_for_pressed_scene
+        )
     elif target_platform == "darwin":
-        backend = drive_macos_up_key(process_id, hold_seconds)
+        backend, held_seconds = drive_macos_up_key(
+            process_id, hold_seconds, wait_for_pressed_scene
+        )
     else:
         raise PerformanceSceneFailure(
             f"actor-control qualification is unsupported on {target_platform}"
         )
-    return {
+    driver = {
         "process_external": True,
         "backend": backend,
         "key": "up",
-        "hold_seconds": hold_seconds,
+        "hold_seconds": held_seconds,
     }
+    if wait_for_pressed_scene is not None:
+        driver["release_synchronization"] = "completed-native-actor-scene"
+    return driver
 
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
@@ -1857,8 +1935,8 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         type=float,
         default=3.0,
         help=(
-            "seconds to hold Up Arrow during actor-control qualification; "
-            "the default spans the slow software-rendered CI cadence"
+            "maximum seconds between the external Up Arrow press and the "
+            "next completed native actor scene"
         ),
     )
     parser.add_argument("--timeout", type=int, default=1800)
@@ -1923,37 +2001,67 @@ def main(argv: Sequence[str] | None = None) -> int:
             started = time.monotonic()
             try:
                 if args.qualify_actor_control:
+                    runtime_log_path = layout["logs"] / "RoR.log"
                     readiness_timeout = min(
                         120.0, float(args.timeout)
                     )
                     wait_for_runtime_marker(
-                        layout["logs"] / "RoR.log",
+                        runtime_log_path,
                         ACTOR_CONTROL_SPAWN_MARKER,
                         process,
                         readiness_timeout,
                     )
                     # Spawning precedes the first native scene submission. On
                     # software Vulkan/D3D runners, that submission can spend
-                    # several seconds compiling shaders. Sending a bounded
-                    # press during that synchronous interval lets both OS
-                    # transitions accumulate before the game can resolve the
-                    # pressed state. Wait until Ogre-Next has completed and
-                    # retained the first actor scene, then drive the next
-                    # ordinary input/simulation/presentation boundaries.
+                    # several seconds compiling shaders. First wait until the
+                    # baseline actor scene is retained. The external driver
+                    # then presses Up and holds it until the one-time
+                    # press-presented marker, so key-up cannot race a fixed
+                    # wall-clock sleep against a finite frame-budget run. The
+                    # native actor-control receipt below requires another
+                    # distinct completed scene after release resolves.
                     readiness_remaining = max(
                         0.1,
                         readiness_timeout - (time.monotonic() - started),
                     )
                     wait_for_runtime_marker(
-                        layout["logs"] / "RoR.log",
+                        runtime_log_path,
                         ACTOR_CONTROL_PRESENTED_SCENE_MARKER,
                         process,
                         readiness_remaining,
                     )
+                    def wait_for_pressed_scene() -> None:
+                        transition_remaining = min(
+                            args.actor_control_hold_seconds,
+                            max(
+                                0.1,
+                                float(args.timeout)
+                                - (time.monotonic() - started),
+                            ),
+                        )
+                        wait_for_runtime_marker(
+                            runtime_log_path,
+                            ACTOR_CONTROL_PRESS_PRESENTED_MARKER,
+                            process,
+                            transition_remaining,
+                            0.01,
+                        )
+
                     driver = drive_external_actor_control(
                         request.target_platform,
                         process.pid,
                         args.actor_control_hold_seconds,
+                        wait_for_pressed_scene,
+                    )
+                    receipt_remaining = max(
+                        0.1,
+                        float(args.timeout) - (time.monotonic() - started),
+                    )
+                    wait_for_runtime_marker(
+                        runtime_log_path,
+                        ACTOR_CONTROL_RECEIPT_MARKER,
+                        process,
+                        receipt_remaining,
                     )
                 remaining = max(
                     0.1, float(args.timeout) - (time.monotonic() - started)

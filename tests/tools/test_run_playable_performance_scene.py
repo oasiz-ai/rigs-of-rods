@@ -906,6 +906,16 @@ class ConfigurationTests(unittest.TestCase):
             runner.ACTOR_CONTROL_PRESENTED_SCENE_MARKER,
             "[RoR|RendererCombined|RetainedScene]",
         )
+        self.assertEqual(
+            runner.ACTOR_CONTROL_PRESS_PRESENTED_MARKER,
+            "[RoR|RendererCombined|ActorControlPress] "
+            "schema=ror.ogre_next_actor_control_press.v1 "
+            "press_presented=true",
+        )
+        self.assertEqual(
+            runner.ACTOR_CONTROL_RECEIPT_MARKER,
+            "[RoR|RendererCombined|ActorControl]",
+        )
         source = (
             ROOT / "tools/run_playable_performance_scene.py"
         ).read_text(encoding="utf-8")
@@ -916,12 +926,85 @@ class ConfigurationTests(unittest.TestCase):
         presented_wait = source.index(
             "ACTOR_CONTROL_PRESENTED_SCENE_MARKER,", spawn_wait
         )
+        pressed_scene_wait = source.index(
+            "ACTOR_CONTROL_PRESS_PRESENTED_MARKER,", presented_wait
+        )
         input_drive = source.index(
-            "driver = drive_external_actor_control(", presented_wait
+            "driver = drive_external_actor_control(", pressed_scene_wait
+        )
+        release_receipt_wait = source.index(
+            "ACTOR_CONTROL_RECEIPT_MARKER,", input_drive
         )
         self.assertLess(spawn_wait, presented_wait)
-        self.assertLess(presented_wait, input_drive)
+        self.assertLess(presented_wait, pressed_scene_wait)
+        self.assertLess(pressed_scene_wait, input_drive)
+        self.assertLess(input_drive, release_receipt_wait)
+        self.assertIn(
+            "transition_remaining,\n                            0.01,",
+            source[pressed_scene_wait:input_drive],
+        )
 
+    def test_external_key_interval_releases_after_scene_and_never_masks_release_failure(
+        self,
+    ) -> None:
+        events = []
+        with mock.patch.object(
+            runner.time, "monotonic", side_effect=(10.0, 10.75)
+        ):
+            held = runner.complete_external_key_interval(
+                lambda: events.append("native-scene"),
+                lambda: events.append("release"),
+            )
+        self.assertEqual(events, ["native-scene", "release"])
+        self.assertEqual(held, 0.75)
+
+        def failed_wait() -> None:
+            raise RuntimeError("runtime exited")
+
+        def failed_release() -> None:
+            raise RuntimeError("window disappeared")
+
+        with self.assertRaises(runner.PerformanceSceneFailure) as caught:
+            runner.complete_external_key_interval(failed_wait, failed_release)
+        message = str(caught.exception)
+        self.assertIn("runtime exited", message)
+        self.assertIn("Up Arrow release also failed", message)
+        self.assertIn("window disappeared", message)
+
+        with self.assertRaisesRegex(RuntimeError, "window disappeared"):
+            runner.complete_external_key_interval(
+                lambda: events.append("second-native-scene"),
+                failed_release,
+            )
+
+    def test_external_actor_control_synchronizes_every_supported_backend(
+        self,
+    ) -> None:
+        wait_for_pressed_scene = mock.Mock()
+        cases = (
+            ("linux", "drive_linux_up_key", "x11-xtest-xdotool"),
+            ("win32", "drive_windows_up_key", "win32-user32-window-message"),
+            ("darwin", "drive_macos_up_key", "macos-coregraphics-hid-event"),
+        )
+        for platform, driver_name, backend in cases:
+            with self.subTest(platform=platform), mock.patch.object(
+                runner, driver_name, return_value=(backend, 0.75)
+            ) as driver:
+                receipt = runner.drive_external_actor_control(
+                    platform,
+                    1234,
+                    3.0,
+                    wait_for_pressed_scene,
+                )
+                driver.assert_called_once_with(
+                    1234, 3.0, wait_for_pressed_scene
+                )
+                self.assertEqual(receipt["backend"], backend)
+                self.assertEqual(receipt["hold_seconds"], 0.75)
+                self.assertEqual(
+                    receipt["release_synchronization"],
+                    "completed-native-actor-scene",
+                )
 
 class ReceiptIoTests(unittest.TestCase):
     def test_missing_and_malformed_receipts_are_refused(self) -> None:

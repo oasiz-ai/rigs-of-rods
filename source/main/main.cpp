@@ -982,6 +982,17 @@ public:
             press_presented_frame_ = frame_id;
             press_dynamic_updates_ = scene.last_dynamic_updates;
             press_scene_draws_ = scene.last_native_scene_draws;
+            LOG(fmt::format(
+                "[RoR|RendererCombined|ActorControlPress] "
+                "schema=ror.ogre_next_actor_control_press.v1 "
+                "press_presented=true actor_instance_id={} key={} "
+                "press_transition={} press_event_id={} press_issued={} "
+                "press_resolved={} press_frame_id={} "
+                "press_dynamic_updates={} press_scene_draws={}",
+                actor_instance_id_, static_cast<unsigned int>(key_),
+                press_transition_, press_event_id_, press_issued_,
+                press_resolved_value_, press_presented_frame_,
+                press_dynamic_updates_, press_scene_draws_));
             return;
         }
         if (press_presented_ && release_resolved_ &&

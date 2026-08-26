@@ -579,6 +579,8 @@ jobs:
           driver = renderer.get("actor_control_driver", {})
           if driver.get("process_external") is not True or driver.get("backend") != "x11-xtest-xdotool":
               raise SystemExit("packaged scene did not use the external X11 input driver")
+          if driver.get("release_synchronization") != "completed-native-actor-scene":
+              raise SystemExit("packaged scene key-up was not synchronized to the press-presented native scene")
           PY
           grep -Fq '===== LOADING TERRAIN simple2_a.terrn2' "$scene/RoR.log"
           grep -Fq '== Spawning vehicle: Daf Semi truck' "$scene/RoR.log"
@@ -1940,6 +1942,8 @@ jobs:
           driver = renderer.get("actor_control_driver", {})
           if driver.get("process_external") is not True or driver.get("backend") != "win32-user32-window-message":
               raise SystemExit("packaged Windows scene did not use the external User32 input driver")
+          if driver.get("release_synchronization") != "completed-native-actor-scene":
+              raise SystemExit("packaged Windows key-up was not synchronized to the press-presented native scene")
           if "--native-visual-showcase" in document.get("command", []):
               raise SystemExit("packaged Windows scene selected renderer-only showcase")
           '@ | python -
