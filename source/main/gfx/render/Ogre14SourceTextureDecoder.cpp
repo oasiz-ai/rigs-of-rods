@@ -1688,7 +1688,7 @@ ValidationResult ParseDdsHeader(
 ///
 /// BC2 is excluded because it has no transport format at all and must never be
 /// silently treated as BC3.
-[[nodiscard]] bool IsPassThroughEligible(
+[[nodiscard]] bool IsPassThroughFormatEligible(
     Ogre14SourceTextureFormat format) noexcept {
   switch (format) {
   case Ogre14SourceTextureFormat::BC3_UNORM:
@@ -1698,6 +1698,43 @@ ValidationResult ParseDdsHeader(
   default:
     return false;
   }
+}
+
+/// Every condition the descriptor builder will later insist on.
+///
+/// This predicate exists as one place on purpose. Pass-through hands a payload
+/// to a consumer with its own admission rules, and each time one of those rules
+/// was not mirrored here the result was the same: a texture that used to render
+/// stopped rendering, and the frame was lost at a layer further on than the one
+/// that enabled it. So the rule is that pass-through is offered only for a
+/// payload every downstream layer has already agreed to take.
+///
+/// The two conditions:
+///
+/// - The format must be one a material slot will bind. BC1 is excluded because
+///   its single alpha bit cannot carry transparency, cutout coverage, or a
+///   detail layer's height curve, so it is refused at every slot; BC2 has no
+///   transport format at all.
+///
+/// - The authored mip chain must be COMPLETE, base to 1x1. A compressed mip
+///   cannot be derived from a compressed mip without decoding and re-encoding
+///   it, so a short chain cannot be completed later and the descriptor builder
+///   refuses it. Plenty of legacy DDS content ships a truncated chain, and for
+///   that content the RGBA8 decode is the right answer -- it can generate the
+///   tail. Falling back costs a memory saving; refusing would cost the frame.
+[[nodiscard]] bool IsPassThroughEligible(const ParsedDds &parsed) noexcept {
+  if (!IsPassThroughFormatEligible(parsed.format)) {
+    return false;
+  }
+  std::uint32_t complete = 1U;
+  std::uint32_t width = parsed.width;
+  std::uint32_t height = parsed.height;
+  while (width > 1U || height > 1U) {
+    width = (std::max)(1U, width / 2U);
+    height = (std::max)(1U, height / 2U);
+    ++complete;
+  }
+  return parsed.mip_count == complete;
 }
 
 ValidationResult BuildMipSpans(
@@ -1711,7 +1748,7 @@ ValidationResult BuildMipSpans(
   // expansion, so the budget must charge for the bytes actually retained.
   const bool preserve_blocks = options.preserve_block_compression &&
                                parsed.block_compressed &&
-                               IsPassThroughEligible(parsed.format);
+                               IsPassThroughEligible(parsed);
   std::uint64_t total_retained_bytes = 0U;
   for (std::uint32_t level = 0U; level < parsed.mip_count; ++level) {
     MipSpan span;
@@ -1979,7 +2016,7 @@ ValidationResult DecodeOgre14SourceTextureDds(
     // arithmetic above, or the bytes charged and the bytes retained diverge.
     const bool preserve_blocks = options.preserve_block_compression &&
                                  parsed.block_compressed &&
-                                 IsPassThroughEligible(parsed.format);
+                                 IsPassThroughEligible(parsed);
     candidate.block_compressed = preserve_blocks;
     candidate.mip_levels.reserve(parsed.mip_count);
     for (std::uint32_t level = 0U; level < parsed.mip_count; ++level) {
