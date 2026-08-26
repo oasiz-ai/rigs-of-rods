@@ -3,7 +3,7 @@
 This source file is part of Hydrax.
 Visit ---
 
-Copyright (C) 2008 Xavier VerguÌn Gonz·lez <xavierverguin@hotmail.com>
+Copyright (C) 2008 Xavier Vergu√≠n Gonz√°lez <xavierverguin@hotmail.com>
                                            <xavyiy@gmail.com>
 
 This program is free software; you can redistribute it and/or modify it under
@@ -23,7 +23,7 @@ http://www.gnu.org/copyleft/lesser.txt.
 
 --------------------------------------------------------------------------------
 Contributors:
-    Jose Luis CercÛs Pita <jlcercos@alumnos.upm.es>
+    Jose Luis Cerc√≥s Pita <jlcercos@alumnos.upm.es>
 --------------------------------------------------------------------------------
 */
 
@@ -56,6 +56,20 @@ Contributors:
 
 #define _def_Simple_Red_Material_Name "_Hydrax_Simple_Red_Material"
 #define _def_Simple_Black_Material_Name "_Hydrax_Simple_Black_Material"
+
+namespace
+{
+	void removeGpuProgramIfPresent(const Ogre::String& name)
+	{
+		Ogre::HighLevelGpuProgramManager& manager =
+			Ogre::HighLevelGpuProgramManager::getSingleton();
+		if (manager.resourceExists(name))
+		{
+			manager.unload(name);
+			manager.remove(name);
+		}
+	}
+}
 
 namespace Hydrax
 {
@@ -248,6 +262,10 @@ namespace Hydrax
 		{
 			 if (!createGpuProgram(GpuProgramNames[k], SM, GpuPrograms[k], EntryPoints[k], Data[k]))
 			 {
+				 if (k == 1)
+				 {
+					 removeGpuProgramIfPresent(GpuProgramNames[0]);
+				 }
 				 return false;
 			 }
 		}
@@ -277,6 +295,10 @@ namespace Hydrax
 		{
 			if (!createGpuProgram(GpuProgramNames[k], SM, GpuPrograms[k], EntryPoints[k], Data[k], HlslTargets[k]))
 			{
+				if (k == 1)
+				{
+					removeGpuProgramIfPresent(GpuProgramNames[0]);
+				}
 				return false;
 			}
 		}
@@ -384,10 +406,17 @@ namespace Hydrax
 			                    ShaderModeStr,
 			                    GpuPType);
 
-	    HLGpuProgram->setSource(Data);
+		HLGpuProgram->setSource(Data);
         HLGpuProgram->setParameter("entry_point", EntryPoint);
         HLGpuProgram->setParameter(Profiles[0], Profiles[1]);
 		HLGpuProgram->load();
+		if (HLGpuProgram->hasCompileError() || !HLGpuProgram->isSupported())
+		{
+			HydraxLOG("Error in bool MaterialManager::createGpuProgram(): Shader compilation or capability validation failed for " + Name + ".");
+			HLGpuProgram.reset();
+			removeGpuProgramIfPresent(Name);
+			return false;
+		}
 
 		return true;
 	}

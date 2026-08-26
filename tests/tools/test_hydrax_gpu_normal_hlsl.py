@@ -172,20 +172,17 @@ class HydraxGpuNormalMapModernHlslTests(unittest.TestCase):
         self.assertEqual(tsan.count(f"      - {test_path}\n"), 1)
         self.assertEqual(tsan.count("      - source/main/gfx/hydrax/**\n"), 1)
         for workflow in (native, tsan):
-            self.assertEqual(
-                workflow.count(
-                    'ROR_HYDRAX_GLSLANG="$glslang_validator" CXX=g++-11'
-                ),
-                2,
-            )
-            self.assertIn(
+            for python_command in (
                 "python tests/tools/test_hydrax_gpu_normal_hlsl.py",
-                workflow,
-            )
-            self.assertIn(
                 "python -O tests/tools/test_hydrax_gpu_normal_hlsl.py",
-                workflow,
-            )
+            ):
+                self.assertEqual(
+                    workflow.count(
+                        'ROR_HYDRAX_GLSLANG="$glslang_validator" '
+                        f"CXX=g++-11 \\\n            {python_command}"
+                    ),
+                    1,
+                )
 
     def test_exact_extracted_sources_compile_and_hostile_mutation_fails(self) -> None:
         compiler_text = os.environ.get("ROR_HYDRAX_GLSLANG")

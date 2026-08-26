@@ -9,6 +9,7 @@ source/main/gfx/ShadowManager.h whitespace=cr-at-eol
 source/main/gfx/Skidmark.h whitespace=cr-at-eol
 source/main/gfx/hydrax/GodRaysManager.h whitespace=cr-at-eol
 source/main/gfx/hydrax/GodRaysManager.cpp whitespace=cr-at-eol
+source/main/gfx/hydrax/MaterialManager.cpp whitespace=cr-at-eol
 source/main/gfx/hydrax/RttManager.h whitespace=cr-at-eol
 source/main/gfx/hydrax/RttManager.cpp whitespace=cr-at-eol
 source/main/gfx/particle/ExtinguishableFireAffectorFactory.h whitespace=cr-at-eol

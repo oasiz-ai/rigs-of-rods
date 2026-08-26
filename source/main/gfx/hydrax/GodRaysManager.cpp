@@ -1,7 +1,7 @@
 /*
 --------------------------------------------------------------------------------
 This source file is part of sssHydrax.
-sssHydrax is a modified version of Hydrax (Copyright (C) 2008 Xavier VerguÌn Gonz·lez)
+sssHydrax is a modified version of Hydrax (Copyright (C) 2008 Xavier Vergu√≠n Gonz√°lez)
 to adapt it to SonSilentSea.
 
 This program is free software; you can redistribute it and/or modify it under
@@ -18,12 +18,13 @@ this program; if not, write to the Free Software Foundation, Inc., 59 Temple
 Place - Suite 330, Boston, MA 02111-1307, USA, or go to
 http://www.gnu.org/copyleft/lesser.txt.
 
-Author: Jose Luis CercÛs Pita
+Author: Jose Luis Cerc√≥s Pita
 --------------------------------------------------------------------------------
 */
 
 #include <GodRaysManager.h>
 
+#include "GodRaysModernHlsl.h"
 #include <Hydrax.h>
 
 #define _def_GodRays_Projector_Camera_Name "_Hydrax_GodRays_Projector_Camera"
@@ -104,7 +105,13 @@ namespace Hydrax
 		    _createDepthRTT();
 		}
 
-		_createMaterials(HC);
+		if (!_createMaterials(HC))
+		{
+			HydraxLOG("GodRaysManager::create(): shader creation failed.");
+			mCreated = true;
+			remove();
+			return;
+		}
 
 		std::vector<Ogre::Technique*>::iterator TechIt;
 
@@ -162,28 +169,42 @@ namespace Hydrax
 		delete mPerlin;
 		mPerlin = static_cast<Noise::Perlin*>(NULL);
 
-		mHydrax->getSceneManager()->destroyManualObject(mManualGodRays);
-		mManualGodRays = static_cast<Ogre::ManualObject*>(NULL);
+		if (mProjectorSN)
+		{
+			mProjectorSN->detachAllObjects();
+		}
+		if (mManualGodRays)
+		{
+			mHydrax->getSceneManager()->destroyManualObject(mManualGodRays);
+			mManualGodRays = static_cast<Ogre::ManualObject*>(NULL);
+		}
+
+		auto removeGpuProgram = [](const Ogre::String& name)
+		{
+			Ogre::HighLevelGpuProgramManager& manager =
+				Ogre::HighLevelGpuProgramManager::getSingleton();
+			if (manager.resourceExists(name))
+			{
+				manager.unload(name);
+				manager.remove(name);
+			}
+		};
 
 		if (Ogre::MaterialManager::getSingleton().resourceExists(_def_GodRays_Material_Name))
 		{
 			Ogre::MaterialManager::getSingleton().remove(_def_GodRays_Material_Name);
 
-			Ogre::HighLevelGpuProgramManager::getSingleton().unload(_def_GodRays_Shader_VP_Name);
-		    Ogre::HighLevelGpuProgramManager::getSingleton().unload(_def_GodRays_Shader_FP_Name);
-			Ogre::HighLevelGpuProgramManager::getSingleton().remove(_def_GodRays_Shader_VP_Name);
-		    Ogre::HighLevelGpuProgramManager::getSingleton().remove(_def_GodRays_Shader_FP_Name);
 		}
+		removeGpuProgram(_def_GodRays_Shader_VP_Name);
+		removeGpuProgram(_def_GodRays_Shader_FP_Name);
 
 		if (Ogre::MaterialManager::getSingleton().resourceExists(_def_GodRaysDepth_Material_Name))
 		{
 			Ogre::MaterialManager::getSingleton().remove(_def_GodRaysDepth_Material_Name);
 
-			Ogre::HighLevelGpuProgramManager::getSingleton().unload(_def_GodRaysDepth_Shader_VP_Name);
-		    Ogre::HighLevelGpuProgramManager::getSingleton().unload(_def_GodRaysDepth_Shader_FP_Name);
-			Ogre::HighLevelGpuProgramManager::getSingleton().remove(_def_GodRaysDepth_Shader_VP_Name);
-		    Ogre::HighLevelGpuProgramManager::getSingleton().remove(_def_GodRaysDepth_Shader_FP_Name);
 		}
+		removeGpuProgram(_def_GodRaysDepth_Shader_VP_Name);
+		removeGpuProgram(_def_GodRaysDepth_Shader_FP_Name);
 
 		for (int k = 0; k < 2; k++)
 		{
@@ -200,12 +221,17 @@ namespace Hydrax
 			mProjectorRTT.reset();
 		}
 
-		mHydrax->getSceneManager()->destroyCamera(mProjectorCamera);
-		mProjectorCamera = static_cast<Ogre::Camera*>(NULL);
+		if (mProjectorCamera)
+		{
+			mHydrax->getSceneManager()->destroyCamera(mProjectorCamera);
+			mProjectorCamera = static_cast<Ogre::Camera*>(NULL);
+		}
 
-		mProjectorSN->detachAllObjects();
-		mProjectorSN->getParentSceneNode()->removeAndDestroyChild(mProjectorSN);
-		mProjectorSN = static_cast<Ogre::SceneNode*>(NULL);
+		if (mProjectorSN)
+		{
+			mProjectorSN->getParentSceneNode()->removeAndDestroyChild(mProjectorSN);
+			mProjectorSN = static_cast<Ogre::SceneNode*>(NULL);
+		}
 
 		mCreated = false;
 	}
@@ -420,10 +446,11 @@ namespace Hydrax
 		mProjectorSN->setDirection(-(WaterProjectionPoint-CameraPosition).normalisedCopy(), Ogre::Node::TS_WORLD);
 	}
 
-	void GodRaysManager::_createMaterials(const HydraxComponent& HC)
+	bool GodRaysManager::_createMaterials(const HydraxComponent& HC)
 	{
 		Ogre::String VertexProgramData, FragmentProgramData;
 		Ogre::GpuProgramParametersSharedPtr VP_Parameters, FP_Parameters;
+		bool GpuProgramsCreated = false;
         Ogre::String EntryPoints[2];
         if(mHydrax->getShaderMode() == MaterialManager::SM_GLSL)
         {
@@ -457,35 +484,8 @@ namespace Hydrax
 		{
 		    case MaterialManager::SM_HLSL:
 			{
-				VertexProgramData +=
-					Ogre::String(
-					"void main_vp(\n") +
-					    // IN
-						"float4 iPosition      : POSITION,\n" +
-						// OUT
-						"out float4 oPosition  : POSITION,\n";
-				if (mObjectsIntersections)
-				{
-					VertexProgramData += Ogre::String(
-						"out float3 oPosition_ : TEXCOORD0,\n") +
-						"out float4 oProjUV    : TEXCOORD1,\n" +
-						// UNIFORM
-						"uniform float4x4 uWorld,\n" +
-						"uniform float4x4 uTexViewProj,\n";
-				}
-				    VertexProgramData += Ogre::String(
-						"uniform float4x4 uWorldViewProj)\n") +
-					"{\n" +
-					    "oPosition   = mul(uWorldViewProj, iPosition);\n";
-			   if (mObjectsIntersections)
-			   {
-				   VertexProgramData += Ogre::String(
-						"float4 wPos = mul(uWorld, iPosition);\n")+
-						"oPosition_  = wPos.xyz;\n"+
-						"oProjUV     = mul(uTexViewProj, wPos);\n";
-			   }
-			       VertexProgramData +=
-					"}\n";
+				VertexProgramData = ModernHlsl::godRaysVertexSource(
+					mObjectsIntersections);
 			}
 			break;
 
@@ -515,7 +515,7 @@ namespace Hydrax
                         if (mObjectsIntersections)
                         {
                             VertexProgramData += Ogre::String(
-                            "vec4 wPos = uWorld * gl_Vertex);\n")+
+                            "vec4 wPos = uWorld * gl_Vertex;\n")+
                             "Position_  = wPos.xyz;\n"+
                             "ProjUV     = uTexViewProj * wPos;\n";
                         }
@@ -531,40 +531,9 @@ namespace Hydrax
 		{
 		    case MaterialManager::SM_HLSL:
 			{
-				if (mObjectsIntersections)
-				FragmentProgramData +=
-					Ogre::String(
-				    "void main_fp(\n") +
-						// IN
-						"float3 iPosition     : TEXCOORD0,\n" +
-	                    "float4 iProjUV       : TEXCOORD1,\n" +
-					    // OUT
-						"out float4 oColor    : COLOR,\n" +
-						// UNIFORM
-						"uniform float3    uLightPosition,\n"+
-	                    "uniform float     uLightFarClipDistance,\n" +
-	                    "uniform sampler2D uDepthMap : register(s0))\n" +
-					"{\n" +
-					    "iProjUV = iProjUV / iProjUV.w;\n"+
-						"float Depth  = tex2D(uDepthMap,  iProjUV.xy).r;\n"+
-						"if (Depth < saturate( length(iPosition-uLightPosition) / uLightFarClipDistance ))\n"+
-						"{\n"+
-						    "oColor = float4(0,0,0,1);\n"+
-						"}\n"+
-						"else\n"+
-						"{\n"+
-							"oColor = float4(float3(" + GB[NumberOfDepthChannels] + ") * 0.1, 1);\n"+
-						"}\n"+
-					"}\n";
-				else
-				FragmentProgramData +=
-					Ogre::String(
-				    "void main_fp(\n") +
-					    // OUT
-						"out float4 oColor    : COLOR)\n" +
-					"{\n" +
-						"oColor = float4(float3(" + GB[NumberOfDepthChannels] + ") * 0.1, 1);\n"+
-					"}\n";
+				FragmentProgramData = ModernHlsl::godRaysFragmentSource(
+					mObjectsIntersections,
+					NumberOfDepthChannels != 0);
 			}
 			break;
 
@@ -629,7 +598,31 @@ namespace Hydrax
 		GpuProgramsData[0] = VertexProgramData; GpuProgramsData[1] =  FragmentProgramData;
 		GpuProgramNames[0] = _def_GodRays_Shader_VP_Name; GpuProgramNames[1] = _def_GodRays_Shader_FP_Name;
 
-		mMaterialManager->fillGpuProgramsToPass(GR_Technique0_Pass0, GpuProgramNames, mHydrax->getShaderMode(), EntryPoints, GpuProgramsData);
+		if (mHydrax->getShaderMode() == MaterialManager::SM_HLSL)
+		{
+			const Ogre::String HlslTargets[2] = {"vs_4_0", "ps_4_0"};
+			GpuProgramsCreated = mMaterialManager->fillGpuProgramsToPass(
+				GR_Technique0_Pass0,
+				GpuProgramNames,
+				mHydrax->getShaderMode(),
+				EntryPoints,
+				GpuProgramsData,
+				HlslTargets);
+		}
+		else
+		{
+			GpuProgramsCreated = mMaterialManager->fillGpuProgramsToPass(
+				GR_Technique0_Pass0,
+				GpuProgramNames,
+				mHydrax->getShaderMode(),
+				EntryPoints,
+				GpuProgramsData);
+		}
+		if (!GpuProgramsCreated)
+		{
+			HydraxLOG("GodRaysManager::_createMaterials(): God Rays shader creation failed.");
+			return false;
+		}
 
 		VP_Parameters = GR_Technique0_Pass0->getVertexProgramParameters();
 		FP_Parameters = GR_Technique0_Pass0->getFragmentProgramParameters();
@@ -641,7 +634,7 @@ namespace Hydrax
 
 		if (!mObjectsIntersections)
 		{
-			return;
+			return true;
 		}
 
 		Ogre::Matrix4 TexViewProj =
@@ -675,23 +668,7 @@ namespace Hydrax
 		{
 		    case MaterialManager::SM_HLSL:
 			{
-				VertexProgramData +=
-					Ogre::String(
-					"void main_vp(\n") +
-					    // IN
-						"float4 iPosition      : POSITION,\n" +
-						"float2 iUV            : TEXCOORD0,\n" +
-						// OUT
-						"out float4 oPosition  : POSITION,\n" +
-						"out float3 oPosition_ : TEXCOORD0,\n" +
-						// UNIFORM
-						"uniform float4x4 uWorld,\n" +
-						"uniform float4x4 uWorldViewProj)\n" +
-					"{\n" +
-					    "oPosition   = mul(uWorldViewProj, iPosition);\n"+
-						"float4 wPos = mul(uWorld, iPosition);\n"+
-						"oPosition_  = wPos.xyz;\n"+
-					"}\n";
+				VertexProgramData = ModernHlsl::godRaysDepthVertexSource();
 			}
 			break;
 
@@ -720,26 +697,13 @@ namespace Hydrax
 		{
 		    case MaterialManager::SM_HLSL:
 			{
-				FragmentProgramData +=
-					Ogre::String(
-				    "void main_fp(\n") +
-						// IN
-						"float3 iPosition     : TEXCOORD0,\n" +
-					    // OUT
-						"out float4 oColor    : COLOR,\n" +
-						// UNIFORM
-	                    "uniform float3    uLightPosition,\n" +
-	                    "uniform float     uLightFarClipDistance)\n" +
-					"{\n" +
-					    "float depth = saturate( length(iPosition-uLightPosition) / uLightFarClipDistance );\n"+
-						"oColor = float4(depth, 0, 0, 0);\n"+
-					"}\n";
+				FragmentProgramData = ModernHlsl::godRaysDepthFragmentSource();
 			}
 			break;
 
 			case MaterialManager::SM_GLSL:
 			{
-				VertexProgramData += Ogre::String( "\n" ) +
+				FragmentProgramData += Ogre::String( "\n" ) +
                     // UNIFORMS
                     "uniform vec3  uLightPosition;\n" +
                     "uniform float uLightFarClipDistance;\n" +
@@ -771,7 +735,31 @@ namespace Hydrax
 		GpuProgramsData[0] = VertexProgramData; GpuProgramsData[1] =  FragmentProgramData;
 		GpuProgramNames[0] = _def_GodRaysDepth_Shader_VP_Name; GpuProgramNames[1] = _def_GodRaysDepth_Shader_FP_Name;
 
-		mMaterialManager->fillGpuProgramsToPass(GRD_Technique0_Pass0, GpuProgramNames, mHydrax->getShaderMode(), EntryPoints, GpuProgramsData);
+		if (mHydrax->getShaderMode() == MaterialManager::SM_HLSL)
+		{
+			const Ogre::String HlslTargets[2] = {"vs_4_0", "ps_4_0"};
+			GpuProgramsCreated = mMaterialManager->fillGpuProgramsToPass(
+				GRD_Technique0_Pass0,
+				GpuProgramNames,
+				mHydrax->getShaderMode(),
+				EntryPoints,
+				GpuProgramsData,
+				HlslTargets);
+		}
+		else
+		{
+			GpuProgramsCreated = mMaterialManager->fillGpuProgramsToPass(
+				GRD_Technique0_Pass0,
+				GpuProgramNames,
+				mHydrax->getShaderMode(),
+				EntryPoints,
+				GpuProgramsData);
+		}
+		if (!GpuProgramsCreated)
+		{
+			HydraxLOG("GodRaysManager::_createMaterials(): depth shader creation failed.");
+			return false;
+		}
 
 		VP_Parameters = GRD_Technique0_Pass0->getVertexProgramParameters();
 		FP_Parameters = GRD_Technique0_Pass0->getFragmentProgramParameters();
@@ -784,6 +772,8 @@ namespace Hydrax
 
 		FP_Parameters->setNamedConstant("uLightPosition", mProjectorSN->getPosition());
 		FP_Parameters->setNamedConstant("uLightFarClipDistance", mProjectorCamera->getFarClipDistance());
+
+		return true;
 	}
 
 	void GodRaysManager::addDepthTechnique(Ogre::Technique *Technique, const bool& AutoUpdate)

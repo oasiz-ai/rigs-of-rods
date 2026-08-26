@@ -3,7 +3,7 @@
 This source file is part of Hydrax.
 Visit ---
 
-Copyright (C) 2008 Xavier VerguÌn Gonz·lez <xavierverguin@hotmail.com>
+Copyright (C) 2008 Xavier Vergu√≠n Gonz√°lez <xavierverguin@hotmail.com>
                                            <xavyiy@gmail.com>
 
 This program is free software; you can redistribute it and/or modify it under
@@ -265,7 +265,7 @@ namespace Hydrax
 		/** Create materials that we need(God rays depth too if it's needed)
 		    @param HC Current Hydrax components
 		 */
-		void _createMaterials(const HydraxComponent& HC);
+		bool _createMaterials(const HydraxComponent& HC);
 
 		/** Update god rays
 		 */
