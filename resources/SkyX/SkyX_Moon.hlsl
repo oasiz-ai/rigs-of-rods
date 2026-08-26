@@ -87,7 +87,7 @@ void main_fp(
 	
 	float haloIntensity = uMoonHalo.Sample(uMoonHaloSampler, halo1UV).w*uMoonHalo1.z + uMoonHalo.Sample(uMoonHaloSampler, halo2UV).w*uMoonHalo2.z;
 	
-	haloIntensity = pow(haloIntensity, uMoonPhase.z);
+	haloIntensity = pow(max(haloIntensity, 0.0f), uMoonPhase.z);
 	
 	if (uMoonPhase.x > 0)
 	{
@@ -100,7 +100,7 @@ void main_fp(
 		oColor.rgb += saturate(haloIntensity-oColor.r)*(1-att*oColor.a);
 	}	
 
-	oColor.rgb += (1-oColor.a)*1.4*(1-pow(oColor.a,2*haloIntensity)); // Anti-alias at moon edges hack
+	oColor.rgb += (1-oColor.a)*1.4*(1-pow(max(oColor.a, 0.0f),2*haloIntensity)); // Anti-alias at moon edges hack
 	oColor.rgb = saturate(oColor.rgb);
 	
 	oColor.a = max(oColor.a, haloIntensity);

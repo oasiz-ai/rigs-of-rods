@@ -132,6 +132,21 @@ class SkyXGlslContractTests(unittest.TestCase):
         )
         self.assertIn("pow(max(intensity,0.0)", lightning_glsl)
 
+        moon_hlsl = (SKYX / "SkyX_Moon.hlsl").read_text(encoding="utf-8")
+        self.assertIn(
+            "pow(max(haloIntensity, 0.0f), uMoonPhase.z)", moon_hlsl
+        )
+        self.assertIn(
+            "pow(max(oColor.a, 0.0f),2*haloIntensity)", moon_hlsl
+        )
+        moon_glsl = (SKYX / "SkyX_Moon.fragment").read_text(encoding="utf-8")
+        self.assertIn(
+            "pow(max(haloIntensity, 0.0), uMoonPhase.z)", moon_glsl
+        )
+        self.assertIn(
+            "pow(max(fragColor.a, 0.0),2.0*haloIntensity)", moon_glsl
+        )
+
     def test_all_shader_pairs_are_core_glsl150_with_exact_interfaces(self) -> None:
         expected_stems = set(SHADER_INTERFACES)
         self.assertEqual(

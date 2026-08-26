@@ -70,6 +70,7 @@ EXPECTED_RTSHADER_LIBRARIES = {
     "SampleLib_ReflectionMap.hlsl",
 }
 MAX_COMPILER_OUTPUT_BYTES = 1024 * 1024
+MAX_AGGREGATE_COMPILER_DIAGNOSTICS_BYTES = 1024 * 1024
 MAX_SOURCE_BYTES = 8 * 1024 * 1024
 MAX_CASES = 4096
 
@@ -765,11 +766,15 @@ def compile_cases(
     immutable_inputs: ImmutableInputs,
     timeout_seconds: int = 60,
 ) -> list[dict[str, object]]:
-    """Compile cases one-by-one and return deterministic per-case evidence."""
+    """Compile every case and return evidence only when all cases succeed."""
 
     if timeout_seconds < 1 or timeout_seconds > 600:
         raise ValidationFailure("compiler timeout must be between 1 and 600 seconds")
     results: list[dict[str, object]] = []
+    compiler_failures: list[str] = []
+    compiler_failure_count = 0
+    aggregate_diagnostic_bytes = 0
+    omitted_compiler_failure_count = 0
     with tempfile.TemporaryDirectory(prefix="ror-hlsl-fxc-") as temporary:
         temporary_root = Path(temporary)
         for index, case in enumerate(cases):
@@ -811,10 +816,21 @@ def compile_cases(
                     if diagnostics
                     else "\ncompiler diagnostics: <empty>"
                 )
-                raise ValidationFailure(
+                failure = (
                     f"fxc.exe failed with exit code {completed.returncode} "
                     f"for {case.case_id}{diagnostic_suffix}"
                 )
+                compiler_failure_count += 1
+                failure_bytes = len(failure.encode("utf-8"))
+                if (
+                    aggregate_diagnostic_bytes + failure_bytes
+                    <= MAX_AGGREGATE_COMPILER_DIAGNOSTICS_BYTES
+                ):
+                    compiler_failures.append(failure)
+                    aggregate_diagnostic_bytes += failure_bytes
+                else:
+                    omitted_compiler_failure_count += 1
+                continue
             if stderr.strip():
                 raise ValidationFailure(f"fxc.exe wrote to stderr for {case.case_id}")
             if DIAGNOSTIC.search(stdout) or DIAGNOSTIC.search(stderr):
@@ -850,6 +866,19 @@ def compile_cases(
             )
             output_path.unlink()
     verify_immutable_inputs(immutable_inputs, "after compilation")
+    if compiler_failure_count:
+        omitted = (
+            "\n\n"
+            f"{omitted_compiler_failure_count} additional compiler failure(s) "
+            "omitted after the aggregate diagnostic byte limit"
+            if omitted_compiler_failure_count
+            else ""
+        )
+        raise ValidationFailure(
+            f"fxc.exe failed for {compiler_failure_count} case(s):\n\n"
+            + "\n\n".join(compiler_failures)
+            + omitted
+        )
     return results
 
 

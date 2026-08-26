@@ -61,7 +61,7 @@ void main(void)
 	
 	float haloIntensity = texture(uMoonHalo, halo1UV).w*uMoonHalo1.z + texture(uMoonHalo, halo2UV).w*uMoonHalo2.z;
 	
-	haloIntensity = pow(haloIntensity, uMoonPhase.z);
+	haloIntensity = pow(max(haloIntensity, 0.0), uMoonPhase.z);
 	
 	if (uMoonPhase.x > 0.0)
 	{
@@ -74,7 +74,7 @@ void main(void)
 		fragColor.rgb += clamp(haloIntensity-fragColor.r, 0.0, 1.0)*(1.0-att*fragColor.a);
 	}	
 
-	fragColor.rgb += (1.0-fragColor.a)*1.4*(1.0-pow(fragColor.a,2.0*haloIntensity)); // Anti-alias at moon edges hack
+	fragColor.rgb += (1.0-fragColor.a)*1.4*(1.0-pow(max(fragColor.a, 0.0),2.0*haloIntensity)); // Anti-alias at moon edges hack
 	fragColor.rgb = clamp(fragColor.rgb, 0.0, 1.0);
 	
 	fragColor.a = max(fragColor.a, haloIntensity);

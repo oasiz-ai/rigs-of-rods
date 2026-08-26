@@ -39,15 +39,6 @@ import sys
 
 arguments = sys.argv[1:]
 mode = os.environ.get("FAKE_FXC_MODE", "pass")
-if mode == "error":
-    print("error X9999: hostile compiler failure", file=sys.stderr)
-    raise SystemExit(2)
-if mode == "error-both":
-    print("hostile compiler context on stdout")
-    print("error X9997: hostile compiler failure on stderr", file=sys.stderr)
-    raise SystemExit(2)
-if mode == "error-empty":
-    raise SystemExit(2)
 
 try:
     output_index = arguments.index("/Fo") + 1
@@ -74,6 +65,16 @@ log_path = os.environ.get("FAKE_FXC_LOG")
 if log_path:
     with Path(log_path).open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, sort_keys=True) + "\n")
+
+if mode == "error":
+    print("error X9999: hostile compiler failure", file=sys.stderr)
+    raise SystemExit(2)
+if mode == "error-both":
+    print("hostile compiler context on stdout")
+    print("error X9997: hostile compiler failure on stderr", file=sys.stderr)
+    raise SystemExit(2)
+if mode == "error-empty":
+    raise SystemExit(2)
 
 if mode == "warning":
     print("warning X3557: hostile warning with successful exit")
@@ -535,11 +536,16 @@ class ModernHlslValidatorTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(expected, result.stderr)
                 if mode == "error":
+                    self.assertIn("fxc.exe failed for 97 case(s)", result.stderr)
                     self.assertIn("compiler diagnostics:", result.stderr)
                     self.assertIn("stderr:", result.stderr)
                     self.assertIn(
                         "error X9999: hostile compiler failure",
                         result.stderr,
+                    )
+                    self.assertEqual(
+                        len(self.log.read_text(encoding="utf-8").splitlines()),
+                        97,
                     )
                 self.assertFalse(self.evidence.exists())
                 self.assertFalse(list(self.repository.rglob("*.cso")))
@@ -556,6 +562,7 @@ class ModernHlslValidatorTests(unittest.TestCase):
         self.assertLess(both.stderr.index(stdout_marker), both.stderr.index(stderr_marker))
         self.assertFalse(self.evidence.exists())
 
+        self.log.unlink()
         empty = self._run(mode="error-empty")
         self.assertNotEqual(empty.returncode, 0)
         self.assertIn("compiler diagnostics: <empty>", empty.stderr)
