@@ -635,6 +635,9 @@ struct OgreNextDemoLocalLightCaptureStats
     std::size_t sanitized = 0;
     std::size_t native_shadow_requests = 0;
     std::size_t budget_dropped = 0;
+    /// Nonzero once the terrain main light has published a direction this
+    /// capture had to renormalize; see the sun-direction note below.
+    std::size_t sun_direction_renormalizations = 0;
 
     bool operator==(const OgreNextDemoLocalLightCaptureStats& other) const
     {
@@ -642,7 +645,9 @@ struct OgreNextDemoLocalLightCaptureStats
             visible == other.visible &&
             sanitized == other.sanitized &&
             native_shadow_requests == other.native_shadow_requests &&
-            budget_dropped == other.budget_dropped;
+            budget_dropped == other.budget_dropped &&
+            sun_direction_renormalizations ==
+                other.sun_direction_renormalizations;
     }
 };
 
@@ -785,11 +790,48 @@ RoR::Render::ValidationResult CaptureOgreNextDemoSceneLights(
         candidate->getSpotlightOuterAngle().valueRadians());
     input.spot_falloff = static_cast<float>(candidate->getSpotlightFalloff());
     input.casts_shadows = true;
+    // The sun's direction is renormalized here for the same reason every local
+    // light's is: the portable builder rejects a directional direction that is
+    // not unit length to within 1e-3 of its length-squared, and that rejection
+    // fails the WHOLE capture, not one light. A rejected capture is
+    // non-terminal, so the session keeps running - it just presents the last
+    // good frame forever behind live input, physics and audio, which is the
+    // worst failure shape there is.
+    //
+    // And OGRE hands us non-unit directions in ordinary use: Light::setDirection
+    // stores whatever it is given without normalizing, so any producer of the
+    // main light's direction - SkyManager already works around this with an
+    // explicit normalisedCopy(), SkyX, a terrain script, or a game script
+    // driving the sun - wedges the picture with a direction that is off by a
+    // part in a thousand. Normalizing one float3 at the boundary costs nothing
+    // and converts a session-long freeze into a census line.
     const Ogre::Vector3 direction = candidate->getDerivedDirection();
-    input.derived_direction = {
-        static_cast<float>(direction.x),
-        static_cast<float>(direction.y),
-        static_cast<float>(direction.z)};
+    const double sun_length_squared =
+        static_cast<double>(direction.x) * static_cast<double>(direction.x) +
+        static_cast<double>(direction.y) * static_cast<double>(direction.y) +
+        static_cast<double>(direction.z) * static_cast<double>(direction.z);
+    bool sun_direction_renormalized = false;
+    if (!std::isfinite(sun_length_squared) || !(sun_length_squared > 1e-12))
+    {
+        // A degenerate sun direction has no recoverable heading. Straight down
+        // is the one choice that keeps the terrain lit from above rather than
+        // from an arbitrary axis, and it is what the local path already picks.
+        input.derived_direction = {0.0F, -1.0F, 0.0F};
+        sun_direction_renormalized = true;
+    }
+    else
+    {
+        const double inverse_length = 1.0 / std::sqrt(sun_length_squared);
+        input.derived_direction = {
+            static_cast<float>(static_cast<double>(direction.x) *
+                               inverse_length),
+            static_cast<float>(static_cast<double>(direction.y) *
+                               inverse_length),
+            static_cast<float>(static_cast<double>(direction.z) *
+                               inverse_length)};
+        sun_direction_renormalized =
+            std::fabs(sun_length_squared - 1.0) > 1.0e-6;
+    }
 
     std::vector<RoR::Render::Ogre14GraphicsSceneLightCaptureInput> inputs;
     inputs.reserve(local_lights.size() + 1U);
@@ -804,6 +846,7 @@ RoR::Render::ValidationResult CaptureOgreNextDemoSceneLights(
 
     OgreNextDemoLocalLightCaptureStats stats;
     stats.discovered = local_lights.size();
+    stats.sun_direction_renormalizations = sun_direction_renormalized ? 1U : 0U;
 
     bool camera_position_valid = false;
     Ogre::Vector3 camera_position = Ogre::Vector3::ZERO;
@@ -1057,10 +1100,10 @@ RoR::Render::ValidationResult CaptureOgreNextDemoSceneLights(
         LOG(fmt::format(
             "[RoR|GfxScene|LocalLights] discovered={} visible={} "
             "sanitized={} native_shadow_requests={} budget_dropped={} "
-            "budget={}",
+            "budget={} sun_direction_renormalizations={}",
             stats.discovered, stats.visible, stats.sanitized,
             stats.native_shadow_requests, stats.budget_dropped,
-            local_budget));
+            local_budget, stats.sun_direction_renormalizations));
         last_logged_local_stats = stats;
     }
 

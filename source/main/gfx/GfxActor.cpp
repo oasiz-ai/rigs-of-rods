@@ -3222,6 +3222,57 @@ void RoR::GfxActor::FinishFlexbodyTasks()
 }
 
 // internal helper
+//
+// A headlamp is AIMED, not glued perpendicular to its lens.
+//
+// The legacy rule pointed a flare's light straight out of the lens plane and
+// then subtracted a fixed world-space 0.2 from Y to "point the real light
+// towards the ground a bit". That works only when the lens happens to face
+// forward. On a raked front fascia it does not: the AlexisSaber's front lens
+// normal already rises 17 degrees, so the legacy rule still aims the low beam
+// 5.6 degrees ABOVE the horizon and the beam lights the skyline instead of the
+// road. The defect is invisible in the legacy fixed-function renderer, where a
+// headlight is a constant-attenuation wash, and glaring in a physically shaded
+// one, where the beam is the only thing lighting the road at night.
+//
+// For the three forward-projecting types the aim is therefore derived from the
+// lens normal's HEADING only - which is what carries the vehicle's yaw, so the
+// beams still sweep as the car steers - and then depressed by a fixed
+// calibrated angle, exactly as a real headlamp is aimed on a beam setter.
+// Every other flare type keeps the legacy rule byte for byte, so no existing
+// content changes appearance.
+//
+// A lens whose normal has no usable heading (pointing straight up or down)
+// cannot be aimed this way; that one flare falls back to the legacy direction
+// rather than inventing an axis.
+Ogre::Vector3 ComputeFlareLightDirection(FlareType type,
+                                         const Ogre::Vector3& normal)
+{
+    const Ogre::Vector3 legacy_direction = -normal - Ogre::Vector3(0, 0.2, 0);
+
+    float depression_degrees = 0.0f;
+    switch (type)
+    {
+    case FlareType::HEADLIGHT:  depression_degrees = 3.0f; break;
+    case FlareType::HIGH_BEAM:  depression_degrees = 1.0f; break;
+    case FlareType::FOG_LIGHT:  depression_degrees = 6.0f; break;
+    default:                    return legacy_direction;
+    }
+
+    Ogre::Vector3 heading(-normal.x, 0.0f, -normal.z);
+    const Ogre::Real heading_length = heading.length();
+    if (!std::isfinite(heading_length) || heading_length < 1.0e-3f)
+    {
+        return legacy_direction;
+    }
+    heading /= heading_length;
+
+    const float depression_radians =
+        depression_degrees * (3.14159265358979323846f / 180.0f);
+    return heading * std::cos(depression_radians) -
+        Ogre::Vector3::UNIT_Y * std::sin(depression_radians);
+}
+
 bool ShouldEnableLightSource(FlareType type, bool is_player)
 {
     switch (App::gfx_flares_mode->getEnum<GfxFlaresMode>())
@@ -3300,8 +3351,9 @@ void RoR::GfxActor::UpdateFlares(float dt, bool is_player)
         if (flare.light)
         {
             flare.light->setPosition(mposition - 0.2 * amplitude * normal);
-            // point the real light towards the ground a bit
-            flare.light->setDirection(-normal - Ogre::Vector3(0, 0.2, 0));
+            // Aimed for the forward-projecting types, legacy nudge otherwise.
+            flare.light->setDirection(
+                ComputeFlareLightDirection(flare.fl_type, normal));
         }
         if (flare.intensity > 0)
         {
