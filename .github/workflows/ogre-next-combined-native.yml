@@ -17,6 +17,7 @@ on:
       - resources/scripts/example_deterministic_input_resume_checkpoint.as
       - resources/scripts/example_deterministic_input_save_checkpoint.as
       - resources/nextgen/native/**
+      - resources/mygui/**
       - source/main/**
       - tools/linux/RunRoR-combined
       - tools/ogre_next_probe/**
@@ -35,6 +36,7 @@ on:
       - tests/tools/test_run_deterministic_savegame_resume.py
       - tests/tools/test_run_playable_performance_scene.py
       - tests/tools/test_renderer_combined_game_wiring_contract.py
+      - tests/tools/test_mygui_glsl_contract.py
   pull_request:
     paths:
       - .github/workflows/ogre-next-combined-native.yml
@@ -50,6 +52,7 @@ on:
       - resources/scripts/example_deterministic_input_resume_checkpoint.as
       - resources/scripts/example_deterministic_input_save_checkpoint.as
       - resources/nextgen/native/**
+      - resources/mygui/**
       - source/main/**
       - tools/linux/RunRoR-combined
       - tools/ogre_next_probe/**
@@ -68,6 +71,7 @@ on:
       - tests/tools/test_run_deterministic_savegame_resume.py
       - tests/tools/test_run_playable_performance_scene.py
       - tests/tools/test_renderer_combined_game_wiring_contract.py
+      - tests/tools/test_mygui_glsl_contract.py
   workflow_dispatch:
 
 permissions:
@@ -202,12 +206,14 @@ jobs:
           python tests/tools/test_run_agora_impact_regression.py
           python tests/tools/test_run_deterministic_savegame_resume.py
           python tests/tools/test_renderer_combined_game_wiring_contract.py
+          python tests/tools/test_mygui_glsl_contract.py
           python -O tests/tools/test_ogre_next_combined_provider_contract.py
           python -O tests/tools/test_ogre_next_embedded_namespace_contract.py
           python -O tests/tools/test_run_playable_performance_scene.py
           python -O tests/tools/test_run_agora_impact_regression.py
           python -O tests/tools/test_run_deterministic_savegame_resume.py
           python -O tests/tools/test_renderer_combined_game_wiring_contract.py
+          python -O tests/tools/test_mygui_glsl_contract.py
 
       - name: Verify the locked native Conan graph
         shell: bash
@@ -560,6 +566,11 @@ jobs:
           PY
           grep -Fq '===== LOADING TERRAIN simple2_a.terrn2' "$scene/RoR.log"
           grep -Fq '== Spawning vehicle: Daf Semi truck' "$scene/RoR.log"
+          if grep -Eq "Program '[^']+\\.(glsl|glsles)' is not supported" \
+              "$scene/RoR.log" "$scene/console.txt"; then
+            echo 'MyGUI GLSL compilation failed in the packaged combined runtime' >&2
+            exit 1
+          fi
           if grep -Fq -- '--native-visual-showcase' "$scene/performance-run.json"; then
             echo 'packaged scene smoke selected the renderer-only showcase' >&2
             exit 1
@@ -914,12 +925,14 @@ jobs:
           python tests/tools/test_run_agora_impact_regression.py
           python tests/tools/test_run_deterministic_savegame_resume.py
           python tests/tools/test_renderer_combined_game_wiring_contract.py
+          python tests/tools/test_mygui_glsl_contract.py
           python -O tests/tools/test_ogre_next_combined_provider_contract.py
           python -O tests/tools/test_ogre_next_embedded_namespace_contract.py
           python -O tests/tools/test_run_playable_performance_scene.py
           python -O tests/tools/test_run_agora_impact_regression.py
           python -O tests/tools/test_run_deterministic_savegame_resume.py
           python -O tests/tools/test_renderer_combined_game_wiring_contract.py
+          python -O tests/tools/test_mygui_glsl_contract.py
 
       - name: Verify the locked native Conan graph
         shell: bash
@@ -1507,12 +1520,14 @@ jobs:
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_run_agora_impact_regression.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_run_deterministic_savegame_resume.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_renderer_combined_game_wiring_contract.py')
+          Invoke-CheckedPython -PythonArguments @('tests/tools/test_mygui_glsl_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_ogre_next_combined_provider_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_ogre_next_embedded_namespace_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_playable_performance_scene.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_agora_impact_regression.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_deterministic_savegame_resume.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_renderer_combined_game_wiring_contract.py')
+          Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_mygui_glsl_contract.py')
 
       - name: Verify the locked native Conan graph
         shell: pwsh

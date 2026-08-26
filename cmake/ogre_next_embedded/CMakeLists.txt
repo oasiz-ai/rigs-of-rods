@@ -611,6 +611,7 @@ list(APPEND _ror_provider_manifest_files
     "tests/tools/test_ogre_next_combined_provider_contract.py"
     "tests/tools/test_run_deterministic_savegame_resume.py"
     "tests/tools/test_run_playable_performance_scene.py"
+    "tests/tools/test_mygui_glsl_contract.py"
     "cmake/OgreNextEmbeddedRuntime.cmake"
     "tools/run_playable_performance_scene.py"
     "tools/run_deterministic_savegame_resume.py"
