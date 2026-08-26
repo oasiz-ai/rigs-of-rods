@@ -130,6 +130,19 @@ struct MaterialDetailLayerDeclaration final {
 [[nodiscard]] std::string
 BuildMaterialDetailLayerCompanionName(std::string_view base_material_name);
 
+/// A stable identity for what the companion SCRIPT asks for, independent of
+/// whether the artwork could be captured this frame.
+///
+/// This is what enters a projection key. Deriving identity from captured
+/// state instead would make the key depend on transient resource residency:
+/// an unrendered companion's textures can be unloaded by the resource manager
+/// at any time, and the projection would then appear to have changed
+/// authority every frame after that. The script is the thing that actually
+/// decides what the material means, so the script is what identity tracks.
+[[nodiscard]] std::string
+BuildMaterialDetailLayerDeclarationIdentity(
+    const MaterialDetailLayerDeclaration &declaration);
+
 /// Reads the companion material's declaration.
 ///
 /// The vocabulary is ordinary OGRE material script: every value below is read

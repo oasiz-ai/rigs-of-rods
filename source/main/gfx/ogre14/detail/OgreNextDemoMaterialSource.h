@@ -279,6 +279,7 @@ private:
       const Ogre::MaterialPtr &native_material,
       CapturedDetailLayers &layers,
       Detail::MaterialDetailLayerRefusal &refusal,
+      std::string &declaration_identity,
       Render::ValidationResult &failure);
 
   [[nodiscard]] bool TryProjectCurrent(

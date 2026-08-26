@@ -3747,8 +3747,9 @@ void OgreNextDemoMaterialSource::EnsurePendingCacheWritable() {
 bool OgreNextDemoMaterialSource::CaptureDetailLayers(
     const Ogre::MaterialPtr &native_material, CapturedDetailLayers &layers,
     Detail::MaterialDetailLayerRefusal &refusal,
-    Render::ValidationResult &failure) {
+    std::string &declaration_identity, Render::ValidationResult &failure) {
   layers = CapturedDetailLayers{};
+  declaration_identity.clear();
   refusal = Detail::MaterialDetailLayerRefusal::ABSENT;
   if (!native_material || ordinary_texture_source_resolver_ == nullptr) {
     return true;
@@ -3775,8 +3776,16 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
   }
   if (!Detail::ReadMaterialDetailLayerDeclaration(companion, declaration,
                                                   refusal)) {
+    // A companion that exists but cannot be read is a stable property of the
+    // script, so it still identifies the projection.
+    declaration_identity = "ror_detail_layers_v1_refused";
+    declaration_identity.push_back('\x1f');
+    declaration_identity.append(
+        Detail::MaterialDetailLayerRefusalToken(refusal));
     return true;
   }
+  declaration_identity =
+      Detail::BuildMaterialDetailLayerDeclarationIdentity(declaration);
 
   const Ogre::Pass *const companion_pass =
       companion->getTechnique(0U)->getPass(0U);
@@ -3795,9 +3804,16 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
       refusal = Detail::MaterialDetailLayerRefusal::UNIT_TEXTURE_UNSUPPORTED;
       return false;
     }
-    const Ogre::TexturePtr native_texture = unit->_getTexturePtr();
+    Ogre::TexturePtr native_texture = unit->_getTexturePtr();
+    if (native_texture && !native_texture->isLoaded()) {
+      try {
+        native_texture->load();
+      } catch (...) {
+        // Fall through to the residency check below.
+      }
+    }
     if (!native_texture || !native_texture->isLoaded()) {
-      refusal = Detail::MaterialDetailLayerRefusal::UNIT_TEXTURE_UNSUPPORTED;
+      refusal = Detail::MaterialDetailLayerRefusal::ARTWORK_UNRESOLVABLE;
       return false;
     }
     OgreNextDemoExactTextureObservation texture_observation;
@@ -4435,18 +4451,20 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
   CapturedDetailLayers detail_layers;
   Detail::MaterialDetailLayerRefusal detail_refusal =
       Detail::MaterialDetailLayerRefusal::ABSENT;
+  std::string detail_declaration_identity;
   if (!CaptureDetailLayers(native_material, detail_layers, detail_refusal,
-                           failure)) {
+                           detail_declaration_identity, failure)) {
     return false;
   }
-  if (detail_layers.declared) {
-    AppendField(projection_key, detail_layers.identity);
-  } else if (detail_refusal != Detail::MaterialDetailLayerRefusal::ABSENT) {
-    // A refused declaration still changes what this projection means, so it
-    // enters identity too; otherwise a fixed companion could never promote.
+  // Identity tracks what the companion SCRIPT asks for, not whether this
+  // frame managed to capture it. Keying on captured state would make the
+  // projection depend on transient resource residency: nothing draws a
+  // companion, so its textures can be evicted at any time, and every frame
+  // after that would look like an authority change and be dropped.
+  if (!detail_declaration_identity.empty()) {
     AppendField(projection_key, kMaterialDetailLayerPolicy);
-    AppendField(projection_key,
-                Detail::MaterialDetailLayerRefusalToken(detail_refusal));
+    AppendNumber(projection_key, kMaterialDetailLayerPolicyVersion);
+    AppendField(projection_key, detail_declaration_identity);
   }
   // A managed declaration with no authored specular output does not change
   // the portable material. Retain the exact opaque-v2 ID/name and keep its

@@ -15,6 +15,7 @@
 #include <OgreTextureUnitState.h>
 
 #include <cmath>
+#include <cstring>
 #include <cstdlib>
 #include <limits>
 
@@ -220,6 +221,45 @@ BuildMaterialDetailLayerCompanionName(std::string_view base_material_name) {
   std::string name(kMaterialDetailLayerCompanionPrefix);
   name.append(base_material_name);
   return name;
+}
+
+std::string BuildMaterialDetailLayerDeclarationIdentity(
+    const MaterialDetailLayerDeclaration &declaration) {
+  // Fixed-width field separators so no two distinct declarations can collide
+  // by concatenation, and every field appears for every layer whether or not
+  // it is declared.
+  std::string identity = "ror_detail_layers_v1";
+  const auto append = [&identity](std::string_view field) {
+    identity.push_back('\x1f');
+    identity.append(field);
+  };
+  const auto append_float = [&identity](float value) {
+    identity.push_back('\x1f');
+    static_assert(sizeof(float) == 4U);
+    std::uint32_t bits = 0U;
+    std::memcpy(&bits, &value, sizeof(bits));
+    for (int shift = 24; shift >= 0; shift -= 8) {
+      const auto nibble = static_cast<unsigned>((bits >> shift) & 0xFFU);
+      const char digits[] = "0123456789abcdef";
+      identity.push_back(digits[(nibble >> 4U) & 0xFU]);
+      identity.push_back(digits[nibble & 0xFU]);
+    }
+  };
+  append(declaration.weight_mask_texture_name);
+  for (const MaterialDetailLayerRequest &layer : declaration.layers) {
+    append(layer.albedo_texture_name);
+    append(layer.normal_texture_name);
+    const char *const token =
+        Render::MaterialDetailBlendModeToken(layer.blend_mode);
+    append(token != nullptr ? token : "unknown");
+    append_float(layer.weight);
+    append_float(layer.normal_weight);
+    append_float(layer.scale.x);
+    append_float(layer.scale.y);
+    append_float(layer.offset.x);
+    append_float(layer.offset.y);
+  }
+  return identity;
 }
 
 bool ReadMaterialDetailLayerDeclaration(
