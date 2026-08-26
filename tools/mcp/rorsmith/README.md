@@ -29,12 +29,21 @@ rather than approximating when it cannot author something exactly.
 }
 ```
 
-Standalone checks:
+Standalone checks, from the repository root:
 
 ```sh
+# tool inventory and one direct call - these do NOT construct the MCP server
 uv run --directory tools/mcp/rorsmith rorsmith --selftest
 uv run --directory tools/mcp/rorsmith rorsmith --call renderer_policy '{}'
+
+# the real thing: spawn the server as .mcp.json declares it, complete
+# `initialize`, enumerate the tools, and make one read-only call
+uv run --directory tools/mcp/rorsmith python selftest_protocol.py
 ```
+
+Run `selftest_protocol.py` after any change to `server.py` or to the `mcp`
+dependency. The other two paths never build the server, so they stay green
+while the protocol is broken.
 
 ## Tools
 
