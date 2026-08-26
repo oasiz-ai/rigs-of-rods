@@ -195,7 +195,7 @@ class FrameTimeBudgetContractTests(unittest.TestCase):
         self.assertIn("DoubleBits(seconds)", self.source)
         self.assertNotIn("rejected_frames_ = 0", self.source)
 
-    def test_tsan_scene_proves_readiness_without_relaxing_warmup(self) -> None:
+    def test_tsan_scene_uses_bounded_native_settling_warmup(self) -> None:
         workflow = (
             ROOT / ".github/workflows/ogre-next-combined-tsan.yml"
         ).read_text()
@@ -206,7 +206,22 @@ class FrameTimeBudgetContractTests(unittest.TestCase):
             "tests/tools/test_frame_time_budget_contract.py",
         ):
             self.assertIn(f"      - {trigger}\n", workflow)
-        self.assertIn("--warmup-frames 2", workflow)
+        # This is eight completed intervals after the exact native readiness
+        # marker, not a wall-clock sleep. Deferred reflection publication has
+        # a four-frame latency and source-backed particles settle after the
+        # initial scene; the additional frames keep that bounded cold work in
+        # warmup while the production ten-second ceiling remains unchanged.
+        self.assertIn("--warmup-frames 8", workflow)
+        self.assertNotIn("--allow-above-maximum", workflow)
+        self.assertIn('              "warmup_frames_requested": 8,', workflow)
+        self.assertIn('              "warmup_frames": 8,', workflow)
+        self.assertIn('              "observed_frames": 32,', workflow)
+        self.assertIn('              "accepted_frames": 24,', workflow)
+        self.assertIn('              "rejected_frames": 0,', workflow)
+        self.assertIn(
+            '              "rejected_frame_intervals_above_maximum": 0,',
+            workflow,
+        )
         self.assertIn(
             "readiness_marker='[RoR|Perf] Native scene measurement ready:'",
             workflow,
