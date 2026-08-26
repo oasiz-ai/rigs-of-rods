@@ -1,203 +1,437 @@
-//  ambient
-vertex_program ambient_vs cg
+// Modern GL3Plus/D3D11 closure for the historical general shader family.
+
+vertex_program ambient_vs/GL3Plus glsl
 {
-	source general.cg
-	profiles vs_1_1 arbvp1
-	entry_point ambient_vs
- 
-	default_params
-	{
-		param_named_auto wvpMat worldviewproj_matrix
-	}
-}
- 
-fragment_program ambient_ps cg
-{
-	source general.cg
-	profiles ps_2_0 arbfp1
-	entry_point ambient_ps
- 
-	default_params
-	{
-		param_named_auto ambient ambient_light_colour
-		param_named_auto matDif surface_diffuse_colour
-	}
+    syntax glsl330
+    source general_gl3plus.glsl
+    preprocessor_defines GENERAL_VERTEX_AMBIENT=1
+    default_params
+    {
+        param_named_auto wvpMat worldviewproj_matrix
+    }
 }
 
-
-//  render
-//--------------------------------------------------------------------------------------------------
-vertex_program render_vs cg
+vertex_program ambient_vs/D3D11 hlsl
 {
-	source general.cg
-	profiles vs_1_1 arbvp1
-	entry_point render_vs
- 
-	default_params
-	{
-		param_named_auto wMat world_matrix
-		param_named_auto wvpMat worldviewproj_matrix
-	}
-}
- 
-fragment_program render_ps cg
-{
-	source general.cg
-	profiles ps_2_x arbfp1
-	entry_point render_ps
- 
-	default_params
-	{
-		param_named_auto  ambient  surface_ambient_colour
-		param_named_auto  matDif  surface_diffuse_colour
-	}
+    source general_d3d11.hlsl
+    entry_point GeneralAmbientVS
+    target vs_4_0
+    preprocessor_defines GENERAL_VERTEX_AMBIENT=1
+    default_params
+    {
+        param_named_auto wvpMat worldviewproj_matrix
+    }
 }
 
-fragment_program render_gr_ps cg
+fragment_program ambient_ps/GL3Plus glsl
 {
-	source general.cg
-	profiles ps_2_x arbfp1
-	entry_point render_gr_ps
+    syntax glsl330
+    source general_gl3plus.glsl
+    preprocessor_defines GENERAL_FRAGMENT_AMBIENT=1
+    default_params
+    {
+        param_named_auto ambient ambient_light_colour
+        param_named_auto matDif surface_diffuse_colour
+        param_named diffuseMap int 0
+    }
 }
 
-
-//  diffuse
-//--------------------------------------------------------------------------------------------------
-vertex_program diffuse_vs cg
+fragment_program ambient_ps/D3D11 hlsl
 {
-	source general.cg
-	profiles vs_1_1 arbvp1
-	entry_point diffuse_vs
- 
-	default_params
-	{
-		param_named_auto wMat world_matrix
-		param_named_auto wvpMat worldviewproj_matrix
-		param_named_auto fogParams fog_params
-	}
-}
- 
-fragment_program diffuse_ps cg
-{
-	source general.cg
-	profiles ps_2_x arbfp1
-	entry_point diffuse_ps
- 
-	default_params
-	{
-		param_named_auto  ambient  surface_ambient_colour
-		param_named_auto  lightDif0  light_diffuse_colour 0
-		param_named_auto  lightSpec0  light_specular_colour 0
-		param_named_auto  matDif  surface_diffuse_colour
-		param_named_auto  matSpec  surface_specular_colour
-		param_named_auto  matShininess  surface_shininess
-		param_named_auto  fogColor fog_colour
-		
-		param_named_auto  camPos  camera_position
-		param_named_auto  lightPos0  light_position 0
-		param_named_auto  iTWMat  inverse_transpose_world_matrix
-	}
+    source general_d3d11.hlsl
+    entry_point GeneralAmbientPS
+    target ps_4_0
+    preprocessor_defines GENERAL_FRAGMENT_AMBIENT=1
+    default_params
+    {
+        param_named_auto ambient ambient_light_colour
+        param_named_auto matDif surface_diffuse_colour
+    }
 }
 
-
-//  env reflect
-fragment_program diffuse_ps_env cg
+vertex_program render_vs/GL3Plus glsl
 {
-	source general.cg
-	profiles ps_2_x arbfp1
-	entry_point diffuse_ps_env
- 
-	default_params
-	{
-		//param_named_auto lightAmbient  derived_ambient_light_colour
-		//param_named_auto lightDiffuse  derived_light_diffuse_colour 0 
-		//param_named_auto lightSpecular derived_light_specular_colour 0 
-
-		param_named_auto  ambient  surface_ambient_colour
-		param_named_auto  lightDif0  light_diffuse_colour 0
-		param_named_auto  lightSpec0  light_specular_colour 0
-		param_named_auto  matDif  surface_diffuse_colour
-		param_named_auto  matSpec  surface_specular_colour
-		param_named_auto  matShininess  surface_shininess
-		param_named_auto  fogColor fog_colour
-		
-		param_named_auto  camPos  camera_position
-		param_named_auto  lightPos0  light_position 0
-		param_named_auto  iTWMat  inverse_transpose_world_matrix
-	}
+    syntax glsl330
+    source general_gl3plus.glsl
+    preprocessor_defines GENERAL_VERTEX_RENDER=1
+    default_params
+    {
+        param_named_auto wMat world_matrix
+        param_named_auto wvpMat worldviewproj_matrix
+    }
 }
 
-
-//  shadows
-//--------------------------------------------------------------------------------------------------
-vertex_program diffuse_sh_vs cg
+vertex_program render_vs/D3D11 hlsl
 {
-	source general.cg
-	profiles vs_1_1 arbvp1
-	entry_point diffuse_sh_vs
- 
-	default_params
-	{
-		param_named_auto wMat world_matrix
-		param_named_auto wvpMat worldviewproj_matrix
-		param_named_auto fogParams fog_params
-
-		param_named_auto texWVPMat0  texture_worldviewproj_matrix 0
-		param_named_auto texWVPMat1  texture_worldviewproj_matrix 1
-		param_named_auto texWVPMat2  texture_worldviewproj_matrix 2
-	}
+    source general_d3d11.hlsl
+    entry_point GeneralRenderVS
+    target vs_4_0
+    preprocessor_defines GENERAL_VERTEX_RENDER=1
+    default_params
+    {
+        param_named_auto wMat world_matrix
+        param_named_auto wvpMat worldviewproj_matrix
+    }
 }
- 
-fragment_program diffuse_sh_ps cg
-{
-	source general.cg
-	profiles ps_2_x arbfp1 
-	entry_point diffuse_sh_ps
- 
-	default_params
-	{
-		param_named_auto  ambient  surface_ambient_colour
-		param_named_auto  lightDif0  light_diffuse_colour 0
-		param_named_auto  lightSpec0  light_specular_colour 0
-		param_named_auto  matDif  surface_diffuse_colour
-		param_named_auto  matSpec  surface_specular_colour
-		param_named_auto  matShininess  surface_shininess
-		param_named_auto  fogColor fog_colour 
-		
-		param_named_auto  camPos  camera_position
-		param_named_auto  lightPos0  light_position 0
-		param_named_auto  iTWMat  inverse_transpose_world_matrix
 
-		param_named_auto invShadowMapSize0 inverse_texture_size 0
-		param_named_auto invShadowMapSize1 inverse_texture_size 1
-		param_named_auto invShadowMapSize2 inverse_texture_size 2
-		param_named pssmSplitPoints float4 1.0 187 774 10000.0
-	}
+fragment_program render_ps/GL3Plus glsl
+{
+    syntax glsl330
+    source general_gl3plus.glsl
+    preprocessor_defines GENERAL_FRAGMENT_RENDER=1
+    default_params
+    {
+        param_named_auto ambient surface_ambient_colour
+        param_named_auto matDif surface_diffuse_colour
+    }
 }
- 
-fragment_program diffuse_sh_a_ps cg
-{
-	source general.cg
-	profiles ps_2_x arbfp1 
-	entry_point diffuse_sh_a_ps
- 
-	default_params
-	{
-		param_named_auto  ambient  surface_ambient_colour
-		param_named_auto  lightDif0  light_diffuse_colour 0
-		param_named_auto  lightSpec0  light_specular_colour 0
-		param_named_auto  matDif  surface_diffuse_colour
-		param_named_auto  matSpec  surface_specular_colour
-		param_named_auto  matShininess  surface_shininess
-		param_named_auto  fogColor fog_colour 
-		
-		param_named_auto  camPos  camera_position
-		param_named_auto  lightPos0  light_position 0
-		param_named_auto  iTWMat  inverse_transpose_world_matrix
 
-		param_named_auto invShadowMapSize0 inverse_texture_size 0
-		param_named_auto invShadowMapSize1 inverse_texture_size 1
-		param_named_auto invShadowMapSize2 inverse_texture_size 2
-		param_named pssmSplitPoints float4 1.0 187 774 10000.0
-	}
+fragment_program render_ps/D3D11 hlsl
+{
+    source general_d3d11.hlsl
+    entry_point GeneralRenderPS
+    target ps_4_0
+    preprocessor_defines GENERAL_FRAGMENT_RENDER=1
+    default_params
+    {
+        param_named_auto ambient surface_ambient_colour
+        param_named_auto matDif surface_diffuse_colour
+    }
+}
+
+fragment_program render_gr_ps/GL3Plus glsl
+{
+    syntax glsl330
+    source general_gl3plus.glsl
+    preprocessor_defines GENERAL_FRAGMENT_RENDER_GRASS=1
+}
+
+fragment_program render_gr_ps/D3D11 hlsl
+{
+    source general_d3d11.hlsl
+    entry_point GeneralRenderGrassPS
+    target ps_4_0
+    preprocessor_defines GENERAL_FRAGMENT_RENDER_GRASS=1
+}
+
+vertex_program diffuse_vs/GL3Plus glsl
+{
+    syntax glsl330
+    source general_gl3plus.glsl
+    preprocessor_defines GENERAL_VERTEX_DIFFUSE=1
+    default_params
+    {
+        param_named_auto wMat world_matrix
+        param_named_auto wvpMat worldviewproj_matrix
+        param_named_auto fogParams fog_params
+    }
+}
+
+vertex_program diffuse_vs/D3D11 hlsl
+{
+    source general_d3d11.hlsl
+    entry_point GeneralDiffuseVS
+    target vs_4_0
+    preprocessor_defines GENERAL_VERTEX_DIFFUSE=1
+    default_params
+    {
+        param_named_auto wMat world_matrix
+        param_named_auto wvpMat worldviewproj_matrix
+        param_named_auto fogParams fog_params
+    }
+}
+
+fragment_program diffuse_ps/GL3Plus glsl
+{
+    syntax glsl330
+    source general_gl3plus.glsl
+    preprocessor_defines GENERAL_FRAGMENT_DIFFUSE=1
+    default_params
+    {
+        param_named_auto ambient surface_ambient_colour
+        param_named_auto lightDif0 light_diffuse_colour 0
+        param_named_auto lightSpec0 light_specular_colour 0
+        param_named_auto matDif surface_diffuse_colour
+        param_named_auto matSpec surface_specular_colour
+        param_named_auto matShininess surface_shininess
+        param_named_auto fogColor fog_colour
+        param_named_auto camPos camera_position
+        param_named_auto lightPos0 light_position 0
+        param_named_auto iTWMat inverse_transpose_world_matrix
+        param_named diffuseMap int 0
+        param_named normalMap int 1
+    }
+}
+
+fragment_program diffuse_ps/D3D11 hlsl
+{
+    source general_d3d11.hlsl
+    entry_point GeneralDiffusePS
+    target ps_4_0
+    preprocessor_defines GENERAL_FRAGMENT_DIFFUSE=1
+    default_params
+    {
+        param_named_auto ambient surface_ambient_colour
+        param_named_auto lightDif0 light_diffuse_colour 0
+        param_named_auto lightSpec0 light_specular_colour 0
+        param_named_auto matDif surface_diffuse_colour
+        param_named_auto matSpec surface_specular_colour
+        param_named_auto matShininess surface_shininess
+        param_named_auto fogColor fog_colour
+        param_named_auto camPos camera_position
+        param_named_auto lightPos0 light_position 0
+        param_named_auto iTWMat inverse_transpose_world_matrix
+    }
+}
+
+fragment_program diffuse_ps_env/GL3Plus glsl
+{
+    syntax glsl330
+    source general_gl3plus.glsl
+    preprocessor_defines GENERAL_FRAGMENT_ENV=1
+    default_params
+    {
+        param_named_auto ambient surface_ambient_colour
+        param_named_auto lightDif0 light_diffuse_colour 0
+        param_named_auto lightSpec0 light_specular_colour 0
+        param_named_auto matDif surface_diffuse_colour
+        param_named_auto matSpec surface_specular_colour
+        param_named_auto matShininess surface_shininess
+        param_named_auto fogColor fog_colour
+        param_named_auto camPos camera_position
+        param_named_auto lightPos0 light_position 0
+        param_named_auto iTWMat inverse_transpose_world_matrix
+        param_named diffuseMap int 0
+        param_named normalMap int 1
+        param_named envMap int 2
+    }
+}
+
+fragment_program diffuse_ps_env/D3D11 hlsl
+{
+    source general_d3d11.hlsl
+    entry_point GeneralEnvironmentPS
+    target ps_4_0
+    preprocessor_defines GENERAL_FRAGMENT_ENV=1
+    default_params
+    {
+        param_named_auto ambient surface_ambient_colour
+        param_named_auto lightDif0 light_diffuse_colour 0
+        param_named_auto lightSpec0 light_specular_colour 0
+        param_named_auto matDif surface_diffuse_colour
+        param_named_auto matSpec surface_specular_colour
+        param_named_auto matShininess surface_shininess
+        param_named_auto fogColor fog_colour
+        param_named_auto camPos camera_position
+        param_named_auto lightPos0 light_position 0
+        param_named_auto iTWMat inverse_transpose_world_matrix
+    }
+}
+
+vertex_program diffuse_sh_vs/GL3Plus glsl
+{
+    syntax glsl330
+    source general_gl3plus.glsl
+    preprocessor_defines GENERAL_VERTEX_SHADOW=1
+    default_params
+    {
+        param_named_auto wMat world_matrix
+        param_named_auto wvpMat worldviewproj_matrix
+        param_named_auto fogParams fog_params
+        param_named_auto texWVPMat0 texture_worldviewproj_matrix 0
+        param_named_auto texWVPMat1 texture_worldviewproj_matrix 1
+        param_named_auto texWVPMat2 texture_worldviewproj_matrix 2
+    }
+}
+
+vertex_program diffuse_sh_vs/D3D11 hlsl
+{
+    source general_d3d11.hlsl
+    entry_point GeneralShadowVS
+    target vs_4_0
+    preprocessor_defines GENERAL_VERTEX_SHADOW=1
+    default_params
+    {
+        param_named_auto wMat world_matrix
+        param_named_auto wvpMat worldviewproj_matrix
+        param_named_auto fogParams fog_params
+        param_named_auto texWVPMat0 texture_worldviewproj_matrix 0
+        param_named_auto texWVPMat1 texture_worldviewproj_matrix 1
+        param_named_auto texWVPMat2 texture_worldviewproj_matrix 2
+    }
+}
+
+fragment_program diffuse_sh_ps/GL3Plus glsl
+{
+    syntax glsl330
+    source general_gl3plus.glsl
+    preprocessor_defines GENERAL_FRAGMENT_SHADOW=1
+    default_params
+    {
+        param_named_auto ambient surface_ambient_colour
+        param_named_auto lightDif0 light_diffuse_colour 0
+        param_named_auto lightSpec0 light_specular_colour 0
+        param_named_auto matDif surface_diffuse_colour
+        param_named_auto matSpec surface_specular_colour
+        param_named_auto matShininess surface_shininess
+        param_named_auto fogColor fog_colour
+        param_named_auto camPos camera_position
+        param_named_auto lightPos0 light_position 0
+        param_named_auto iTWMat inverse_transpose_world_matrix
+        param_named_auto invShadowMapSize0 inverse_texture_size 0
+        param_named_auto invShadowMapSize1 inverse_texture_size 1
+        param_named_auto invShadowMapSize2 inverse_texture_size 2
+        param_named pssmSplitPoints float4 1.0 187 774 10000.0
+        param_named diffuseMap int 0
+        param_named normalMap int 1
+        param_named shadowMap0 int 2
+        param_named shadowMap1 int 3
+        param_named shadowMap2 int 4
+    }
+}
+
+fragment_program diffuse_sh_ps/D3D11 hlsl
+{
+    source general_d3d11.hlsl
+    entry_point GeneralShadowPS
+    target ps_4_0
+    preprocessor_defines GENERAL_FRAGMENT_SHADOW=1
+    default_params
+    {
+        param_named_auto ambient surface_ambient_colour
+        param_named_auto lightDif0 light_diffuse_colour 0
+        param_named_auto lightSpec0 light_specular_colour 0
+        param_named_auto matDif surface_diffuse_colour
+        param_named_auto matSpec surface_specular_colour
+        param_named_auto matShininess surface_shininess
+        param_named_auto fogColor fog_colour
+        param_named_auto camPos camera_position
+        param_named_auto lightPos0 light_position 0
+        param_named_auto iTWMat inverse_transpose_world_matrix
+        param_named_auto invShadowMapSize0 inverse_texture_size 0
+        param_named_auto invShadowMapSize1 inverse_texture_size 1
+        param_named_auto invShadowMapSize2 inverse_texture_size 2
+        param_named pssmSplitPoints float4 1.0 187 774 10000.0
+    }
+}
+
+fragment_program diffuse_sh_a_ps/GL3Plus glsl
+{
+    syntax glsl330
+    source general_gl3plus.glsl
+    preprocessor_defines GENERAL_FRAGMENT_SHADOW_ALPHA=1
+    default_params
+    {
+        param_named_auto ambient surface_ambient_colour
+        param_named_auto lightDif0 light_diffuse_colour 0
+        param_named_auto lightSpec0 light_specular_colour 0
+        param_named_auto matDif surface_diffuse_colour
+        param_named_auto matSpec surface_specular_colour
+        param_named_auto matShininess surface_shininess
+        param_named_auto fogColor fog_colour
+        param_named_auto camPos camera_position
+        param_named_auto lightPos0 light_position 0
+        param_named_auto iTWMat inverse_transpose_world_matrix
+        param_named_auto invShadowMapSize0 inverse_texture_size 0
+        param_named_auto invShadowMapSize1 inverse_texture_size 1
+        param_named_auto invShadowMapSize2 inverse_texture_size 2
+        param_named pssmSplitPoints float4 1.0 187 774 10000.0
+        param_named diffuseMap int 0
+        param_named diffuseAlpha int 1
+        param_named normalMap int 2
+        param_named shadowMap0 int 3
+        param_named shadowMap1 int 4
+        param_named shadowMap2 int 5
+    }
+}
+
+fragment_program diffuse_sh_a_ps/D3D11 hlsl
+{
+    source general_d3d11.hlsl
+    entry_point GeneralShadowAlphaPS
+    target ps_4_0
+    preprocessor_defines GENERAL_FRAGMENT_SHADOW_ALPHA=1
+    default_params
+    {
+        param_named_auto ambient surface_ambient_colour
+        param_named_auto lightDif0 light_diffuse_colour 0
+        param_named_auto lightSpec0 light_specular_colour 0
+        param_named_auto matDif surface_diffuse_colour
+        param_named_auto matSpec surface_specular_colour
+        param_named_auto matShininess surface_shininess
+        param_named_auto fogColor fog_colour
+        param_named_auto camPos camera_position
+        param_named_auto lightPos0 light_position 0
+        param_named_auto iTWMat inverse_transpose_world_matrix
+        param_named_auto invShadowMapSize0 inverse_texture_size 0
+        param_named_auto invShadowMapSize1 inverse_texture_size 1
+        param_named_auto invShadowMapSize2 inverse_texture_size 2
+        param_named pssmSplitPoints float4 1.0 187 774 10000.0
+    }
+}
+
+vertex_program ambient_vs unified
+{
+    delegate ambient_vs/GL3Plus
+    delegate ambient_vs/D3D11
+}
+
+fragment_program ambient_ps unified
+{
+    delegate ambient_ps/GL3Plus
+    delegate ambient_ps/D3D11
+}
+
+vertex_program render_vs unified
+{
+    delegate render_vs/GL3Plus
+    delegate render_vs/D3D11
+}
+
+fragment_program render_ps unified
+{
+    delegate render_ps/GL3Plus
+    delegate render_ps/D3D11
+}
+
+fragment_program render_gr_ps unified
+{
+    delegate render_gr_ps/GL3Plus
+    delegate render_gr_ps/D3D11
+}
+
+vertex_program diffuse_vs unified
+{
+    delegate diffuse_vs/GL3Plus
+    delegate diffuse_vs/D3D11
+}
+
+fragment_program diffuse_ps unified
+{
+    delegate diffuse_ps/GL3Plus
+    delegate diffuse_ps/D3D11
+}
+
+fragment_program diffuse_ps_env unified
+{
+    delegate diffuse_ps_env/GL3Plus
+    delegate diffuse_ps_env/D3D11
+}
+
+vertex_program diffuse_sh_vs unified
+{
+    delegate diffuse_sh_vs/GL3Plus
+    delegate diffuse_sh_vs/D3D11
+}
+
+fragment_program diffuse_sh_ps unified
+{
+    delegate diffuse_sh_ps/GL3Plus
+    delegate diffuse_sh_ps/D3D11
+}
+
+fragment_program diffuse_sh_a_ps unified
+{
+    delegate diffuse_sh_a_ps/GL3Plus
+    delegate diffuse_sh_a_ps/D3D11
 }

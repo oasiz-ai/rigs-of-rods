@@ -13,9 +13,19 @@ on:
       - resources/nextgen/native/**
       - resources/mygui/**
       - resources/SkyX/**
-      - resources/OgreCore/StdQuad_vp.glsl
       - resources/OgreCore/StdQuad_vp.program
+      - resources/OgreCore/StdQuad_vp*
       - resources/rtshader/**
+      - resources/materials/fresnel.material
+      - resources/materials/Example_Fresnel_*
+      - resources/materials/grass.material
+      - resources/materials/grass_*
+      - resources/materials/general*
+      - resources/materials/nicemetal*
+      - resources/managed_materials/nicemetal_mm*
+      - resources/managed_materials/managed_mats_vehicles_nicemetal.material
+      - resources/managed_materials/managed_mats_vehicles_transparent_nicemetal.material
+      - source/main/gfx/GfxWater.cpp
       - resources/scripts/example_jbeam_multi_actor_tsan_soak.as
       - source/main/CMakeLists.txt
       - source/main/main.cpp
@@ -40,8 +50,15 @@ on:
       - tests/tools/test_mygui_glsl_contract.py
       - tests/tools/test_skyx_glsl_contract.py
       - tests/tools/test_ogre14_remaining_glsl_contract.py
+      - tests/tools/test_fresnel_shader_contract.py
+      - tests/tools/test_grass_shader_contract.py
+      - tests/tools/test_general_shader_contract.py
+      - tests/tools/test_nicemetal_shader_contract.py
+      - tests/tools/test_run_nicemetal_shader_smoke.py
+      - tests/fixtures/nicemetal_runtime/**
       - tools/run_jbeam_multi_actor_tsan_soak.py
       - tools/run_playable_performance_scene.py
+      - tools/run_nicemetal_shader_smoke.py
       - tools/audit_openal_tsan_package.py
       - source/main/gfx/render/Ogre14ParticleCaptureSource.cpp
       - source/main/gfx/render/Ogre14ParticleCaptureSource.h
@@ -193,6 +210,16 @@ jobs:
           python -O tests/tools/test_skyx_glsl_contract.py
           python tests/tools/test_ogre14_remaining_glsl_contract.py
           python -O tests/tools/test_ogre14_remaining_glsl_contract.py
+          python tests/tools/test_fresnel_shader_contract.py
+          python -O tests/tools/test_fresnel_shader_contract.py
+          python tests/tools/test_grass_shader_contract.py
+          python -O tests/tools/test_grass_shader_contract.py
+          python tests/tools/test_general_shader_contract.py
+          python -O tests/tools/test_general_shader_contract.py
+          python tests/tools/test_nicemetal_shader_contract.py
+          python -O tests/tools/test_nicemetal_shader_contract.py
+          python tests/tools/test_run_nicemetal_shader_smoke.py
+          python -O tests/tools/test_run_nicemetal_shader_smoke.py
           python tests/tools/test_run_playable_performance_scene.py
           python -O tests/tools/test_run_playable_performance_scene.py
 
@@ -307,9 +334,9 @@ jobs:
               -type f -exec cp {} "$ROR_TSAN_ARTIFACTS_DIR/" \;
           fi
           shader_status=0
-          if grep -Eq "Program '[^']+\\.(glsl|glsles)' is not supported|Program 'SkyX_[^']+' is not supported|Program 'Ogre/Compositor/StdQuad_[^']+' is not supported|Error: ScriptCompiler .*SkyX\\.material|Error: ScriptCompiler .*StdQuad_vp\\.program" \
+          if grep -Eiq "Program '[^']+\\.(glsl|glsles)' is not supported|Program 'SkyX_[^']+' is not supported|Program 'Ogre/Compositor/StdQuad_[^']+' is not supported|Program '(NiceMetal|SimpleMetal)[^']*' is not supported|Program 'Examples/(Fresnel[^']*|ReflectFP[^']*)' is not supported|Program '(grassVP|grassFP)[^']*' is not supported|Program '(ambient_vs|ambient_ps|render_vs|render_ps|render_gr_ps|diffuse_vs|diffuse_ps|diffuse_ps_env|diffuse_sh_vs|diffuse_sh_ps|diffuse_sh_a_ps)[^']*' is not supported|(NiceMetal|SimpleMetal|Fresnel|ReflectFP|grassVP|grassFP|grass_(gl3plus|d3d11)|ambient_vs|ambient_ps|render_vs|render_ps|render_gr_ps|diffuse_vs|diffuse_ps|diffuse_ps_env|diffuse_sh_vs|diffuse_sh_ps|diffuse_sh_a_ps|general_(gl3plus|d3d11))[^[:cntrl:]]*((compil|load)[^[:cntrl:]]*(fail|error)|(fail|error)[^[:cntrl:]]*(compil|load))|((compil|load)[^[:cntrl:]]*(fail|error)|(fail|error)[^[:cntrl:]]*(compil|load))[^[:cntrl:]]*(NiceMetal|SimpleMetal|Fresnel|ReflectFP|grassVP|grassFP|grass_(gl3plus|d3d11)|ambient_vs|ambient_ps|render_vs|render_ps|render_gr_ps|diffuse_vs|diffuse_ps|diffuse_ps_env|diffuse_sh_vs|diffuse_sh_ps|diffuse_sh_a_ps|general_(gl3plus|d3d11))|RTSS:[^[:cntrl:]]*'[^']*nicemetal[^']*'|Error: ScriptCompiler .*SkyX\\.material|Error: ScriptCompiler .*StdQuad_vp\\.program|Error: ScriptCompiler .*nicemetal[^[:cntrl:]]*\\.(program|material)|Error: ScriptCompiler .*fresnel\\.material|Error: ScriptCompiler .*grass\\.material|Error: ScriptCompiler .*general\\.(program|material)" \
               "$evidence/RoR.log" "$evidence/console.txt"; then
-            echo 'MyGUI GLSL compilation failed, or SkyX/StdQuad shader or material compilation failed in the packaged combined runtime' >&2
+            echo 'MyGUI GLSL compilation failed, or SkyX/StdQuad/NiceMetal/Fresnel/Grass/General shader/material compilation or explicit-program loading failed in the packaged combined runtime; this is compile/load diagnostic coverage only, not Fresnel water, grass, or General draw evidence' >&2
             shader_status=1
           fi
           readiness_status=0

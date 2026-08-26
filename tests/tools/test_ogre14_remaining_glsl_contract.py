@@ -86,52 +86,196 @@ class Ogre14RemainingGlslContractTests(unittest.TestCase):
             },
         )
 
-    def test_stdquad_is_a_bound_core_glsl150_program(self) -> None:
-        shader_path = OGRE_CORE / "StdQuad_vp.glsl"
+    def test_stdquad_is_cg_free_with_modern_desktop_delegates(self) -> None:
+        shader_path = OGRE_CORE / "StdQuad_vp_gl3plus.glsl"
+        hlsl_path = OGRE_CORE / "StdQuad_vp_d3d11.hlsl"
         program_path = OGRE_CORE / "StdQuad_vp.program"
         self.assertFalse(shader_path.is_symlink())
+        self.assertFalse(hlsl_path.is_symlink())
         self.assertFalse(program_path.is_symlink())
+        self.assertFalse((OGRE_CORE / "StdQuad_vp.cg").exists())
 
         shader = shader_path.read_text(encoding="utf-8")
-        self.assertTrue(shader.startswith("#version 150\n"))
-        self.assertEqual(shader.count("#version 150"), 1)
+        self.assertTrue(shader.startswith("#version 330 core\n"))
+        self.assertEqual(shader.count("#version 330 core"), 1)
         self.assertIsNone(COMPATIBILITY_TOKEN.search(shader))
         for contract in (
             "in vec4 vertex;",
             "out gl_PerVertex { vec4 gl_Position; };",
-            "out vec2 uv;",
             "uniform mat4 worldViewProj;",
             "gl_Position = worldViewProj * vertex;",
-            "vec2 inPos = sign(vertex.xy);",
+            "vec2 signedPosition = sign(vertex.xy);",
+            "vec2 imageUv = (vec2(signedPosition.x, -signedPosition.y) "
+            "+ 1.0) * 0.5;",
+            "uv = imageUv;",
+            "uv1 = signedPosition;",
+            '#error "A StdQuad coordinate-layout selector is required"',
         ):
             with self.subTest(contract=contract):
                 self.assertEqual(shader.count(contract), 1)
+        for selector in (
+            "STDQUAD_BASE",
+            "STDQUAD_TEX2",
+            "STDQUAD_TEX2A",
+            "STDQUAD_TEX3",
+            "STDQUAD_TEX4",
+        ):
+            with self.subTest(selector=selector):
+                self.assertIn(f"defined({selector})", shader)
+        self.assertEqual(shader.count("out vec2 uv;"), 5)
+        self.assertEqual(shader.count("out vec2 uv1;"), 4)
+        self.assertEqual(shader.count("out vec2 uv2;"), 2)
+        self.assertEqual(shader.count("out vec2 uv3;"), 1)
+        self.assertEqual(shader.count("uv1 = imageUv;"), 3)
+        self.assertEqual(shader.count("uv1 = signedPosition;"), 1)
+        self.assertEqual(shader.count("uv2 = imageUv;"), 2)
+        self.assertEqual(shader.count("uv3 = imageUv;"), 1)
+
+        hlsl = hlsl_path.read_text(encoding="utf-8")
+        for contract in (
+            "float4x4 worldViewProj;",
+            "float4 position : POSITION;",
+            "float4 position : SV_Position;",
+            "float2 uv0 : TEXCOORD0;",
+            "float2 uv1 : TEXCOORD1;",
+            "float2 uv2 : TEXCOORD2;",
+            "float2 uv3 : TEXCOORD3;",
+            "return sign(position.xy);",
+            "return (float2(signedPosition.x, -signedPosition.y) + 1.0f) "
+            "* 0.5f;",
+            "output.position = mul(worldViewProj, input.position);",
+            "output.uv1 = signedPosition;",
+        ):
+            with self.subTest(contract=contract):
+                self.assertIn(contract, hlsl)
+        for entry_point in (
+            "StdQuad_vp",
+            "StdQuad_Tex2_vp",
+            "StdQuad_Tex2a_vp",
+            "StdQuad_Tex3_vp",
+            "StdQuad_Tex4_vp",
+        ):
+            with self.subTest(entry_point=entry_point):
+                self.assertEqual(
+                    len(
+                        re.findall(
+                            rf"^\w+\s+{re.escape(entry_point)}\(",
+                            hlsl,
+                            re.MULTILINE,
+                        )
+                    ),
+                    1,
+                )
+        self.assertEqual(
+            hlsl.count("output.uv0 = StdQuadImageUv(signedPosition);"),
+            2,
+        )
+        self.assertEqual(hlsl.count("output.uv0 = imageUv;"), 3)
+        self.assertEqual(hlsl.count("output.uv1 = imageUv;"), 3)
+        self.assertEqual(hlsl.count("output.uv1 = signedPosition;"), 1)
+        self.assertEqual(hlsl.count("output.uv2 = imageUv;"), 2)
+        self.assertEqual(hlsl.count("output.uv3 = imageUv;"), 1)
 
         script = program_path.read_text(encoding="utf-8")
-        glsl = program_block(
-            script,
-            "vertex_program Ogre/Compositor/StdQuad_GLSL_vp glsl",
+        self.assertNotRegex(script, r"(?m)^\s*vertex_program\s+\S+\s+cg\b")
+        self.assertNotIn("StdQuad_vp.cg", script)
+        self.assertNotIn("_Cg_vp", script)
+        self.assertNotRegex(
+            script, r"(?m)^\s*source\s+StdQuad_vp\.glsl\s*$"
         )
-        self.assertEqual(glsl.count("source StdQuad_vp.glsl"), 1)
-        self.assertEqual(
-            glsl.count(
-                "param_named_auto worldViewProj worldviewproj_matrix"
-            ),
-            1,
+        self.assertNotRegex(
+            script, r"(?m)^\s*source\s+StdQuad_vp\.hlsl\s*$"
         )
 
-        unified = program_block(
-            script,
-            "vertex_program Ogre/Compositor/StdQuad_vp unified",
-        )
-        delegates = re.findall(r"^\s*delegate\s+(\S+)", unified, re.MULTILINE)
-        self.assertEqual(
-            delegates,
-            [
-                "Ogre/Compositor/StdQuad_HLSL_vp",
+        variants = {
+            "StdQuad": (
                 "Ogre/Compositor/StdQuad_GLSL_vp",
+                "STDQUAD_BASE",
+                "Ogre/Compositor/StdQuad_HLSL_vp",
+                "StdQuad_vp",
                 "Ogre/Compositor/StdQuad_GLSLES_vp",
-                "Ogre/Compositor/StdQuad_Cg_vp",
+            ),
+            "StdQuad_Tex2": (
+                "Ogre/Compositor/StdQuad_Tex2_GL3Plus_vp",
+                "STDQUAD_TEX2",
+                "Ogre/Compositor/StdQuad_Tex2_D3D11_vp",
+                "StdQuad_Tex2_vp",
+                "Ogre/Compositor/StdQuad_Tex2_GLSLES_vp",
+            ),
+            "StdQuad_Tex2a": (
+                "Ogre/Compositor/StdQuad_Tex2a_GL3Plus_vp",
+                "STDQUAD_TEX2A",
+                "Ogre/Compositor/StdQuad_Tex2a_D3D11_vp",
+                "StdQuad_Tex2a_vp",
+                "Ogre/Compositor/StdQuad_Tex2a_GLSLES_vp",
+            ),
+            "StdQuad_Tex3": (
+                "Ogre/Compositor/StdQuad_Tex3_GL3Plus_vp",
+                "STDQUAD_TEX3",
+                "Ogre/Compositor/StdQuad_Tex3_D3D11_vp",
+                "StdQuad_Tex3_vp",
+                "Ogre/Compositor/StdQuad_Tex3_GLSLES_vp",
+            ),
+            "StdQuad_Tex4": (
+                "Ogre/Compositor/StdQuad_Tex4_GL3Plus_vp",
+                "STDQUAD_TEX4",
+                "Ogre/Compositor/StdQuad_Tex4_D3D11_vp",
+                "StdQuad_Tex4_vp",
+                "Ogre/Compositor/StdQuad_Tex4_GLSLES_vp",
+            ),
+        }
+        default_param = (
+            "param_named_auto worldViewProj worldviewproj_matrix"
+        )
+        for (
+            public_stem,
+            (glsl_name, selector, hlsl_name, entry_point, gles_name),
+        ) in variants.items():
+            with self.subTest(public_stem=public_stem, backend="GL3Plus"):
+                glsl = program_block(
+                    script, f"vertex_program {glsl_name} glsl"
+                )
+                self.assertEqual(glsl.count("syntax glsl330"), 1)
+                self.assertEqual(
+                    glsl.count("source StdQuad_vp_gl3plus.glsl"), 1
+                )
+                self.assertEqual(
+                    glsl.count(f"preprocessor_defines {selector}=1"), 1
+                )
+                self.assertEqual(glsl.count(default_param), 1)
+
+            with self.subTest(public_stem=public_stem, backend="D3D11"):
+                hlsl_program = program_block(
+                    script, f"vertex_program {hlsl_name} hlsl"
+                )
+                self.assertEqual(
+                    hlsl_program.count("source StdQuad_vp_d3d11.hlsl"), 1
+                )
+                self.assertEqual(
+                    hlsl_program.count(f"entry_point {entry_point}"), 1
+                )
+                self.assertEqual(hlsl_program.count("target vs_4_0"), 1)
+                self.assertEqual(hlsl_program.count(default_param), 1)
+
+            public_name = f"Ogre/Compositor/{public_stem}_vp"
+            unified = program_block(
+                script, f"vertex_program {public_name} unified"
+            )
+            delegates = re.findall(
+                r"^\s*delegate\s+(\S+)", unified, re.MULTILINE
+            )
+            self.assertEqual(delegates, [glsl_name, hlsl_name, gles_name])
+
+        no_cg = program_block(
+            script,
+            "vertex_program Ogre/Compositor/StdQuad_NoCG_vp unified",
+        )
+        self.assertEqual(
+            re.findall(r"^\s*delegate\s+(\S+)", no_cg, re.MULTILINE),
+            [
+                "Ogre/Compositor/StdQuad_GLSL_vp",
+                "Ogre/Compositor/StdQuad_HLSL_vp",
+                "Ogre/Compositor/StdQuad_GLSLES_vp",
             ],
         )
 
@@ -167,11 +311,68 @@ class Ogre14RemainingGlslContractTests(unittest.TestCase):
         script = (OGRE_CORE / "StdQuad_vp.program").read_text(
             encoding="utf-8"
         )
-        gles_program = program_block(
-            script,
-            "vertex_program Ogre/Compositor/StdQuad_GLSLES_vp glsles",
-        )
-        self.assertEqual(gles_program.count("source StdQuad_vp.glsles"), 1)
+        gles_sources = {
+            "Ogre/Compositor/StdQuad_GLSLES_vp": (
+                "StdQuad_vp.glsles",
+                1,
+            ),
+            "Ogre/Compositor/StdQuad_Tex2_GLSLES_vp": (
+                "StdQuad_Tex2_vp.glsles",
+                2,
+            ),
+            "Ogre/Compositor/StdQuad_Tex2a_GLSLES_vp": (
+                "StdQuad_Tex2a_vp.glsles",
+                2,
+            ),
+            "Ogre/Compositor/StdQuad_Tex3_GLSLES_vp": (
+                "StdQuad_Tex3_vp.glsles",
+                3,
+            ),
+            "Ogre/Compositor/StdQuad_Tex4_GLSLES_vp": (
+                "StdQuad_Tex4_vp.glsles",
+                4,
+            ),
+        }
+        for program_name, (source_name, coordinate_count) in (
+            gles_sources.items()
+        ):
+            with self.subTest(program_name=program_name):
+                source_path = OGRE_CORE / source_name
+                self.assertTrue(source_path.is_file())
+                self.assertFalse(source_path.is_symlink())
+                gles_source = source_path.read_text(encoding="utf-8")
+                self.assertTrue(gles_source.startswith("#version 100\n"))
+                self.assertEqual(
+                    gles_source.count("uniform mat4 worldViewProj;"), 1
+                )
+                self.assertEqual(
+                    gles_source.count("attribute vec4 vertex;"), 1
+                )
+                self.assertEqual(
+                    len(
+                        re.findall(
+                            r"(?m)^varying vec2 uv(?:[1-3])?;$",
+                            gles_source,
+                        )
+                    ),
+                    coordinate_count,
+                )
+                gles_program = program_block(
+                    script, f"vertex_program {program_name} glsles"
+                )
+                self.assertEqual(
+                    gles_program.count(f"source {source_name}"), 1
+                )
+                self.assertEqual(
+                    gles_program.count(
+                        "param_named_auto worldViewProj worldviewproj_matrix"
+                    ),
+                    1,
+                )
+        tex2a_gles = (
+            OGRE_CORE / "StdQuad_Tex2a_vp.glsles"
+        ).read_text(encoding="utf-8")
+        self.assertEqual(tex2a_gles.count("uv1 = signedPosition;"), 1)
         self.assertNotIn(gles_path.name, RTSS_TEXTURE_CALLS)
 
     def test_repo_rtss_pack_is_not_mistaken_for_live_ogre14_media(self) -> None:
@@ -226,7 +427,7 @@ class Ogre14RemainingGlslContractTests(unittest.TestCase):
         )
 
         for path in (
-            "resources/OgreCore/StdQuad_vp.glsl",
+            "resources/OgreCore/StdQuad_vp*",
             "resources/OgreCore/StdQuad_vp.program",
             "resources/rtshader/**",
             test_path,

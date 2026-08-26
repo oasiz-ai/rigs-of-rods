@@ -1,0 +1,29 @@
+Ogre-Next NiceMetal shader qualification fixture
+
+guid 33bec0e1-1145-5aca-a5fb-b2272a259fe9
+
+globals
+1000, 1000, tracks/transred
+
+managedmaterials
+NiceMetalFlexNoDamage flexmesh_standard nicemetal_base.ppm - nicemetal_specular.ppm
+NiceMetalFlexDamage flexmesh_standard nicemetal_base.ppm nicemetal_damage.ppm nicemetal_specular.ppm
+NiceMetalMesh mesh_standard nicemetal_base.ppm nicemetal_specular.ppm
+NiceMetalFlexTransparentNoDamage flexmesh_transparent nicemetal_base.ppm - nicemetal_specular.ppm
+NiceMetalFlexTransparentDamage flexmesh_transparent nicemetal_base.ppm nicemetal_damage.ppm nicemetal_specular.ppm
+NiceMetalMeshTransparent mesh_transparent nicemetal_base.ppm nicemetal_specular.ppm
+
+cameras
+0, 1, 2
+
+nodes
+0, 0, 1, 0
+1, 1, 1, 0
+2, 0, 1, 1
+
+beams
+0, 1
+1, 2
+2, 0
+
+end

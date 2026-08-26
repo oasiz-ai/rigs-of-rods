@@ -1,79 +1,132 @@
-vertex_program Ogre/Compositor/StdQuad_Cg_vp cg
-{
-	source StdQuad_vp.cg
-	entry_point StdQuad_vp
-    profiles vs_4_0 vs_2_0 vs_1_1 arbvp1
-
-	default_params
-	{
-		param_named_auto worldViewProj worldviewproj_matrix
-	}
-}
-
-vertex_program Ogre/Compositor/StdQuad_Tex2_Cg_vp cg
-{
-	source StdQuad_vp.cg
-	entry_point StdQuad_Tex2_vp
-	profiles vs_4_0 vs_1_1 arbvp1
-
-	default_params
-	{
-		param_named_auto worldViewProj worldviewproj_matrix
-	}
-}
-
-vertex_program Ogre/Compositor/StdQuad_Tex2a_Cg_vp cg
-{
-	source StdQuad_vp.cg
-	entry_point StdQuad_Tex2a_vp
-	profiles vs_4_0 vs_1_1 arbvp1
-
-	default_params
-	{
-		param_named_auto worldViewProj worldviewproj_matrix
-	}
-}
-
-vertex_program Ogre/Compositor/StdQuad_Tex3_Cg_vp cg
-{
-	source StdQuad_vp.cg
-	entry_point StdQuad_Tex3_vp
-	profiles vs_4_0 vs_1_1 arbvp1
-
-	default_params
-	{
-		param_named_auto worldViewProj worldviewproj_matrix
-	}
-}
-
-vertex_program Ogre/Compositor/StdQuad_Tex4_Cg_vp cg
-{
-	source StdQuad_vp.cg
-	entry_point StdQuad_Tex4_vp
-	profiles vs_4_0 vs_1_1 arbvp1
-
-	default_params
-	{
-		param_named_auto worldViewProj worldviewproj_matrix
-	}
-}
-
 vertex_program Ogre/Compositor/StdQuad_GLSL_vp glsl
 {
-	source StdQuad_vp.glsl
+	syntax glsl330
+	source StdQuad_vp_gl3plus.glsl
+	preprocessor_defines STDQUAD_BASE=1
+
 	default_params
 	{
 		param_named_auto worldViewProj worldviewproj_matrix
 	}
 }
 
+vertex_program Ogre/Compositor/StdQuad_HLSL_vp hlsl
+{
+	source StdQuad_vp_d3d11.hlsl
+	entry_point StdQuad_vp
+	target vs_4_0
+
+	default_params
+	{
+		param_named_auto worldViewProj worldviewproj_matrix
+	}
+}
+
+vertex_program Ogre/Compositor/StdQuad_Tex2_GL3Plus_vp glsl
+{
+	syntax glsl330
+	source StdQuad_vp_gl3plus.glsl
+	preprocessor_defines STDQUAD_TEX2=1
+
+	default_params
+	{
+		param_named_auto worldViewProj worldviewproj_matrix
+	}
+}
+
+vertex_program Ogre/Compositor/StdQuad_Tex2_D3D11_vp hlsl
+{
+	source StdQuad_vp_d3d11.hlsl
+	entry_point StdQuad_Tex2_vp
+	target vs_4_0
+
+	default_params
+	{
+		param_named_auto worldViewProj worldviewproj_matrix
+	}
+}
+
+vertex_program Ogre/Compositor/StdQuad_Tex2a_GL3Plus_vp glsl
+{
+	syntax glsl330
+	source StdQuad_vp_gl3plus.glsl
+	preprocessor_defines STDQUAD_TEX2A=1
+
+	default_params
+	{
+		param_named_auto worldViewProj worldviewproj_matrix
+	}
+}
+
+vertex_program Ogre/Compositor/StdQuad_Tex2a_D3D11_vp hlsl
+{
+	source StdQuad_vp_d3d11.hlsl
+	entry_point StdQuad_Tex2a_vp
+	target vs_4_0
+
+	default_params
+	{
+		param_named_auto worldViewProj worldviewproj_matrix
+	}
+}
+
+vertex_program Ogre/Compositor/StdQuad_Tex3_GL3Plus_vp glsl
+{
+	syntax glsl330
+	source StdQuad_vp_gl3plus.glsl
+	preprocessor_defines STDQUAD_TEX3=1
+
+	default_params
+	{
+		param_named_auto worldViewProj worldviewproj_matrix
+	}
+}
+
+vertex_program Ogre/Compositor/StdQuad_Tex3_D3D11_vp hlsl
+{
+	source StdQuad_vp_d3d11.hlsl
+	entry_point StdQuad_Tex3_vp
+	target vs_4_0
+
+	default_params
+	{
+		param_named_auto worldViewProj worldviewproj_matrix
+	}
+}
+
+vertex_program Ogre/Compositor/StdQuad_Tex4_GL3Plus_vp glsl
+{
+	syntax glsl330
+	source StdQuad_vp_gl3plus.glsl
+	preprocessor_defines STDQUAD_TEX4=1
+
+	default_params
+	{
+		param_named_auto worldViewProj worldviewproj_matrix
+	}
+}
+
+vertex_program Ogre/Compositor/StdQuad_Tex4_D3D11_vp hlsl
+{
+	source StdQuad_vp_d3d11.hlsl
+	entry_point StdQuad_Tex4_vp
+	target vs_4_0
+
+	default_params
+	{
+		param_named_auto worldViewProj worldviewproj_matrix
+	}
+}
+
+// Keep the GLES 2 delegates available to legacy/mobile builds. Desktop
+// selection never routes through these programs.
 vertex_program Ogre/Compositor/StdQuad_GLSLES_vp glsles
 {
 	source StdQuad_vp.glsles
-    default_params
-    {
-        param_named_auto worldViewProj worldviewproj_matrix
-    }
+	default_params
+	{
+		param_named_auto worldViewProj worldviewproj_matrix
+	}
 }
 
 vertex_program Ogre/Compositor/StdQuad_Tex2_GLSLES_vp glsles
@@ -112,56 +165,45 @@ vertex_program Ogre/Compositor/StdQuad_Tex4_GLSLES_vp glsles
 	}
 }
 
-vertex_program Ogre/Compositor/StdQuad_HLSL_vp hlsl
-{
-	source StdQuad_vp.hlsl
-	entry_point StdQuad_vp
-	target vs_2_0
-
-	default_params
-	{
-		param_named_auto worldViewProj worldviewproj_matrix
-	}
-}
-
-
-
-// Unified definitions
+// Stable public program names.
 vertex_program Ogre/Compositor/StdQuad_vp unified
 {
-	delegate Ogre/Compositor/StdQuad_HLSL_vp
 	delegate Ogre/Compositor/StdQuad_GLSL_vp
+	delegate Ogre/Compositor/StdQuad_HLSL_vp
 	delegate Ogre/Compositor/StdQuad_GLSLES_vp
-	delegate Ogre/Compositor/StdQuad_Cg_vp
 }
 
 vertex_program Ogre/Compositor/StdQuad_NoCG_vp unified
 {
 	delegate Ogre/Compositor/StdQuad_GLSL_vp
-	delegate Ogre/Compositor/StdQuad_GLSLES_vp
 	delegate Ogre/Compositor/StdQuad_HLSL_vp
+	delegate Ogre/Compositor/StdQuad_GLSLES_vp
 }
 
 vertex_program Ogre/Compositor/StdQuad_Tex2_vp unified
 {
+	delegate Ogre/Compositor/StdQuad_Tex2_GL3Plus_vp
+	delegate Ogre/Compositor/StdQuad_Tex2_D3D11_vp
 	delegate Ogre/Compositor/StdQuad_Tex2_GLSLES_vp
-	delegate Ogre/Compositor/StdQuad_Tex2_Cg_vp
 }
 
 vertex_program Ogre/Compositor/StdQuad_Tex2a_vp unified
 {
+	delegate Ogre/Compositor/StdQuad_Tex2a_GL3Plus_vp
+	delegate Ogre/Compositor/StdQuad_Tex2a_D3D11_vp
 	delegate Ogre/Compositor/StdQuad_Tex2a_GLSLES_vp
-	delegate Ogre/Compositor/StdQuad_Tex2a_Cg_vp
 }
 
 vertex_program Ogre/Compositor/StdQuad_Tex3_vp unified
 {
+	delegate Ogre/Compositor/StdQuad_Tex3_GL3Plus_vp
+	delegate Ogre/Compositor/StdQuad_Tex3_D3D11_vp
 	delegate Ogre/Compositor/StdQuad_Tex3_GLSLES_vp
-    delegate Ogre/Compositor/StdQuad_Tex3_Cg_vp
 }
 
 vertex_program Ogre/Compositor/StdQuad_Tex4_vp unified
 {
+	delegate Ogre/Compositor/StdQuad_Tex4_GL3Plus_vp
+	delegate Ogre/Compositor/StdQuad_Tex4_D3D11_vp
 	delegate Ogre/Compositor/StdQuad_Tex4_GLSLES_vp
-	delegate Ogre/Compositor/StdQuad_Tex4_Cg_vp
 }

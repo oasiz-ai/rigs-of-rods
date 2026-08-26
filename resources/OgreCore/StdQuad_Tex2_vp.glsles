@@ -1,0 +1,19 @@
+#version 100
+
+precision mediump int;
+precision mediump float;
+
+uniform mat4 worldViewProj;
+attribute vec4 vertex;
+varying vec2 uv;
+varying vec2 uv1;
+
+void main()
+{
+    gl_Position = worldViewProj * vertex;
+
+    vec2 signedPosition = sign(vertex.xy);
+    vec2 imageUv = (vec2(signedPosition.x, -signedPosition.y) + 1.0) * 0.5;
+    uv = imageUv;
+    uv1 = imageUv;
+}

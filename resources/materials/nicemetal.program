@@ -1,8 +1,8 @@
-vertex_program NiceMetal_VS cg
+vertex_program NiceMetal_VS/GL3Plus glsl
 {
-    source nicemetal.cg
-    entry_point main_nicemetal_vp
-    profiles vs_1_1 arbvp1
+    syntax glsl330
+    source nicemetal_gl3plus.glsl
+    preprocessor_defines NICEMETAL_VERTEX_LIT=1
     default_params
     {
         param_named_auto worldviewproj worldviewproj_matrix
@@ -11,11 +11,43 @@ vertex_program NiceMetal_VS cg
     }
 }
 
-fragment_program NiceMetal_PS cg
+vertex_program NiceMetal_VS/D3D11 hlsl
 {
-    source nicemetal.cg
-    entry_point main_nicemetal_fp
-    profiles ps_2_0 arbfp1
+    source nicemetal_d3d11.hlsl
+    entry_point NiceMetalLitVS
+    target vs_4_0
+    preprocessor_defines NICEMETAL_VERTEX_LIT=1
+    default_params
+    {
+        param_named_auto worldviewproj worldviewproj_matrix
+        param_named_auto lightPosition light_position_object_space 0
+        param_named_auto eyePosition camera_position_object_space
+    }
+}
+
+fragment_program NiceMetal_PS/GL3Plus glsl
+{
+    syntax glsl330
+    source nicemetal_gl3plus.glsl
+    preprocessor_defines NICEMETAL_FRAGMENT_LIT=1
+    default_params
+    {
+        param_named_auto lightDiffuse light_diffuse_colour 0
+        param_named_auto lightSpecular light_specular_colour 0
+        param_named exponent float 127
+        param_named_auto ambient ambient_light_colour
+        param_named diffusetex int 0
+        param_named speculartex int 1
+        param_named diffusedmgtex int 2
+    }
+}
+
+fragment_program NiceMetal_PS/D3D11 hlsl
+{
+    source nicemetal_d3d11.hlsl
+    entry_point NiceMetalLitPS
+    target ps_4_0
+    preprocessor_defines NICEMETAL_FRAGMENT_LIT=1
     default_params
     {
         param_named_auto lightDiffuse light_diffuse_colour 0
@@ -25,11 +57,29 @@ fragment_program NiceMetal_PS cg
     }
 }
 
-fragment_program NiceMetal_transp_PS cg
+fragment_program NiceMetal_transp_PS/GL3Plus glsl
 {
-    source nicemetal.cg
-    entry_point main_nicemetal_transp_fp
-    profiles ps_2_0 arbfp1
+    syntax glsl330
+    source nicemetal_gl3plus.glsl
+    preprocessor_defines NICEMETAL_FRAGMENT_LIT=1,NICEMETAL_TRANSPARENT=1
+    default_params
+    {
+        param_named_auto lightDiffuse light_diffuse_colour 0
+        param_named_auto lightSpecular light_specular_colour 0
+        param_named exponent float 127
+        param_named_auto ambient ambient_light_colour
+        param_named diffusetex int 0
+        param_named speculartex int 1
+        param_named diffusedmgtex int 2
+    }
+}
+
+fragment_program NiceMetal_transp_PS/D3D11 hlsl
+{
+    source nicemetal_d3d11.hlsl
+    entry_point NiceMetalLitPS
+    target ps_4_0
+    preprocessor_defines NICEMETAL_FRAGMENT_LIT=1,NICEMETAL_TRANSPARENT=1
     default_params
     {
         param_named_auto lightDiffuse light_diffuse_colour 0
@@ -39,11 +89,28 @@ fragment_program NiceMetal_transp_PS cg
     }
 }
 
-fragment_program NiceMetal_PS_nodmg cg
+fragment_program NiceMetal_PS_nodmg/GL3Plus glsl
 {
-    source nicemetal.cg
-    entry_point main_nicemetal_fp_nodmg
-    profiles ps_2_0 arbfp1
+    syntax glsl330
+    source nicemetal_gl3plus.glsl
+    preprocessor_defines NICEMETAL_FRAGMENT_LIT=1,NICEMETAL_NO_DAMAGE=1
+    default_params
+    {
+        param_named_auto lightDiffuse light_diffuse_colour 0
+        param_named_auto lightSpecular light_specular_colour 0
+        param_named exponent float 127
+        param_named_auto ambient ambient_light_colour
+        param_named diffusetex int 0
+        param_named speculartex int 1
+    }
+}
+
+fragment_program NiceMetal_PS_nodmg/D3D11 hlsl
+{
+    source nicemetal_d3d11.hlsl
+    entry_point NiceMetalLitPS
+    target ps_4_0
+    preprocessor_defines NICEMETAL_FRAGMENT_LIT=1,NICEMETAL_NO_DAMAGE=1
     default_params
     {
         param_named_auto lightDiffuse light_diffuse_colour 0
@@ -53,11 +120,28 @@ fragment_program NiceMetal_PS_nodmg cg
     }
 }
 
-fragment_program NiceMetal_transp_PS_nodmg cg
+fragment_program NiceMetal_transp_PS_nodmg/GL3Plus glsl
 {
-    source nicemetal.cg
-    entry_point main_nicemetal_fp_nodmg
-    profiles ps_2_0 arbfp1
+    syntax glsl330
+    source nicemetal_gl3plus.glsl
+    preprocessor_defines NICEMETAL_FRAGMENT_LIT=1,NICEMETAL_NO_DAMAGE=1,NICEMETAL_TRANSPARENT=1
+    default_params
+    {
+        param_named_auto lightDiffuse light_diffuse_colour 0
+        param_named_auto lightSpecular light_specular_colour 0
+        param_named exponent float 127
+        param_named_auto ambient ambient_light_colour
+        param_named diffusetex int 0
+        param_named speculartex int 1
+    }
+}
+
+fragment_program NiceMetal_transp_PS_nodmg/D3D11 hlsl
+{
+    source nicemetal_d3d11.hlsl
+    entry_point NiceMetalLitPS
+    target ps_4_0
+    preprocessor_defines NICEMETAL_FRAGMENT_LIT=1,NICEMETAL_NO_DAMAGE=1,NICEMETAL_TRANSPARENT=1
     default_params
     {
         param_named_auto lightDiffuse light_diffuse_colour 0
@@ -67,47 +151,95 @@ fragment_program NiceMetal_transp_PS_nodmg cg
     }
 }
 
-vertex_program NiceMetal_Reflect_VS cg
+vertex_program NiceMetal_Reflect_VS/GL3Plus glsl
 {
-    source nicemetal.cg
-    entry_point reflect_nicemetal_vp
-    profiles vs_1_1 arbvp1
+    syntax glsl330
+    source nicemetal_gl3plus.glsl
+    preprocessor_defines NICEMETAL_VERTEX_REFLECTION=1
     default_params
     {
-	  param_named_auto camPosition camera_position_object_space
-      param_named_auto world world_matrix
-      param_named_auto worldViewProj worldviewproj_matrix
-        //param_named_auto worldviewproj worldviewproj_matrix
-        //param_named_auto eyePositionW camera_position
-        //param_named_auto modelToWorld inverse_transpose_world_matrix
+        param_named_auto camPosition camera_position_object_space
+        param_named_auto world world_matrix
+        param_named_auto worldViewProj worldviewproj_matrix
     }
 }
 
-fragment_program NiceMetal_Reflect_PS cg
+vertex_program NiceMetal_Reflect_VS/D3D11 hlsl
 {
-    source nicemetal.cg
-    entry_point reflect_nicemetal_fp
-    profiles ps_2_0 arbfp1
+    source nicemetal_d3d11.hlsl
+    entry_point NiceMetalReflectionVS
+    target vs_4_0
+    preprocessor_defines NICEMETAL_VERTEX_REFLECTION=1
     default_params
     {
+        param_named_auto camPosition camera_position_object_space
+        param_named_auto world world_matrix
+        param_named_auto worldViewProj worldviewproj_matrix
     }
 }
 
-fragment_program NiceMetal_Reflect_nocolor_PS cg
+fragment_program NiceMetal_Reflect_PS/GL3Plus glsl
 {
-    source nicemetal.cg
-    entry_point reflect_nicemetal_nocolor_fp
-    profiles ps_2_0 arbfp1
+    syntax glsl330
+    source nicemetal_gl3plus.glsl
+    preprocessor_defines NICEMETAL_FRAGMENT_REFLECTION=1
     default_params
     {
+        param_named speculartex int 0
+        param_named cubeMap int 1
     }
 }
 
-fragment_program SimpleMetal_PS cg
+fragment_program NiceMetal_Reflect_PS/D3D11 hlsl
 {
-    source nicemetal.cg
-    entry_point main_simplemetal_fp
-    profiles ps_2_0 arbfp1
+    source nicemetal_d3d11.hlsl
+    entry_point NiceMetalReflectionPS
+    target ps_4_0
+    preprocessor_defines NICEMETAL_FRAGMENT_REFLECTION=1
+}
+
+fragment_program NiceMetal_Reflect_nocolor_PS/GL3Plus glsl
+{
+    syntax glsl330
+    source nicemetal_gl3plus.glsl
+    preprocessor_defines NICEMETAL_FRAGMENT_REFLECTION=1,NICEMETAL_NO_VERTEX_COLOUR=1
+    default_params
+    {
+        param_named speculartex int 0
+        param_named cubeMap int 1
+    }
+}
+
+fragment_program NiceMetal_Reflect_nocolor_PS/D3D11 hlsl
+{
+    source nicemetal_d3d11.hlsl
+    entry_point NiceMetalReflectionPS
+    target ps_4_0
+    preprocessor_defines NICEMETAL_FRAGMENT_REFLECTION=1,NICEMETAL_NO_VERTEX_COLOUR=1
+}
+
+fragment_program SimpleMetal_PS/GL3Plus glsl
+{
+    syntax glsl330
+    source nicemetal_gl3plus.glsl
+    preprocessor_defines NICEMETAL_FRAGMENT_LIT=1,NICEMETAL_SIMPLE=1
+    default_params
+    {
+        param_named_auto lightDiffuse light_diffuse_colour 0
+        param_named_auto lightSpecular light_specular_colour 0
+        param_named exponent float 127
+        param_named_auto ambient ambient_light_colour
+        param_named diffusetex int 0
+        param_named speculartex int 1
+    }
+}
+
+fragment_program SimpleMetal_PS/D3D11 hlsl
+{
+    source nicemetal_d3d11.hlsl
+    entry_point NiceMetalLitPS
+    target ps_4_0
+    preprocessor_defines NICEMETAL_FRAGMENT_LIT=1,NICEMETAL_SIMPLE=1
     default_params
     {
         param_named_auto lightDiffuse light_diffuse_colour 0
@@ -117,11 +249,28 @@ fragment_program SimpleMetal_PS cg
     }
 }
 
-fragment_program SimpleMetal_transp_PS cg
+fragment_program SimpleMetal_transp_PS/GL3Plus glsl
 {
-    source nicemetal.cg
-    entry_point main_simplemetal_transp_fp
-    profiles ps_2_0 arbfp1
+    syntax glsl330
+    source nicemetal_gl3plus.glsl
+    preprocessor_defines NICEMETAL_FRAGMENT_LIT=1,NICEMETAL_SIMPLE=1,NICEMETAL_TRANSPARENT=1
+    default_params
+    {
+        param_named_auto lightDiffuse light_diffuse_colour 0
+        param_named_auto lightSpecular light_specular_colour 0
+        param_named exponent float 127
+        param_named_auto ambient ambient_light_colour
+        param_named diffusetex int 0
+        param_named speculartex int 1
+    }
+}
+
+fragment_program SimpleMetal_transp_PS/D3D11 hlsl
+{
+    source nicemetal_d3d11.hlsl
+    entry_point NiceMetalLitPS
+    target ps_4_0
+    preprocessor_defines NICEMETAL_FRAGMENT_LIT=1,NICEMETAL_SIMPLE=1,NICEMETAL_TRANSPARENT=1
     default_params
     {
         param_named_auto lightDiffuse light_diffuse_colour 0
@@ -129,4 +278,64 @@ fragment_program SimpleMetal_transp_PS cg
         param_named exponent float 127
         param_named_auto ambient ambient_light_colour
     }
+}
+
+vertex_program NiceMetal_VS unified
+{
+    delegate NiceMetal_VS/GL3Plus
+    delegate NiceMetal_VS/D3D11
+}
+
+fragment_program NiceMetal_PS unified
+{
+    delegate NiceMetal_PS/GL3Plus
+    delegate NiceMetal_PS/D3D11
+}
+
+fragment_program NiceMetal_transp_PS unified
+{
+    delegate NiceMetal_transp_PS/GL3Plus
+    delegate NiceMetal_transp_PS/D3D11
+}
+
+fragment_program NiceMetal_PS_nodmg unified
+{
+    delegate NiceMetal_PS_nodmg/GL3Plus
+    delegate NiceMetal_PS_nodmg/D3D11
+}
+
+fragment_program NiceMetal_transp_PS_nodmg unified
+{
+    delegate NiceMetal_transp_PS_nodmg/GL3Plus
+    delegate NiceMetal_transp_PS_nodmg/D3D11
+}
+
+vertex_program NiceMetal_Reflect_VS unified
+{
+    delegate NiceMetal_Reflect_VS/GL3Plus
+    delegate NiceMetal_Reflect_VS/D3D11
+}
+
+fragment_program NiceMetal_Reflect_PS unified
+{
+    delegate NiceMetal_Reflect_PS/GL3Plus
+    delegate NiceMetal_Reflect_PS/D3D11
+}
+
+fragment_program NiceMetal_Reflect_nocolor_PS unified
+{
+    delegate NiceMetal_Reflect_nocolor_PS/GL3Plus
+    delegate NiceMetal_Reflect_nocolor_PS/D3D11
+}
+
+fragment_program SimpleMetal_PS unified
+{
+    delegate SimpleMetal_PS/GL3Plus
+    delegate SimpleMetal_PS/D3D11
+}
+
+fragment_program SimpleMetal_transp_PS unified
+{
+    delegate SimpleMetal_transp_PS/GL3Plus
+    delegate SimpleMetal_transp_PS/D3D11
 }

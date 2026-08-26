@@ -142,17 +142,32 @@ void GfxWater::PrepareWater()
                 "run Water effects. Sorry!",
                 "Water effects");
         }
-        else
+        const auto is_water_program_supported = [](const char* program_name)
         {
-            if (!GpuProgramManager::getSingleton().isSyntaxSupported("arbfp1") &&
-                !GpuProgramManager::getSingleton().isSyntaxSupported("ps_2_0") &&
-                !GpuProgramManager::getSingleton().isSyntaxSupported("ps_1_4")
-            )
+            try
             {
-                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Your card does not support advanced fragment programs, "
-                    "so cannot run Water effects. Sorry!",
-                    "Water effects");
+                GpuProgramPtr program = GpuProgramManager::getSingleton().getByName(program_name);
+                if (!program)
+                {
+                    return false;
+                }
+                program->load();
+                return program->isSupported() && !program->hasCompileError();
             }
+            catch (const Ogre::Exception&)
+            {
+                return false;
+            }
+        };
+        const char* fragment_program_name = full_gfx
+            ? "Examples/FresnelRefractReflectFP"
+            : "Examples/ReflectFP";
+        if (!is_water_program_supported("Examples/FresnelRefractReflectVP") ||
+            !is_water_program_supported(fragment_program_name))
+        {
+            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "The selected water GPU programs are unavailable or unsupported, "
+                "so cannot run Water effects. Sorry!",
+                "Water effects");
         }
         // Ok
         // Define a floor plane mesh

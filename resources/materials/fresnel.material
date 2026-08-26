@@ -2,33 +2,66 @@
 // Distortion effects
 //----------------------------
 
-vertex_program Examples/FresnelRefractReflectVP cg
+vertex_program Examples/FresnelRefractReflectVP/GL3Plus glsl
 {
-	source Example_Fresnel.cg
-	entry_point main_vp
-	profiles vs_1_1 arbvp1
+	syntax glsl330
+	source Example_Fresnel_gl3plus.glsl
+	preprocessor_defines FRESNEL_WATER_VERTEX=1
 }
 
-fragment_program Examples/FresnelRefractReflectFP cg
+vertex_program Examples/FresnelRefractReflectVP/D3D11 hlsl
 {
-	source Example_Fresnel.cg
-	entry_point main_fp
-	// sorry, ps_1_1 and fp20 can't do this
-	profiles ps_2_0 arbfp1
+	source Example_Fresnel_d3d11.hlsl
+	entry_point FresnelWaterVS
+	target vs_4_0
+	preprocessor_defines FRESNEL_WATER_VERTEX=1
 }
 
-fragment_program Examples/FresnelRefractReflectPS asm
+vertex_program Examples/FresnelRefractReflectVP unified
 {
-	source Example_FresnelPS.asm
-	// sorry, only for ps_1_4 :)
-	syntax ps_1_4
+	delegate Examples/FresnelRefractReflectVP/GL3Plus
+	delegate Examples/FresnelRefractReflectVP/D3D11
+}
 
+fragment_program Examples/FresnelRefractReflectFP/GL3Plus glsl
+{
+	syntax glsl330
+	source Example_Fresnel_gl3plus.glsl
+	preprocessor_defines FRESNEL_WATER_FRAGMENT_FULL=1
+	default_params
+	{
+		param_named noiseMap int 0
+		param_named reflectMap int 1
+		param_named refractMap int 2
+	}
+}
+
+fragment_program Examples/FresnelRefractReflectFP/D3D11 hlsl
+{
+	source Example_Fresnel_d3d11.hlsl
+	entry_point FresnelWaterFullPS
+	target ps_4_0
+	preprocessor_defines FRESNEL_WATER_FRAGMENT_FULL=1
+}
+
+fragment_program Examples/FresnelRefractReflectFP unified
+{
+	delegate Examples/FresnelRefractReflectFP/GL3Plus
+	delegate Examples/FresnelRefractReflectFP/D3D11
+}
+
+// Preserve the historical compatibility alias while routing it to the same
+// modern full reflection/refraction programs.
+fragment_program Examples/FresnelRefractReflectPS unified
+{
+	delegate Examples/FresnelRefractReflectFP/GL3Plus
+	delegate Examples/FresnelRefractReflectFP/D3D11
 }
 
 material Examples/FresnelReflectionRefraction
 {
 	receive_shadows off 
-	// ps_2_0 / arbfp1
+	// Modern full reflection/refraction path
 	technique
 	{
 		pass 
@@ -68,7 +101,7 @@ material Examples/FresnelReflectionRefraction
 				// Will be filled in at runtime
 				texture Reflection 2d 0 PF_R8G8B8
 				tex_address_mode clamp
-				// needed by ps.1.4
+				// Projective reflection coordinates
 				tex_coord_set 1
 			}
 			// Refraction
@@ -77,7 +110,7 @@ material Examples/FresnelReflectionRefraction
 				// Will be filled in at runtime
 				texture Refraction 2d 0 PF_R8G8B8
 				tex_address_mode clamp
-				// needed by ps.1.4
+				// Projective refraction coordinates
 				tex_coord_set 2
 			}
 		}
@@ -90,7 +123,7 @@ material Examples/FresnelReflectionRefraction
 material Examples/FresnelReflectionRefractioninverted
 {
 	receive_shadows off 
-	// ps_2_0 / arbfp1
+	// Modern full reflection/refraction path
 	technique
 	{
 		pass 
@@ -130,7 +163,7 @@ material Examples/FresnelReflectionRefractioninverted
 				// Will be filled in at runtime
 				texture Reflection 2d 0 PF_R8G8B8
 				tex_address_mode clamp
-				// needed by ps.1.4
+				// Projective reflection coordinates
 				tex_coord_set 1
 			}
 			// Refraction
@@ -139,7 +172,7 @@ material Examples/FresnelReflectionRefractioninverted
 				// Will be filled in at runtime
 				texture Refraction 2d 0 PF_R8G8B8
 				tex_address_mode clamp
-				// needed by ps.1.4
+				// Projective refraction coordinates
 				tex_coord_set 2
 			}
 		}
@@ -149,18 +182,36 @@ material Examples/FresnelReflectionRefractioninverted
 
 }
 
-fragment_program Examples/ReflectFP cg
+fragment_program Examples/ReflectFP/GL3Plus glsl
 {
-	source Example_Fresnel.cg
-	entry_point main_simplerfp
-	// sorry, ps_1_1 and fp20 can't do this
-	profiles ps_2_0 arbfp1
+	syntax glsl330
+	source Example_Fresnel_gl3plus.glsl
+	preprocessor_defines FRESNEL_WATER_FRAGMENT_REFLECTION=1
+	default_params
+	{
+		param_named noiseMap int 0
+		param_named reflectMap int 1
+	}
+}
+
+fragment_program Examples/ReflectFP/D3D11 hlsl
+{
+	source Example_Fresnel_d3d11.hlsl
+	entry_point FresnelWaterReflectionPS
+	target ps_4_0
+	preprocessor_defines FRESNEL_WATER_FRAGMENT_REFLECTION=1
+}
+
+fragment_program Examples/ReflectFP unified
+{
+	delegate Examples/ReflectFP/GL3Plus
+	delegate Examples/ReflectFP/D3D11
 }
 
 material Examples/FresnelReflection
 {
 	receive_shadows off 
-	// ps_2_0 / arbfp1
+	// Modern reflection-only path
 	technique
 	{
 		pass 
@@ -202,7 +253,7 @@ material Examples/FresnelReflection
 				// Will be filled in at runtime
 				texture Reflection 2d 0 PF_R8G8B8
 				tex_address_mode clamp
-				// needed by ps.1.4
+				// Projective reflection coordinates
 				tex_coord_set 1
 			}
 		}
@@ -215,7 +266,7 @@ material Examples/FresnelReflection
 material Examples/FresnelReflectioninverted
 {
 	receive_shadows off 
-	// ps_2_0 / arbfp1
+	// Modern reflection-only path
 	technique
 	{
 		pass 
@@ -256,7 +307,7 @@ material Examples/FresnelReflectioninverted
 				// Will be filled in at runtime
 				texture Reflection 2d 0 PF_R8G8B8
 				tex_address_mode clamp
-				// needed by ps.1.4
+				// Projective reflection coordinates
 				tex_coord_set 1
 			}
 		}
