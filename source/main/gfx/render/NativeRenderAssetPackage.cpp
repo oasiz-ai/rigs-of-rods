@@ -1325,6 +1325,14 @@ TextureBinding &BindingAt(MaterialDescriptor &material,
     return material.detail_textures[2];
   case MaterialTextureSlot::DETAIL3:
     return material.detail_textures[3];
+  case MaterialTextureSlot::DETAIL0_NM:
+    return material.detail_normal_textures[0];
+  case MaterialTextureSlot::DETAIL1_NM:
+    return material.detail_normal_textures[1];
+  case MaterialTextureSlot::DETAIL2_NM:
+    return material.detail_normal_textures[2];
+  case MaterialTextureSlot::DETAIL3_NM:
+    return material.detail_normal_textures[3];
   }
   return material.base_color_texture;
 }
@@ -1354,6 +1362,14 @@ const TextureBinding &BindingAt(const MaterialDescriptor &material,
     return material.detail_textures[2];
   case MaterialTextureSlot::DETAIL3:
     return material.detail_textures[3];
+  case MaterialTextureSlot::DETAIL0_NM:
+    return material.detail_normal_textures[0];
+  case MaterialTextureSlot::DETAIL1_NM:
+    return material.detail_normal_textures[1];
+  case MaterialTextureSlot::DETAIL2_NM:
+    return material.detail_normal_textures[2];
+  case MaterialTextureSlot::DETAIL3_NM:
+    return material.detail_normal_textures[3];
   }
   return material.base_color_texture;
 }

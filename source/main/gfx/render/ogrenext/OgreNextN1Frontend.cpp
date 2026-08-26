@@ -1020,6 +1020,45 @@ ToOgreAddressMode(SamplerAddressMode address_mode) {
       "validated RT4/V1 sampler address mode became unsupported");
 }
 
+// The renderer-neutral detail operators are declared in the same order as
+// Ogre's PbsBlendModes, but this stays an explicit table rather than a cast:
+// the neutral enum is a transport contract and must not silently follow an
+// upstream reordering. Every enumerator is listed, so adding one without
+// mapping it fails the build instead of falling through to a default.
+Ogre::PbsBlendModes
+ToOgreNextDetailBlendMode(MaterialDetailBlendMode mode) {
+  switch (mode) {
+  case MaterialDetailBlendMode::NORMAL_NON_PREMUL:
+    return Ogre::PBSM_BLEND_NORMAL_NON_PREMUL;
+  case MaterialDetailBlendMode::NORMAL_PREMUL:
+    return Ogre::PBSM_BLEND_NORMAL_PREMUL;
+  case MaterialDetailBlendMode::ADD:
+    return Ogre::PBSM_BLEND_ADD;
+  case MaterialDetailBlendMode::SUBTRACT:
+    return Ogre::PBSM_BLEND_SUBTRACT;
+  case MaterialDetailBlendMode::MULTIPLY:
+    return Ogre::PBSM_BLEND_MULTIPLY;
+  case MaterialDetailBlendMode::MULTIPLY2X:
+    return Ogre::PBSM_BLEND_MULTIPLY2X;
+  case MaterialDetailBlendMode::SCREEN:
+    return Ogre::PBSM_BLEND_SCREEN;
+  case MaterialDetailBlendMode::OVERLAY:
+    return Ogre::PBSM_BLEND_OVERLAY;
+  case MaterialDetailBlendMode::LIGHTEN:
+    return Ogre::PBSM_BLEND_LIGHTEN;
+  case MaterialDetailBlendMode::DARKEN:
+    return Ogre::PBSM_BLEND_DARKEN;
+  case MaterialDetailBlendMode::GRAIN_EXTRACT:
+    return Ogre::PBSM_BLEND_GRAIN_EXTRACT;
+  case MaterialDetailBlendMode::GRAIN_MERGE:
+    return Ogre::PBSM_BLEND_GRAIN_MERGE;
+  case MaterialDetailBlendMode::DIFFERENCE:
+    return Ogre::PBSM_BLEND_DIFFERENCE;
+  }
+  throw std::logic_error(
+      "validated RT4/V1 detail blend operator became unsupported");
+}
+
 Ogre::HlmsSamplerblock
 ToOgreSampler(const SamplerResourceDescriptor &descriptor) {
   Ogre::HlmsSamplerblock sampler;
@@ -6759,31 +6798,49 @@ public:
         constexpr std::array<Ogre::PbsTextureTypes, kMaterialDetailMapCount>
             kDetailSlots{Ogre::PBSM_DETAIL0, Ogre::PBSM_DETAIL1,
                          Ogre::PBSM_DETAIL2, Ogre::PBSM_DETAIL3};
+        constexpr std::array<Ogre::PbsTextureTypes, kMaterialDetailMapCount>
+            kDetailNormalSlots{Ogre::PBSM_DETAIL0_NM, Ogre::PBSM_DETAIL1_NM,
+                               Ogre::PBSM_DETAIL2_NM, Ogre::PBSM_DETAIL3_NM};
         for (std::size_t layer = 0U; layer < kMaterialDetailMapCount;
              ++layer) {
           const TextureBinding &detail = descriptor.detail_textures[layer];
+          const TextureBinding &detail_normal =
+              descriptor.detail_normal_textures[layer];
           bind_texture(detail, kDetailSlots[layer], &NativeTexture::sampled);
-          if (!detail.texture.valid()) {
+          bind_texture(detail_normal, kDetailNormalSlots[layer],
+                       &NativeTexture::normal);
+          if (!detail.texture.valid() && !detail_normal.texture.valid()) {
             continue;
           }
           const auto detail_index = static_cast<Ogre::uint8>(layer);
-          // Sequential lerp over the running result, which is exactly how the
-          // legacy terrain material composited its layers.
-          native.pbs_datablock->setDetailMapBlendMode(
-              detail_index, Ogre::PBSM_BLEND_NORMAL_NON_PREMUL);
+          const Ogre::PbsBlendModes blend_mode =
+              ToOgreNextDetailBlendMode(descriptor.detail_blend_modes[layer]);
+          native.pbs_datablock->setDetailMapBlendMode(detail_index, blend_mode);
           native.pbs_datablock->setDetailMapWeight(
               detail_index, descriptor.detail_weights[layer]);
+          native.pbs_datablock->setDetailNormalWeight(
+              detail_index, descriptor.detail_normal_weights[layer]);
+          // A layer owns ONE offset/scale row that both its albedo and its
+          // normal read (`mDetailsOffsetScale[i]`). The descriptor validator
+          // already refused any layer whose two bindings disagree, so either
+          // present binding carries the authoritative transform here.
+          const TextureBinding &transform_source =
+              detail.texture.valid() ? detail : detail_normal;
+          const Ogre::Vector4 offset_scale(
+              transform_source.offset.x, transform_source.offset.y,
+              transform_source.scale.x, transform_source.scale.y);
           // Ogre packs this as XY = offset, ZW = scale, which is the opposite
           // order from the userValue[0] affine packing above.
-          native.pbs_datablock->setDetailMapOffsetScale(
-              detail_index,
-              Ogre::Vector4(detail.offset.x, detail.offset.y, detail.scale.x,
-                            detail.scale.y));
+          native.pbs_datablock->setDetailMapOffsetScale(detail_index,
+                                                        offset_scale);
           if (native.pbs_datablock->getDetailMapBlendMode(detail_index) !=
-                  Ogre::PBSM_BLEND_NORMAL_NON_PREMUL ||
+                  blend_mode ||
               native.pbs_datablock->getDetailMapOffsetScale(detail_index) !=
-                  Ogre::Vector4(detail.offset.x, detail.offset.y,
-                                detail.scale.x, detail.scale.y)) {
+                  offset_scale ||
+              native.pbs_datablock->getDetailMapWeight(detail_index) !=
+                  Ogre::Real(descriptor.detail_weights[layer]) ||
+              native.pbs_datablock->getDetailNormalWeight(detail_index) !=
+                  Ogre::Real(descriptor.detail_normal_weights[layer])) {
             throw std::runtime_error(
                 "Ogre-Next RT4/V1 live PBS detail state differs from the reviewed mapping");
           }
@@ -13791,6 +13848,16 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
                  {true, false, false, false, false, false}},
                 {&material->detail_textures[3],
                  {true, false, false, false, false, false}},
+                // Detail normals are tangent-space vectors and take the same
+                // linear normal channel as the base normal map.
+                {&material->detail_normal_textures[0],
+                 {false, false, false, false, false, true}},
+                {&material->detail_normal_textures[1],
+                 {false, false, false, false, false, true}},
+                {&material->detail_normal_textures[2],
+                 {false, false, false, false, false, true}},
+                {&material->detail_normal_textures[3],
+                 {false, false, false, false, false, true}},
             };
             for (const BindingUsage &binding_usage : bindings) {
               const TextureBinding &binding = *binding_usage.binding;

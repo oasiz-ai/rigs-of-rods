@@ -679,9 +679,11 @@ ValidationResult BuildOgreNextN1PbsUv0AffineTransform(
   // the frontend can prove it bound every slot the material declared.
   {
     const TextureBinding *const detail_bindings[] = {
-        &material.detail_weight_texture, &material.detail_textures[0],
-        &material.detail_textures[1],    &material.detail_textures[2],
-        &material.detail_textures[3],
+        &material.detail_weight_texture,     &material.detail_textures[0],
+        &material.detail_textures[1],        &material.detail_textures[2],
+        &material.detail_textures[3],        &material.detail_normal_textures[0],
+        &material.detail_normal_textures[1], &material.detail_normal_textures[2],
+        &material.detail_normal_textures[3],
     };
     for (const TextureBinding *const binding : detail_bindings) {
       const bool texture_absent =

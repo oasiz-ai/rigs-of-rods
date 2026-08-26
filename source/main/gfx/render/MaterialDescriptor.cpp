@@ -134,6 +134,64 @@ bool IsKnownBaseColorTransfer(BaseColorTransfer transfer) noexcept {
   return false;
 }
 
+namespace {
+
+// One row per enumerator, in enumerator order. The tokens are the authoring
+// vocabulary and the audit vocabulary at once, so a log line and a material
+// script always spell an operator the same way.
+struct DetailBlendModeToken final {
+  MaterialDetailBlendMode mode;
+  const char *token;
+};
+
+constexpr DetailBlendModeToken kDetailBlendModeTokens[] = {
+    {MaterialDetailBlendMode::NORMAL_NON_PREMUL, "normal"},
+    {MaterialDetailBlendMode::NORMAL_PREMUL, "premul"},
+    {MaterialDetailBlendMode::ADD, "add"},
+    {MaterialDetailBlendMode::SUBTRACT, "subtract"},
+    {MaterialDetailBlendMode::MULTIPLY, "multiply"},
+    {MaterialDetailBlendMode::MULTIPLY2X, "multiply2x"},
+    {MaterialDetailBlendMode::SCREEN, "screen"},
+    {MaterialDetailBlendMode::OVERLAY, "overlay"},
+    {MaterialDetailBlendMode::LIGHTEN, "lighten"},
+    {MaterialDetailBlendMode::DARKEN, "darken"},
+    {MaterialDetailBlendMode::GRAIN_EXTRACT, "grain_extract"},
+    {MaterialDetailBlendMode::GRAIN_MERGE, "grain_merge"},
+    {MaterialDetailBlendMode::DIFFERENCE, "difference"},
+};
+
+} // namespace
+
+bool IsKnownMaterialDetailBlendMode(MaterialDetailBlendMode mode) noexcept {
+  for (const DetailBlendModeToken &entry : kDetailBlendModeTokens) {
+    if (entry.mode == mode) {
+      return true;
+    }
+  }
+  return false;
+}
+
+const char *
+MaterialDetailBlendModeToken(MaterialDetailBlendMode mode) noexcept {
+  for (const DetailBlendModeToken &entry : kDetailBlendModeTokens) {
+    if (entry.mode == mode) {
+      return entry.token;
+    }
+  }
+  return nullptr;
+}
+
+bool ParseMaterialDetailBlendModeToken(std::string_view token,
+                                       MaterialDetailBlendMode &mode) noexcept {
+  for (const DetailBlendModeToken &entry : kDetailBlendModeTokens) {
+    if (token == entry.token) {
+      mode = entry.mode;
+      return true;
+    }
+  }
+  return false;
+}
+
 ValidationResult
 ValidateMaterialDescriptor(const MaterialDescriptor &descriptor) {
   if (descriptor.version != kMaterialDescriptorVersion &&
@@ -352,6 +410,11 @@ ValidateMaterialDescriptor(const MaterialDescriptor &descriptor) {
       if (!layer_validation) {
         return layer_validation;
       }
+      const ValidationResult normal_validation = ValidateTextureBinding(
+          descriptor.detail_normal_textures[layer], "detail_normal_textures");
+      if (!normal_validation) {
+        return normal_validation;
+      }
       if (!std::isfinite(descriptor.detail_weights[layer]) ||
           descriptor.detail_weights[layer] < 0.0F ||
           descriptor.detail_weights[layer] > 1.0F) {
@@ -359,8 +422,41 @@ ValidateMaterialDescriptor(const MaterialDescriptor &descriptor) {
             ValidationCode::VALUE_OUT_OF_RANGE, "detail_weights",
             "detail weights must be finite and within the unit range", layer);
       }
-      if (!IsAbsentRenderAssetReference(
-              descriptor.detail_textures[layer].texture)) {
+      if (!std::isfinite(descriptor.detail_normal_weights[layer]) ||
+          descriptor.detail_normal_weights[layer] < 0.0F ||
+          descriptor.detail_normal_weights[layer] > 1.0F) {
+        return ValidationResult::Failure(
+            ValidationCode::VALUE_OUT_OF_RANGE, "detail_normal_weights",
+            "detail normal weights must be finite and within the unit range",
+            layer);
+      }
+      if (!IsKnownMaterialDetailBlendMode(descriptor.detail_blend_modes[layer])) {
+        return ValidationResult::Failure(ValidationCode::INVALID_ENUM,
+                                         "detail_blend_modes",
+                                         "unknown detail blend operator", layer);
+      }
+      const bool albedo_present = !IsAbsentRenderAssetReference(
+          descriptor.detail_textures[layer].texture);
+      const bool normal_present = !IsAbsentRenderAssetReference(
+          descriptor.detail_normal_textures[layer].texture);
+      // One layer owns exactly one UV transform row in the datablock
+      // (`mDetailsOffsetScale[i]`), which both its albedo and its normal read.
+      // A descriptor asking for two different transforms cannot be projected
+      // exactly, so it is refused rather than silently resolved to one of them.
+      if (albedo_present && normal_present) {
+        const TextureBinding &albedo = descriptor.detail_textures[layer];
+        const TextureBinding &normal = descriptor.detail_normal_textures[layer];
+        if (albedo.scale != normal.scale || albedo.offset != normal.offset ||
+            albedo.rotation_radians != normal.rotation_radians ||
+            albedo.texture_coordinate_set != normal.texture_coordinate_set) {
+          return ValidationResult::Failure(
+              ValidationCode::VALUE_OUT_OF_RANGE, "detail_normal_textures",
+              "a detail layer's albedo and normal share one UV transform and "
+              "must agree on it",
+              layer);
+        }
+      }
+      if (albedo_present || normal_present) {
         any_detail_layer = true;
       }
     }
@@ -371,7 +467,15 @@ ValidateMaterialDescriptor(const MaterialDescriptor &descriptor) {
     const bool canonical_no_detail =
         !any_detail_layer && weight_absent &&
         descriptor.detail_weights ==
-            std::array<float, kMaterialDetailMapCount>{1.0F, 1.0F, 1.0F, 1.0F};
+            std::array<float, kMaterialDetailMapCount>{1.0F, 1.0F, 1.0F, 1.0F} &&
+        descriptor.detail_normal_weights ==
+            std::array<float, kMaterialDetailMapCount>{1.0F, 1.0F, 1.0F, 1.0F} &&
+        descriptor.detail_blend_modes ==
+            std::array<MaterialDetailBlendMode, kMaterialDetailMapCount>{
+                MaterialDetailBlendMode::NORMAL_NON_PREMUL,
+                MaterialDetailBlendMode::NORMAL_NON_PREMUL,
+                MaterialDetailBlendMode::NORMAL_NON_PREMUL,
+                MaterialDetailBlendMode::NORMAL_NON_PREMUL};
     if (descriptor.version != kMaterialDescriptorDetailVersion &&
         !canonical_no_detail) {
       return ValidationResult::Failure(
@@ -607,6 +711,22 @@ ValidateMaterialTextureCompatibility(MaterialTextureSlot slot,
       return ValidationResult::Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "texture.format",
           "detail albedo slots require RGBA8 or BC7 sRGB storage");
+    }
+    break;
+  case MaterialTextureSlot::DETAIL0_NM:
+  case MaterialTextureSlot::DETAIL1_NM:
+  case MaterialTextureSlot::DETAIL2_NM:
+  case MaterialTextureSlot::DETAIL3_NM:
+    // Detail normals are tangent-space vectors decoded as `2 * texel - 1`, so
+    // they share the base normal slot's storage rule exactly, BC5 included: it
+    // is the tangent-space XY with Z reconstructed in the shader. An sRGB
+    // detail normal would decode its own texels before the vector decode and
+    // bend the surface the wrong way, so the linear transfer stays required.
+    if ((!rgba_storage && !bc5_storage) ||
+        texture.color_space != TextureColorSpace::LINEAR) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "texture.format",
+          "detail normal slots require linear RGBA or BC5 storage");
     }
     break;
   default:

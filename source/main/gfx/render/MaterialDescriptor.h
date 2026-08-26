@@ -18,6 +18,7 @@
 #include <array>
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace RoR::Render {
 
@@ -101,6 +102,30 @@ enum class BaseColorTransfer : std::uint8_t {
   SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE = 1,
 };
 
+/// Per-layer compositing operator for a weighted detail layer.
+///
+/// The enumerators mirror the pinned HLMS PBS `PbsBlendModes` one for one and
+/// in the same order: there is no operator here the datablock cannot perform,
+/// and none it can perform that is unreachable from here. `NORMAL_NON_PREMUL`
+/// is the sequential lerp the legacy terrain composite performed and stays the
+/// canonical default, so a descriptor that never mentions blending keeps the
+/// exact behaviour the v6 profile shipped with.
+enum class MaterialDetailBlendMode : std::uint8_t {
+  NORMAL_NON_PREMUL = 0,
+  NORMAL_PREMUL = 1,
+  ADD = 2,
+  SUBTRACT = 3,
+  MULTIPLY = 4,
+  MULTIPLY2X = 5,
+  SCREEN = 6,
+  OVERLAY = 7,
+  LIGHTEN = 8,
+  DARKEN = 9,
+  GRAIN_EXTRACT = 10,
+  GRAIN_MERGE = 11,
+  DIFFERENCE = 12,
+};
+
 enum class MaterialTextureSlot : std::uint8_t {
   BASE_COLOR = 0,
   METALLIC_ROUGHNESS = 1,
@@ -116,6 +141,14 @@ enum class MaterialTextureSlot : std::uint8_t {
   DETAIL1 = 8,
   DETAIL2 = 9,
   DETAIL3 = 10,
+  /// Tangent-space detail normal paired with DETAIL0..DETAIL3 respectively.
+  /// Layer i's albedo and normal share ONE UV transform in the datablock
+  /// (`mDetailsOffsetScale[i]` is a single row), so the descriptor is refused
+  /// unless both bindings of a layer agree on scale, offset and rotation.
+  DETAIL0_NM = 11,
+  DETAIL1_NM = 12,
+  DETAIL2_NM = 13,
+  DETAIL3_NM = 14,
 };
 
 struct TextureBinding {
@@ -207,13 +240,34 @@ struct MaterialDescriptor {
   /// while each layer repeats at the rate its texture was authored for.
   /// detail_weight_texture must therefore stay at identity scale.
   ///
-  /// Layer i is composited over the running result as
-  /// `lerp(result, detail_i, weight_channel_i * detail_weights[i])`, matching
-  /// the sequential blend the legacy terrain material performed.
+  /// Layer i is composited over the running result with the operator named by
+  /// `detail_blend_modes[i]` at strength `weight_channel_i * detail_weights[i]`.
+  /// The default operator is the sequential lerp the legacy terrain material
+  /// performed, so a descriptor that leaves the operators alone keeps exactly
+  /// the behaviour the profile shipped with.
   TextureBinding detail_weight_texture;
   std::array<TextureBinding, kMaterialDetailMapCount> detail_textures;
   std::array<float, kMaterialDetailMapCount> detail_weights{1.0F, 1.0F, 1.0F,
                                                             1.0F};
+  std::array<MaterialDetailBlendMode, kMaterialDetailMapCount>
+      detail_blend_modes{MaterialDetailBlendMode::NORMAL_NON_PREMUL,
+                         MaterialDetailBlendMode::NORMAL_NON_PREMUL,
+                         MaterialDetailBlendMode::NORMAL_NON_PREMUL,
+                         MaterialDetailBlendMode::NORMAL_NON_PREMUL};
+
+  /// Tangent-space detail normal paired with `detail_textures[i]`. It supplies
+  /// the surface relief that makes a layer read as material rather than as a
+  /// tinted wash; without it a detail layer only recolours.
+  ///
+  /// A layer may carry a normal without an albedo and vice versa, but the two
+  /// bindings of one layer share a single UV transform row in the datablock,
+  /// so the descriptor is refused when a layer's two bindings disagree on
+  /// scale, offset or rotation. `detail_normal_weights[i]` scales the decoded
+  /// tangent-space perturbation; 0 is indistinguishable from an absent normal
+  /// and 1 is the authored relief.
+  std::array<TextureBinding, kMaterialDetailMapCount> detail_normal_textures;
+  std::array<float, kMaterialDetailMapCount> detail_normal_weights{
+      1.0F, 1.0F, 1.0F, 1.0F};
 };
 
 [[nodiscard]] bool IsKnownMaterialModel(MaterialModel model) noexcept;
@@ -226,6 +280,17 @@ IsKnownMaterialTransmissionMode(MaterialTransmissionMode mode) noexcept;
 IsKnownMaterialAlphaTestMode(MaterialAlphaTestMode mode) noexcept;
 [[nodiscard]] bool
 IsKnownBaseColorTransfer(BaseColorTransfer transfer) noexcept;
+[[nodiscard]] bool
+IsKnownMaterialDetailBlendMode(MaterialDetailBlendMode mode) noexcept;
+/// Stable lowercase token for one detail blend operator, for authoring
+/// vocabularies and audit lines. Returns nullptr for an unknown value.
+[[nodiscard]] const char *
+MaterialDetailBlendModeToken(MaterialDetailBlendMode mode) noexcept;
+/// Exact inverse of MaterialDetailBlendModeToken. Returns false and leaves
+/// `mode` untouched for anything else; there is no nearest match.
+[[nodiscard]] bool
+ParseMaterialDetailBlendModeToken(std::string_view token,
+                                  MaterialDetailBlendMode &mode) noexcept;
 [[nodiscard]] ValidationResult
 ValidateMaterialDescriptor(const MaterialDescriptor &descriptor);
 /// Validates the exact vertex streams needed to apply this material without
