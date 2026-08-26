@@ -24,6 +24,7 @@ Author: Jose Luis Cercós Pita
 
 #include <GodRaysManager.h>
 
+#include "GodRaysModernGlsl.h"
 #include "GodRaysModernHlsl.h"
 #include <Hydrax.h>
 
@@ -466,7 +467,6 @@ namespace Hydrax
 		MaterialManager *mMaterialManager = mHydrax->getMaterialManager();
 
 		int NumberOfDepthChannels = 0;
-		Ogre::String GB[2] = {"0, 1, 0", "0, 0, 1"};
 
 		if (_isComponent(HC, HYDRAX_COMPONENT_CAUSTICS))
 		{
@@ -491,36 +491,8 @@ namespace Hydrax
 
 			case MaterialManager::SM_GLSL:
 			{
-				VertexProgramData += Ogre::String( "\n" );
-                    // UNIFORMS
-                    if (mObjectsIntersections)
-                    {
-                        VertexProgramData += Ogre::String(
-                        "uniform mat4 uWorld;\n") +
-                        "uniform mat4 uTexViewProj;\n";
-                    }
-                    // IN
-                    // OUT
-                    if (mObjectsIntersections)
-                    {
-                        VertexProgramData += Ogre::String(
-                        "varying vec3 Position_;\n") +
-                        "varying vec4 ProjUV;\n";
-                    }
-                    // main function
-                    VertexProgramData += Ogre::String(
-					"void main()\n") +
-					"{\n" +
-                        "gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;\n";
-                        if (mObjectsIntersections)
-                        {
-                            VertexProgramData += Ogre::String(
-                            "vec4 wPos = uWorld * gl_Vertex;\n")+
-                            "Position_  = wPos.xyz;\n"+
-                            "ProjUV     = uTexViewProj * wPos;\n";
-                        }
-                    VertexProgramData +=
-					"}\n";
+				VertexProgramData = ModernGlsl::godRaysVertexSource(
+					mObjectsIntersections);
 			}
 			break;
 		}
@@ -539,45 +511,9 @@ namespace Hydrax
 
 			case MaterialManager::SM_GLSL:
 			{
-				if (mObjectsIntersections)
-                    FragmentProgramData += Ogre::String( "\n" ) +
-                    // UNIFORMS
-                    "uniform vec3      uLightPosition;\n"+
-                    "uniform float     uLightFarClipDistance;\n" +
-                    "uniform sampler2D uDepthMap;\n" +
-                    // IN
-                    "varying vec3 Position_;\n" +
-                    "varying vec4 ProjUV;\n" +
-                    // OUT
-                    // main function
-				    "void main()\n" +
-					"{\n" +
-					    "ProjUV /= ProjUV.w;\n" +
-						"float Depth  = texture2D(uDepthMap,  ProjUV.xy).x;\n" +
-						"if(Depth < clamp( length(Position_-uLightPosition) / uLightFarClipDistance ), 0.0, 1.0)\n" +
-						"{\n"+
-						    "gl_FragColor = vec4(0.0,0.0,0.0,1.0);\n"+
-						"}\n"+
-						"else\n"+
-						"{\n"+
-							"gl_FragColor = vec4(vec3(" + GB[NumberOfDepthChannels] + ") * 0.1, 1.0);\n"+
-						"}\n"+
-					"}\n";
-				else
-				FragmentProgramData += Ogre::String( "\n" ) +
-                    // UNIFORMS
-                    "uniform vec3      uLightPosition;\n"+
-                    "uniform float     uLightFarClipDistance;\n" +
-                    "uniform sampler2D uDepthMap;\n" +
-                    // IN
-                    "varying vec3 Position_;\n" +
-                    "varying vec4 ProjUV;\n" +
-                    // OUT
-                    // main function
-				    "void main()\n" +
-					"{\n" +
-						"gl_FragColor = vec4(vec3(" + GB[NumberOfDepthChannels] + ") * 0.1, 1.0);\n"+
-					"}\n";
+				FragmentProgramData = ModernGlsl::godRaysFragmentSource(
+					mObjectsIntersections,
+					NumberOfDepthChannels != 0);
 			}
 			break;
 		}
@@ -627,10 +563,7 @@ namespace Hydrax
 		VP_Parameters = GR_Technique0_Pass0->getVertexProgramParameters();
 		FP_Parameters = GR_Technique0_Pass0->getFragmentProgramParameters();
 
-        if(mHydrax->getShaderMode() != MaterialManager::SM_GLSL)
-        {
-            VP_Parameters->setNamedAutoConstant("uWorldViewProj", Ogre::GpuProgramParameters::ACT_WORLDVIEWPROJ_MATRIX);
-        }
+		VP_Parameters->setNamedAutoConstant("uWorldViewProj", Ogre::GpuProgramParameters::ACT_WORLDVIEWPROJ_MATRIX);
 
 		if (!mObjectsIntersections)
 		{
@@ -674,19 +607,7 @@ namespace Hydrax
 
 			case MaterialManager::SM_GLSL:
 			{
-				VertexProgramData += Ogre::String( "\n" ) +
-                    // UNIFORMS
-                    "uniform mat4 uWorld;\n" +
-                    // IN
-                    // OUT
-                    "varying vec3 Position_;\n" +
-                    // main function
-					"void main()\n" +
-					"{\n" +
-                        "gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;\n"+
-                        "vec4 wPos = uWorld * gl_Vertex;\n"+
-                        "Position_  = wPos.xyz;\n"+
-					"}\n";
+				VertexProgramData = ModernGlsl::godRaysDepthVertexSource();
             }
 			break;
 		}
@@ -703,19 +624,7 @@ namespace Hydrax
 
 			case MaterialManager::SM_GLSL:
 			{
-				FragmentProgramData += Ogre::String( "\n" ) +
-                    // UNIFORMS
-                    "uniform vec3  uLightPosition;\n" +
-                    "uniform float uLightFarClipDistance;\n" +
-                    // IN
-                    "varying vec3 Position_;\n" +
-                    // OUT
-                    // main function
-					"void main()\n" +
-					"{\n" +
-					    "float depth = clamp( length(Position_-uLightPosition) / uLightFarClipDistance , 0.0, 1.0);\n"+
-						"gl_FragColor = vec4(depth, 0.0, 0.0, 0.0);\n"+
-					"}\n";
+				FragmentProgramData = ModernGlsl::godRaysDepthFragmentSource();
             }
 			break;
 		}
@@ -764,10 +673,7 @@ namespace Hydrax
 		VP_Parameters = GRD_Technique0_Pass0->getVertexProgramParameters();
 		FP_Parameters = GRD_Technique0_Pass0->getFragmentProgramParameters();
 
-        if(mHydrax->getShaderMode() != MaterialManager::SM_GLSL)
-        {
-            VP_Parameters->setNamedAutoConstant("uWorldViewProj", Ogre::GpuProgramParameters::ACT_WORLDVIEWPROJ_MATRIX);
-        }
+		VP_Parameters->setNamedAutoConstant("uWorldViewProj", Ogre::GpuProgramParameters::ACT_WORLDVIEWPROJ_MATRIX);
 		VP_Parameters->setNamedAutoConstant("uWorld", Ogre::GpuProgramParameters::ACT_WORLD_MATRIX);
 
 		FP_Parameters->setNamedConstant("uLightPosition", mProjectorSN->getPosition());
@@ -797,10 +703,7 @@ namespace Hydrax
 		Ogre::GpuProgramParametersSharedPtr VP_Parameters = DM_Technique_Pass0->getVertexProgramParameters();
 		Ogre::GpuProgramParametersSharedPtr FP_Parameters = DM_Technique_Pass0->getFragmentProgramParameters();
 
-        if(mHydrax->getShaderMode() != MaterialManager::SM_GLSL)
-        {
-            VP_Parameters->setNamedAutoConstant("uWorldViewProj", Ogre::GpuProgramParameters::ACT_WORLDVIEWPROJ_MATRIX);
-        }
+		VP_Parameters->setNamedAutoConstant("uWorldViewProj", Ogre::GpuProgramParameters::ACT_WORLDVIEWPROJ_MATRIX);
 		VP_Parameters->setNamedAutoConstant("uWorld", Ogre::GpuProgramParameters::ACT_WORLD_MATRIX);
 
 		FP_Parameters->setNamedConstant("uLightPosition", mProjectorSN->getPosition());
