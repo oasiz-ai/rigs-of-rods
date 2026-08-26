@@ -459,3 +459,115 @@ def build_opaque_mask_png(size: int, channels: int) -> bytes:
         size,
         [(lambda u, v: 1.0) for _ in range(channels)],
     )
+
+
+def build_brick_joint_layer_png(size: int, *, columns: int, rows: int,
+                                mortar_px: int, tint: Sequence[int],
+                                pivot: float, contrast: float, salt: int,
+                                streak: float = 0.0) -> bytes:
+    """A layer whose height is HIGH inside a brick's mortar joints.
+
+    This is the one that makes the showcase legible. The base brick texture is
+    an 8x32 grid with a 4px joint at 1024; a layer generated from the same grid
+    and bound at the same UV repeat therefore has its recesses exactly where
+    the base has its joints. Because the engine multiplies this alpha into the
+    layer's per-texel weight, the layer is admitted only where the joint is —
+    so the stain sits IN the mortar line rather than washing across the face.
+
+    ``streak`` adds a downward run to the height, which is how a stain
+    actually leaves a joint and bleeds onto the brick below it.
+    """
+
+    if size <= 0:
+        raise DetailLayerAuthoringError("texture size must be positive")
+    if columns <= 0 or rows <= 0:
+        raise DetailLayerAuthoringError("brick grid must be positive")
+    if len(tint) != 3:
+        raise DetailLayerAuthoringError("tint must be RGB")
+
+    cell_w = size / columns
+    cell_h = size / rows
+    mortar = max(mortar_px, 1) * (size / 1024.0)
+
+    rows_out = bytearray()
+    for y in range(size):
+        row_index = int(y // cell_h)
+        # Running bond: alternate courses are offset by half a brick, exactly
+        # as the base texture lays them out.
+        offset = (cell_w * 0.5) if (row_index % 2) else 0.0
+        dy = min(y - row_index * cell_h, (row_index + 1) * cell_h - y)
+        for x in range(size):
+            shifted = (x + offset) % size
+            col_index = int(shifted // cell_w)
+            dx = min(shifted - col_index * cell_w,
+                     (col_index + 1) * cell_w - shifted)
+            # Distance into the joint, normalised: 1 at the joint centre.
+            joint = max(0.0, 1.0 - min(dx, dy) / mortar)
+            height = joint
+            if streak > 0.0:
+                # Bleed downward out of the joint above this texel.
+                bleed = max(0.0, 1.0 - (dy / cell_h) * 2.0) * streak
+                height = min(1.0, height + bleed)
+            grit = ((_hash32(x, y, salt) & 0xFF) / 255.0 - 0.5) * 0.12
+            height = _clamp_unit(height + grit)
+            shade = 0.6 + 0.4 * (1.0 - height)
+            rows_out.append(_clamp_byte(round(tint[0] * shade)))
+            rows_out.append(_clamp_byte(round(tint[1] * shade)))
+            rows_out.append(_clamp_byte(round(tint[2] * shade)))
+            rows_out.append(bake_height_to_alpha(height, pivot, contrast))
+    return encode_png_rgba(size, size, bytes(rows_out))
+
+
+def build_brick_joint_normal_png(size: int, *, columns: int, rows: int,
+                                 mortar_px: int, amplitude: float) -> bytes:
+    """Tangent-space relief for the joint recess of the same brick grid."""
+
+    if size <= 0:
+        raise DetailLayerAuthoringError("texture size must be positive")
+    cell_w = size / columns
+    cell_h = size / rows
+    mortar = max(mortar_px, 1) * (size / 1024.0)
+
+    def height_at(x: int, y: int) -> float:
+        row_index = int((y % size) // cell_h)
+        offset = (cell_w * 0.5) if (row_index % 2) else 0.0
+        dy = min((y % size) - row_index * cell_h,
+                 (row_index + 1) * cell_h - (y % size))
+        shifted = ((x % size) + offset) % size
+        col_index = int(shifted // cell_w)
+        dx = min(shifted - col_index * cell_w,
+                 (col_index + 1) * cell_w - shifted)
+        # Brick face is proud, joint is recessed.
+        return 1.0 - max(0.0, 1.0 - min(dx, dy) / mortar)
+
+    rows_out = bytearray()
+    for y in range(size):
+        for x in range(size):
+            dx = height_at(x + 1, y) - height_at(x - 1, y)
+            dy = height_at(x, y + 1) - height_at(x, y - 1)
+            nx, ny, nz = -dx * amplitude, -dy * amplitude, 1.0
+            length = (nx * nx + ny * ny + nz * nz) ** 0.5
+            nx, ny, nz = nx / length, ny / length, nz / length
+            rows_out.append(_clamp_byte(round((nx * 0.5 + 0.5) * _UINT8_MAX)))
+            rows_out.append(_clamp_byte(round((ny * 0.5 + 0.5) * _UINT8_MAX)))
+            rows_out.append(_clamp_byte(round((nz * 0.5 + 0.5) * _UINT8_MAX)))
+            rows_out.append(_UINT8_MAX)
+    return encode_png_rgba(size, size, bytes(rows_out))
+
+
+def build_fine_grain_png(size: int, *, salt: int, tint: Sequence[int],
+                         pivot: float, contrast: float) -> bytes:
+    """High-frequency surface grain, bound at a high UV repeat."""
+
+    if size <= 0:
+        raise DetailLayerAuthoringError("texture size must be positive")
+    rows_out = bytearray()
+    for y in range(size):
+        for x in range(size):
+            height = (_hash32(x, y, salt) & 0xFFFF) / 65535.0
+            shade = 0.75 + 0.25 * height
+            rows_out.append(_clamp_byte(round(tint[0] * shade)))
+            rows_out.append(_clamp_byte(round(tint[1] * shade)))
+            rows_out.append(_clamp_byte(round(tint[2] * shade)))
+            rows_out.append(bake_height_to_alpha(height, pivot, contrast))
+    return encode_png_rgba(size, size, bytes(rows_out))

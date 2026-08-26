@@ -12,6 +12,8 @@
 
 #include "OgreNextDemoPrivatePolicy.h"
 
+#include "Ogre14MaterialDetailLayerDeclaration.h"
+
 #include "gfx/render/Ogre14GraphicsSceneSource.h"
 
 #include <OgreMaterial.h>
@@ -77,6 +79,68 @@ struct OgreNextDemoMaterialApplyTiming final {
 /// later capture so package/resource generation changes can promote them;
 /// authentication inconsistency/demotion and projected authority changes stay
 /// fail-closed. Generic factor values remain governed by the outer inventory.
+/// The cache keys of one captured detail slot. Empty means the authored
+/// declaration did not ask for that slot.
+struct CapturedDetailSlot final {
+  std::string texture_key;
+  std::string sampler_key;
+
+  [[nodiscard]] bool bound() const noexcept { return !texture_key.empty(); }
+};
+
+/// Everything one projection owns for its weighted detail layers. The layer
+/// artwork comes from the companion material, which is a separate resource
+/// from the base material's own native pass, so none of it participates in
+/// the base pass's native pointer-token freezing. `identity` is what makes a
+/// companion edit invalidate the frozen projection instead.
+struct CapturedDetailLayers final {
+  bool declared = false;
+  CapturedDetailSlot weight;
+  std::array<CapturedDetailSlot, Render::kMaterialDetailMapCount> albedo;
+  std::array<CapturedDetailSlot, Render::kMaterialDetailMapCount> normal;
+  std::array<Render::MaterialDetailBlendMode, Render::kMaterialDetailMapCount>
+      blend_modes{Render::MaterialDetailBlendMode::NORMAL_NON_PREMUL,
+                  Render::MaterialDetailBlendMode::NORMAL_NON_PREMUL,
+                  Render::MaterialDetailBlendMode::NORMAL_NON_PREMUL,
+                  Render::MaterialDetailBlendMode::NORMAL_NON_PREMUL};
+  std::array<float, Render::kMaterialDetailMapCount> weights{1.0F, 1.0F, 1.0F,
+                                                             1.0F};
+  std::array<float, Render::kMaterialDetailMapCount> normal_weights{
+      1.0F, 1.0F, 1.0F, 1.0F};
+  std::array<Render::Float2, Render::kMaterialDetailMapCount> scale{
+      Render::Float2{1.0F, 1.0F}, Render::Float2{1.0F, 1.0F},
+      Render::Float2{1.0F, 1.0F}, Render::Float2{1.0F, 1.0F}};
+  std::array<Render::Float2, Render::kMaterialDetailMapCount> offset{};
+  std::size_t layer_count = 0U;
+  std::size_t normal_layer_count = 0U;
+  std::string identity;
+
+  /// Every bound slot as (native slot ordinal, keys), for the publication
+  /// paths that must reach all of them uniformly.
+  template <typename Visitor> void ForEachBoundSlot(Visitor &&visit) const {
+    if (weight.bound()) {
+      visit(Render::MaterialTextureSlot::DETAIL_WEIGHT, weight);
+    }
+    for (std::size_t layer = 0U; layer < Render::kMaterialDetailMapCount;
+         ++layer) {
+      if (albedo[layer].bound()) {
+        visit(static_cast<Render::MaterialTextureSlot>(
+                  static_cast<std::size_t>(
+                      Render::MaterialTextureSlot::DETAIL0) +
+                  layer),
+              albedo[layer]);
+      }
+      if (normal[layer].bound()) {
+        visit(static_cast<Render::MaterialTextureSlot>(
+                  static_cast<std::size_t>(
+                      Render::MaterialTextureSlot::DETAIL0_NM) +
+                  layer),
+              normal[layer]);
+      }
+    }
+  }
+};
+
 class OgreNextDemoMaterialSource final {
 public:
   OgreNextDemoMaterialSource();
@@ -201,6 +265,22 @@ private:
   /// decode, container, or dimension surprise answers false.
   [[nodiscard]] bool VerifyAdditiveEquivalentGlowOverlayContent(
       const Ogre::Pass &base_pass, const Ogre::Pass &overlay_pass) noexcept;
+
+  /// Captures the weighted detail layers a base material's companion
+  /// declares, into the same texture/sampler cache the base colour uses.
+  ///
+  /// The companion is an ordinary material that nothing draws, so its
+  /// textures are resolved through the ordinary selected-source resolver
+  /// exactly like TUS0's. Returns false only for a hard capture/authority
+  /// error; a companion that is absent, unreadable, or whose artwork cannot
+  /// be resolved answers true with `layers.declared == false` and a refusal
+  /// reason, because losing a material's layers must never lose the material.
+  [[nodiscard]] bool CaptureDetailLayers(
+      const Ogre::MaterialPtr &native_material,
+      CapturedDetailLayers &layers,
+      Detail::MaterialDetailLayerRefusal &refusal,
+      std::string &declaration_identity,
+      Render::ValidationResult &failure);
 
   [[nodiscard]] bool TryProjectCurrent(
       const Ogre::MaterialPtr &native_material, bool has_authored_uv0,
