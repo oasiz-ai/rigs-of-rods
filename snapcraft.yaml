@@ -53,8 +53,6 @@ parts:
             - libzzip-0-13
             - libxaw7
             - libxt6
-            - try: [nvidia-cg-dev] # should be in build-packages, but we have no try: there
-            - try: [libcggl]
         stage:
             - -usr/share/OGRE/Media/volumeTerrain
             - -usr/share/OGRE/Media/materials

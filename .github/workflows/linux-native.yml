@@ -10,7 +10,7 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y libxrandr-dev libxt-dev libxaw7-dev libzzip-dev \
-            mesa-common-dev libgl1-mesa-dev libglu1-mesa-dev libfreetype6-dev nvidia-cg-dev \
+            mesa-common-dev libgl1-mesa-dev libglu1-mesa-dev libfreetype6-dev \
             libssl-dev libopenal-dev libois-dev libcurl4-openssl-dev rapidjson-dev gettext libfmt-dev
             
       - uses: actions/checkout@v7

@@ -134,8 +134,7 @@ class PSSMShadowCameraSetup;
 
 
 /** A TerrainMaterialGenerator which can cope with normal mapped, specular mapped
-terrain.
-@note Requires the Cg plugin to render correctly
+terrain through the retained HLSL, GLSL, or GLSL ES routes.
 */
 class TerrainPSSMMaterialGenerator : public TerrainMaterialGenerator
 {
@@ -259,6 +258,8 @@ public:
         {
         public:
             ShaderHelper()
+                : mShadowSamplerStartHi(0)
+                , mShadowSamplerStartLo(0)
             {
             }
 
@@ -292,12 +293,10 @@ public:
             size_t mShadowSamplerStartLo;
         };
 
-        /// Utility class to help with generating shaders for Cg / HLSL.
-        class ShaderHelperCg : public ShaderHelper
+        /// HLSL source generator shared by the legacy HLSL program route.
+        class ShaderHelperHLSLSource : public ShaderHelper
         {
         protected:
-            HighLevelGpuProgramPtr createVertexProgram(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt);
-            HighLevelGpuProgramPtr createFragmentProgram(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt);
             void generateVpHeader(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, Ogre::StringStream& outStream);
             void generateFpHeader(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, Ogre::StringStream& outStream);
             void generateVpLayer(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, uint layer, Ogre::StringStream& outStream);
@@ -311,7 +310,7 @@ public:
             void generateFpDynamicShadows(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, Ogre::StringStream& outStream);
         };
 
-        class ShaderHelperHLSL : public ShaderHelperCg
+        class ShaderHelperHLSL : public ShaderHelperHLSLSource
         {
         protected:
             HighLevelGpuProgramPtr createVertexProgram(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt);
@@ -324,38 +323,18 @@ public:
         protected:
             HighLevelGpuProgramPtr createVertexProgram(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt);
             HighLevelGpuProgramPtr createFragmentProgram(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt);
-
-            void generateVpHeader(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, Ogre::StringStream& outStream) {}
-
-            void generateFpHeader(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, Ogre::StringStream& outStream) {}
-
-            void generateVpLayer(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, uint layer, Ogre::StringStream& outStream) {}
-
-            void generateFpLayer(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, uint layer, Ogre::StringStream& outStream) {}
-
-            void generateVpFooter(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, Ogre::StringStream& outStream) {}
-
-            void generateFpFooter(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, Ogre::StringStream& outStream) {}
-        };
-
-        /// Utility class to help with generating shaders for GLSL ES.
-        class ShaderHelperGLSLES : public ShaderHelper
-        {
-        protected:
-            HighLevelGpuProgramPtr createVertexProgram(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt);
-            HighLevelGpuProgramPtr createFragmentProgram(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt);
-
-            void generateVpHeader(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, Ogre::StringStream& outStream) {}
-
-            void generateFpHeader(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, Ogre::StringStream& outStream) {}
-
-            void generateVpLayer(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, uint layer, Ogre::StringStream& outStream) {}
-
-            void generateFpLayer(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, uint layer, Ogre::StringStream& outStream) {}
-
-            void generateVpFooter(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, Ogre::StringStream& outStream) {}
-
-            void generateFpFooter(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, Ogre::StringStream& outStream) {}
+            void generateVpHeader(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, Ogre::StringStream& outStream);
+            void generateFpHeader(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, Ogre::StringStream& outStream);
+            void generateVpLayer(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, uint layer, Ogre::StringStream& outStream);
+            void generateFpLayer(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, uint layer, Ogre::StringStream& outStream);
+            void generateVpFooter(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, Ogre::StringStream& outStream);
+            void generateFpFooter(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, Ogre::StringStream& outStream);
+            void defaultFpParams(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, const HighLevelGpuProgramPtr& prog);
+            uint generateVpDynamicShadowsParams(uint texCoordStart, const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, Ogre::StringStream& outStream);
+            void generateVpDynamicShadows(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, Ogre::StringStream& outStream);
+            void generateFpDynamicShadowsHelpers(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, Ogre::StringStream& outStream);
+            void generateFpDynamicShadowsParams(uint* texCoord, uint* sampler, const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, Ogre::StringStream& outStream);
+            void generateFpDynamicShadows(const SM2Profile* prof, const Terrain* terrain, TechniqueType tt, Ogre::StringStream& outStream);
         };
 
         ShaderHelper* mShaderGen;

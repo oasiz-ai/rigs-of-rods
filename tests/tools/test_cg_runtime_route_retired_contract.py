@@ -59,6 +59,105 @@ class CgRuntimeRouteRetiredContractTests(unittest.TestCase):
         self.assertIn('"cgprogrammanager" in lowered', runtime_audit)
         self.assertIn("Cg plugins are forbidden", macos_stager)
 
+    def test_legacy_terrain_shader_generator_keeps_modern_routes(self) -> None:
+        terrain_header = self.read_repository_file(
+            "source/main/terrain/OgreTerrainPSSMMaterialGenerator.h"
+        )
+        terrain_source = self.read_repository_file(
+            "source/main/terrain/OgreTerrainPSSMMaterialGenerator.cpp"
+        )
+        terrain_bytes = (terrain_header + terrain_source).lower()
+
+        self.assertNotIn(
+            '#error "TerrainPSSMMaterialGenerator requires OGRE 14 or newer"',
+            terrain_header,
+        )
+        self.assertIn("#if OGRE_VERSION_MAJOR >= 14", terrain_header)
+        self.assertIn("#if OGRE_VERSION_MAJOR < 14", terrain_source)
+        self.assertIn("#else", terrain_header)
+
+        ogre14_facade, legacy_header = terrain_header.split("#else", 1)
+        self.assertIn(
+            "class TerrainPSSMMaterialGenerator : public "
+            "TerrainMaterialGeneratorA",
+            ogre14_facade,
+        )
+        self.assertIn(
+            "TerrainMaterialGeneratorA::SM2Profile* profile",
+            ogre14_facade,
+        )
+        self.assertIn(
+            "class ShaderHelperHLSLSource : public ShaderHelper",
+            legacy_header,
+        )
+        self.assertIn(
+            "class ShaderHelperHLSL : public ShaderHelperHLSLSource",
+            legacy_header,
+        )
+        self.assertIn("class ShaderHelperGLSL : public ShaderHelper", legacy_header)
+        self.assertNotIn("class ShaderHelperGLSLES", legacy_header)
+        self.assertNotIn("outStream) {}", legacy_header)
+
+        self.assertIn(
+            "OGRECave/ogre v1.11.6",
+            terrain_source,
+        )
+        self.assertIn(
+            "4cb5f7caf8e56ebc502327f8faa4e9c966ac9e41305599cb7e57bf9a9cbb9b17",
+            terrain_source,
+        )
+        self.assertIn(
+            'String lang = mgr.isLanguageSupported("glsles") ? "glsles" : "glsl";',
+            terrain_source,
+        )
+        for generated_glsl_feature in (
+            'outStream << "#version "',
+            'outStream << "precision highp float;',
+            '"    gl_Position = viewProjMatrix * worldPos;',
+            '"    gl_FragColor.rgb += ambient.rgb * diffuse',
+            "texture2D(globalNormal, uv)",
+            "generateFpDynamicShadowsHelpers",
+            'params->setNamedConstant("globalNormal", numSamplers++)',
+            'params->setNamedConstant("compositeMap", numSamplers++)',
+        ):
+            with self.subTest(glsl_feature=generated_glsl_feature):
+                self.assertIn(generated_glsl_feature, terrain_source)
+
+        for retired_route in (
+            "shaderhelpercg",
+            'islanguagesupported("cg")',
+            '"cg"',
+            'setparameter("profiles"',
+            "arbvp1",
+            "arbfp1",
+            "fp30",
+            "fp40",
+        ):
+            with self.subTest(route=retired_route):
+                self.assertNotIn(retired_route, terrain_bytes)
+
+        for retained_route in (
+            "OGRE_NEW ShaderHelperHLSL()",
+            "OGRE_NEW ShaderHelperGLSL()",
+            '"hlsl", GPT_VERTEX_PROGRAM',
+            '"hlsl", GPT_FRAGMENT_PROGRAM',
+            "lang, GPT_VERTEX_PROGRAM",
+            "lang, GPT_FRAGMENT_PROGRAM",
+        ):
+            with self.subTest(route=retained_route):
+                self.assertIn(retained_route, terrain_source)
+
+    def test_workflows_and_snap_do_not_package_cg(self) -> None:
+        for relative_path in (
+            ".github/workflows/build-game.yml",
+            ".github/workflows/linux-native.yml",
+            "snapcraft.yaml",
+        ):
+            package_definition = self.read_repository_file(relative_path).lower()
+            with self.subTest(path=relative_path):
+                self.assertNotIn("nvidia-cg", package_definition)
+                self.assertNotIn("libcggl", package_definition)
+
     def test_hydrax_has_no_dynamic_cg_shader_mode(self) -> None:
         hydrax_sources = [
             REPOSITORY_ROOT / "source/main/gfx/HydraxWater.cpp",
