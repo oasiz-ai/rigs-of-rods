@@ -216,6 +216,28 @@ bool IsOgreNextDemoDustSampler(
             sampler.maximum_anisotropy;
 }
 
+/// Non-zero refusal reasons only, so an all-clear line stays short and a
+/// regression stands out instead of hiding in a wall of zeroes.
+std::string FormatOgreNextDemoLayeredRefusals(
+    const Gfx::Detail::OgreNextDemoMaterialSourceCounters &counters) {
+  std::string result;
+  for (std::size_t bucket = 0U;
+       bucket < Gfx::Detail::kMaterialDetailLayerRefusalCount; ++bucket) {
+    if (counters.layered_material_refusals_by_reason[bucket] == 0U) {
+      continue;
+    }
+    if (!result.empty()) {
+      result += ",";
+    }
+    result += fmt::format(
+        "{}:{}",
+        Gfx::Detail::MaterialDetailLayerRefusalToken(
+            static_cast<Gfx::Detail::MaterialDetailLayerRefusal>(bucket)),
+        counters.layered_material_refusals_by_reason[bucket]);
+  }
+  return result;
+}
+
 std::string FormatOgreNextDemoMaterialExclusions(
     const RoR::Gfx::Detail::OgreNextDemoMaterialSourceCounters& counters)
 {
@@ -331,7 +353,8 @@ std::string FormatOgreNextDemoMaterialCounters(
         "layered_material_detail_layers={} "
         "layered_material_detail_normal_layers={} "
         "layered_material_refusals={} "
-        "layered_material_layers_by_count=[1:{},2:{},3:{},4:{}] ",
+        "layered_material_layers_by_count=[1:{},2:{},3:{},4:{}] "
+        "layered_material_refusal_by_reason=[{}] ",
         counters.new_frozen_material_decisions, counters.candidate_sections,
         counters.projected_sections, counters.matte_excluded_sections,
         counters.projections, counters.distinct_eligible_texture_keys,
@@ -359,7 +382,8 @@ std::string FormatOgreNextDemoMaterialCounters(
         counters.layered_material_projections_by_layer_count[0U],
         counters.layered_material_projections_by_layer_count[1U],
         counters.layered_material_projections_by_layer_count[2U],
-        counters.layered_material_projections_by_layer_count[3U]);
+        counters.layered_material_projections_by_layer_count[3U],
+        FormatOgreNextDemoLayeredRefusals(counters));
     result += fmt::format(
         "active_texture_state_observations={} "
         "active_normalized_texture_observations={} "

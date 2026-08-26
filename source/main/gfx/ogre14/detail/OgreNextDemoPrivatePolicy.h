@@ -38,8 +38,40 @@ enum class OgreNextDemoTextureSourceMode : std::uint8_t {
 /// fixed cutoff at every level.
 enum class OgreNextDemoTextureAlphaPolicy : std::uint8_t {
   FORCE_OPAQUE = 0U,
+  /// Alpha is COVERAGE. Generated mips filter RGB weighted by alpha and
+  /// canonicalize fully transparent groups to black, because unpremultiplying
+  /// an invisible colour would amplify arbitrary hidden RGB.
   PRESERVE_STRAIGHT = 1U,
+  /// Alpha is authored DATA that happens to live in the fourth channel: a
+  /// detail layer's baked height field, not a coverage mask.
+  ///
+  /// The distinction is not cosmetic. Filtering RGB weighted by a height field
+  /// biases every generated mip toward the high-height texels, and the
+  /// transparent-is-black rule turns whole zero-height plateaus black. A
+  /// near-binary height bake has large zero plateaus by construction, so under
+  /// the coverage rule exactly the recesses the layer exists to draw would go
+  /// black as the camera pulls back. Under this policy alpha still survives
+  /// byte-exact and box-filters into the tail, while RGB keeps the plain
+  /// linear box average it would have had if alpha were not there at all.
+  PRESERVE_DATA = 2U,
 };
+
+/// True when the policy keeps the authored fourth channel rather than
+/// canonicalizing it opaque.
+[[nodiscard]] inline constexpr bool
+OgreNextDemoTextureAlphaPolicyPreservesAlpha(
+    OgreNextDemoTextureAlphaPolicy policy) noexcept {
+  return policy == OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT ||
+         policy == OgreNextDemoTextureAlphaPolicy::PRESERVE_DATA;
+}
+
+/// True when the policy treats the fourth channel as coverage, which is what
+/// licenses alpha-weighted RGB filtering.
+[[nodiscard]] inline constexpr bool
+OgreNextDemoTextureAlphaPolicyIsCoverage(
+    OgreNextDemoTextureAlphaPolicy policy) noexcept {
+  return policy == OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT;
+}
 
 /// Bounded reasons why an automatic TUS0 remains on the deterministic matte
 /// path.
@@ -202,6 +234,8 @@ constexpr std::size_t kOgreNextDemoTextureProjectionExclusionCount =
 /// declared layer count, 1..4. Zero-layer materials are not layered and are
 /// not counted, so there is no bucket for them.
 constexpr std::size_t kMaterialDetailLayerHistogramBuckets = 4U;
+/// One bucket per MaterialDetailLayerRefusal enumerator.
+constexpr std::size_t kMaterialDetailLayerRefusalCount = 15U;
 
 /// Reviewed CityWorld vertical-slice declaration. This table is intentionally
 /// tiny and content-addressed: the material name is only a lookup hint. Runtime
@@ -422,6 +456,11 @@ struct OgreNextDemoTextureSourceCounters final {
   /// aggregate totals above cannot.
   std::array<std::size_t, kMaterialDetailLayerHistogramBuckets>
       layered_material_projections_by_layer_count{};
+  /// One bucket per MaterialDetailLayerRefusal. The aggregate refusal count
+  /// says a material lost its layers; only this says WHY, which is the
+  /// difference between a content bug and an engine one.
+  std::array<std::size_t, kMaterialDetailLayerRefusalCount>
+      layered_material_refusals_by_reason{};
   /// Distinct new projections admitted through the additive-overlay shape: one
   /// canonical base-colour pass plus one or more purely additive overlay passes
   /// that are observed, counted, and deliberately not presented. A projection
@@ -735,6 +774,16 @@ struct OgreNextDemoTextureNormalizationObservation final {
     SRGB_OPAQUE_V2 = 0U,
     SRGB_STRAIGHT_ALPHA_V1 = 1U,
     LINEAR_SPECULAR_V1 = 2U,
+    /// Linear RGBA where the alpha channel is authored data, not coverage.
+    /// Distinct from LINEAR_SPECULAR_V1 because that policy deliberately
+    /// discards alpha; a projection normalized under this one is asserting
+    /// that all four channels survived.
+    LINEAR_DATA_RGBA_V1 = 3U,
+    /// sRGB colour whose alpha is authored data. Distinct from
+    /// SRGB_STRAIGHT_ALPHA_V1 because that policy filters RGB weighted by
+    /// alpha; this one does not, and a projection normalized under it is
+    /// asserting that its mip tail is free of coverage bias.
+    SRGB_DATA_ALPHA_V1 = 4U,
   };
   Policy policy = Policy::SRGB_OPAQUE_V2;
   std::uint32_t policy_version = 0U;
@@ -757,6 +806,19 @@ inline constexpr std::uint32_t
 inline constexpr std::string_view
     kOgreNextDemoLinearSpecularNormalizationPolicy =
         "linear_specular_authored_prefix_box_tail_v1";
+inline constexpr std::uint32_t
+    kOgreNextDemoDataAlphaNormalizationPolicyVersion = 1U;
+inline constexpr std::string_view
+    kOgreNextDemoDataAlphaNormalizationPolicy =
+        "srgb_data_alpha_authored_prefix_unweighted_linear_tail_v1";
+inline constexpr std::string_view kMaterialDetailLayerPolicy =
+    "companion_declared_weighted_detail_layers_v1";
+inline constexpr std::uint32_t kMaterialDetailLayerPolicyVersion = 1U;
+inline constexpr std::uint32_t
+    kOgreNextDemoLinearDataRgbaNormalizationPolicyVersion = 1U;
+inline constexpr std::string_view
+    kOgreNextDemoLinearDataRgbaNormalizationPolicy =
+        "linear_data_rgba_authored_prefix_box_tail_v1";
 
 /// Chooses BC1 alpha decoding only from explicit authority. A blend/test pass
 /// is never evidence that legacy DXT1 uses the one-bit BC1 interpretation.
@@ -810,15 +872,42 @@ BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
       observation);
 }
 
-/// Authored linear RGBA8 specular RGB remains byte-exact for every supplied
-/// level; alpha is canonicalized opaque because PBSM_SPECULAR consumes RGB.
-/// Only a missing tail is generated with exact half-up byte-domain averaging.
+/// Authored linear RGBA8 remains byte-exact for every supplied level; only a
+/// missing tail is generated with exact half-up byte-domain averaging.
+///
+/// `alpha_policy` decides what happens to the fourth channel, and the choice
+/// is load-bearing rather than cosmetic:
+///
+/// - FORCE_OPAQUE canonicalizes alpha to 255. This is right for PBSM_SPECULAR,
+///   which consumes RGB only, and for a tangent-space detail normal, whose
+///   fourth channel carries nothing.
+/// - PRESERVE_STRAIGHT keeps the authored alpha byte-exact and box-filters it
+///   into the generated tail alongside RGB. This is REQUIRED for a detail
+///   weight mask, whose alpha is layer 3's selector, and for a detail albedo,
+///   whose alpha the pinned PBS shader multiplies into that layer's per-texel
+///   weight (`detailWeights.<swizzle> *= detailCol.w`). Forcing either to 255
+///   silently deletes a layer or flattens its height signal.
 [[nodiscard]] Render::ValidationResult
+BuildOgreNextDemoLinearTextureFromDecodedSource(
+    Render::Ogre14DecodedSourceTexture decoded,
+    std::uint32_t expected_native_width, std::uint32_t expected_native_height,
+    std::string_view debug_name, OgreNextDemoTextureAlphaPolicy alpha_policy,
+    Render::TextureResourceDescriptor &output,
+    OgreNextDemoTextureNormalizationObservation *observation = nullptr);
+
+/// The historical specular spelling: linear RGB with alpha canonicalized
+/// opaque.
+[[nodiscard]] inline Render::ValidationResult
 BuildOgreNextDemoLinearSpecularTextureFromDecodedSource(
     Render::Ogre14DecodedSourceTexture decoded,
     std::uint32_t expected_native_width, std::uint32_t expected_native_height,
     std::string_view debug_name, Render::TextureResourceDescriptor &output,
-    OgreNextDemoTextureNormalizationObservation *observation = nullptr);
+    OgreNextDemoTextureNormalizationObservation *observation = nullptr) {
+  return BuildOgreNextDemoLinearTextureFromDecodedSource(
+      std::move(decoded), expected_native_width, expected_native_height,
+      debug_name, OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE, output,
+      observation);
+}
 
 [[nodiscard]] Render::ValidationResult
 DeriveOgreNextDemoSourceId(std::string_view domain, std::string_view exact_key,
