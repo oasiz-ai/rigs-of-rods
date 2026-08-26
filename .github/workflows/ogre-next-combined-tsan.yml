@@ -16,6 +16,8 @@ on:
       - resources/OgreCore/StdQuad_vp.program
       - resources/OgreCore/StdQuad_vp*
       - resources/rtshader/**
+      - resources/caelum/**
+      - resources/managed_materials/shadows/pssm/**
       - resources/materials/fresnel.material
       - resources/materials/Example_Fresnel_*
       - resources/materials/grass.material
@@ -28,6 +30,9 @@ on:
       - source/main/gfx/GfxWater.cpp
       - resources/scripts/example_jbeam_multi_actor_tsan_soak.as
       - source/main/CMakeLists.txt
+      - source/main/plugins.cfg.in
+      - source/main/plugins_d.cfg.in
+      - tools/CI/copy_libs.cmake
       - source/main/main.cpp
       - source/main/system/FrameTimeBudget.cpp
       - source/main/system/FrameTimeBudget.h
@@ -50,6 +55,13 @@ on:
       - tests/tools/test_mygui_glsl_contract.py
       - tests/tools/test_skyx_glsl_contract.py
       - tests/tools/test_ogre14_remaining_glsl_contract.py
+      - tests/tools/test_modern_shader_source_closure.py
+      - tests/tools/test_validate_modern_glsl_sources.py
+      - tests/tools/test_validate_modern_hlsl_sources.py
+      - tests/tools/test_cg_runtime_route_retired_contract.py
+      - tests/tools/test_rtshader_modern_only_contract.py
+      - tests/tools/test_managed_pssm_shader_contract.py
+      - tests/tools/test_caelum_shader_contract.py
       - tests/tools/test_fresnel_shader_contract.py
       - tests/tools/test_grass_shader_contract.py
       - tests/tools/test_general_shader_contract.py
@@ -59,6 +71,8 @@ on:
       - tools/run_jbeam_multi_actor_tsan_soak.py
       - tools/run_playable_performance_scene.py
       - tools/run_nicemetal_shader_smoke.py
+      - tools/validate_modern_glsl_sources.py
+      - tools/validate_modern_hlsl_sources.py
       - tools/audit_openal_tsan_package.py
       - source/main/gfx/render/Ogre14ParticleCaptureSource.cpp
       - source/main/gfx/render/Ogre14ParticleCaptureSource.h
@@ -119,6 +133,7 @@ jobs:
             file \
             gcc-11 \
             g++-11 \
+            glslang-tools \
             libgl1-mesa-dev \
             libglu1-mesa-dev \
             libvulkan-dev \
@@ -193,6 +208,35 @@ jobs:
           nm --version
           vulkaninfo --summary
 
+      - name: Compile the complete modern GLSL source closure
+        shell: bash
+        run: |
+          glslang_validator="$(readlink -f "$(command -v glslangValidator)")"
+          test -x "$glslang_validator"
+          receipt="$ROR_TSAN_ARTIFACTS_DIR/linux-x86_64-modern-glsl-source-compile.json"
+          python tools/validate_modern_glsl_sources.py \
+            --glslang-validator "$glslang_validator" \
+            | tee "$receipt"
+          python - "$receipt" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+
+          receipt = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if receipt.get("schema") != "ror.modern-glsl-source-compile@1":
+              raise SystemExit("unexpected GLSL source-compile receipt schema")
+          if receipt.get("result") != "passed":
+              raise SystemExit("GLSL source compilation did not pass")
+          if receipt.get("caseCount") != 49 or receipt.get("executedCaseCount") != 49:
+              raise SystemExit("GLSL source-compile closure is incomplete")
+          if receipt.get("familyCaseCounts") != {
+              "caelum": 26,
+              "managed-pssm": 5,
+              "rtshader": 18,
+          }:
+              raise SystemExit("GLSL source-compile family counts changed")
+          PY
+
       - name: Run full-runtime TSan fail-closed contracts
         shell: bash
         run: |
@@ -210,6 +254,20 @@ jobs:
           python -O tests/tools/test_skyx_glsl_contract.py
           python tests/tools/test_ogre14_remaining_glsl_contract.py
           python -O tests/tools/test_ogre14_remaining_glsl_contract.py
+          python tests/tools/test_modern_shader_source_closure.py
+          python -O tests/tools/test_modern_shader_source_closure.py
+          python tests/tools/test_validate_modern_glsl_sources.py
+          python -O tests/tools/test_validate_modern_glsl_sources.py
+          python tests/tools/test_validate_modern_hlsl_sources.py
+          python -O tests/tools/test_validate_modern_hlsl_sources.py
+          python tests/tools/test_cg_runtime_route_retired_contract.py
+          python -O tests/tools/test_cg_runtime_route_retired_contract.py
+          python tests/tools/test_rtshader_modern_only_contract.py
+          python -O tests/tools/test_rtshader_modern_only_contract.py
+          python tests/tools/test_managed_pssm_shader_contract.py
+          python -O tests/tools/test_managed_pssm_shader_contract.py
+          python tests/tools/test_caelum_shader_contract.py
+          python -O tests/tools/test_caelum_shader_contract.py
           python tests/tools/test_fresnel_shader_contract.py
           python -O tests/tools/test_fresnel_shader_contract.py
           python tests/tools/test_grass_shader_contract.py

@@ -22,6 +22,8 @@ on:
       - resources/OgreCore/StdQuad_vp.program
       - resources/OgreCore/StdQuad_vp*
       - resources/rtshader/**
+      - resources/caelum/**
+      - resources/managed_materials/shadows/pssm/**
       - resources/materials/fresnel.material
       - resources/materials/Example_Fresnel_*
       - resources/materials/grass.material
@@ -34,6 +36,7 @@ on:
       - source/main/gfx/GfxWater.cpp
       - source/main/**
       - tools/linux/RunRoR-combined
+      - tools/CI/copy_libs.cmake
       - tools/ogre_next_probe/**
       - tools/run_agora_impact_regression.py
       - tools/run_calibrated_beam_soak.py
@@ -41,6 +44,8 @@ on:
       - tools/run_nicemetal_shader_smoke.py
       - tools/run_playable_performance_scene.py
       - tools/stage_ogre_next_combined_resources.py
+      - tools/validate_modern_glsl_sources.py
+      - tools/validate_modern_hlsl_sources.py
       - tools/verify_ogre_next_combined_binary_closure.py
       - tools/verify_ogre_next_combined_elf_closure.py
       - tools/verify_ogre_next_combined_pe_closure.py
@@ -54,6 +59,13 @@ on:
       - tests/tools/test_mygui_glsl_contract.py
       - tests/tools/test_skyx_glsl_contract.py
       - tests/tools/test_ogre14_remaining_glsl_contract.py
+      - tests/tools/test_modern_shader_source_closure.py
+      - tests/tools/test_validate_modern_glsl_sources.py
+      - tests/tools/test_validate_modern_hlsl_sources.py
+      - tests/tools/test_cg_runtime_route_retired_contract.py
+      - tests/tools/test_rtshader_modern_only_contract.py
+      - tests/tools/test_managed_pssm_shader_contract.py
+      - tests/tools/test_caelum_shader_contract.py
       - tests/tools/test_fresnel_shader_contract.py
       - tests/tools/test_grass_shader_contract.py
       - tests/tools/test_general_shader_contract.py
@@ -80,6 +92,8 @@ on:
       - resources/OgreCore/StdQuad_vp.program
       - resources/OgreCore/StdQuad_vp*
       - resources/rtshader/**
+      - resources/caelum/**
+      - resources/managed_materials/shadows/pssm/**
       - resources/materials/fresnel.material
       - resources/materials/Example_Fresnel_*
       - resources/materials/grass.material
@@ -92,6 +106,7 @@ on:
       - source/main/gfx/GfxWater.cpp
       - source/main/**
       - tools/linux/RunRoR-combined
+      - tools/CI/copy_libs.cmake
       - tools/ogre_next_probe/**
       - tools/run_agora_impact_regression.py
       - tools/run_calibrated_beam_soak.py
@@ -99,6 +114,8 @@ on:
       - tools/run_nicemetal_shader_smoke.py
       - tools/run_playable_performance_scene.py
       - tools/stage_ogre_next_combined_resources.py
+      - tools/validate_modern_glsl_sources.py
+      - tools/validate_modern_hlsl_sources.py
       - tools/verify_ogre_next_combined_binary_closure.py
       - tools/verify_ogre_next_combined_elf_closure.py
       - tools/verify_ogre_next_combined_pe_closure.py
@@ -112,6 +129,13 @@ on:
       - tests/tools/test_mygui_glsl_contract.py
       - tests/tools/test_skyx_glsl_contract.py
       - tests/tools/test_ogre14_remaining_glsl_contract.py
+      - tests/tools/test_modern_shader_source_closure.py
+      - tests/tools/test_validate_modern_glsl_sources.py
+      - tests/tools/test_validate_modern_hlsl_sources.py
+      - tests/tools/test_cg_runtime_route_retired_contract.py
+      - tests/tools/test_rtshader_modern_only_contract.py
+      - tests/tools/test_managed_pssm_shader_contract.py
+      - tests/tools/test_caelum_shader_contract.py
       - tests/tools/test_fresnel_shader_contract.py
       - tests/tools/test_grass_shader_contract.py
       - tests/tools/test_general_shader_contract.py
@@ -167,6 +191,7 @@ jobs:
             gcc-11 \
             g++-11 \
             gdb \
+            glslang-tools \
             libgl1-mesa-dev \
             libglu1-mesa-dev \
             libvulkan-dev \
@@ -243,6 +268,35 @@ jobs:
           nm --version
           vulkaninfo --summary
 
+      - name: Compile the complete modern GLSL source closure
+        shell: bash
+        run: |
+          glslang_validator="$(readlink -f "$(command -v glslangValidator)")"
+          test -x "$glslang_validator"
+          receipt="$ROR_COMBINED_ARTIFACTS_DIR/linux-x86_64-modern-glsl-source-compile.json"
+          python tools/validate_modern_glsl_sources.py \
+            --glslang-validator "$glslang_validator" \
+            | tee "$receipt"
+          python - "$receipt" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+
+          receipt = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if receipt.get("schema") != "ror.modern-glsl-source-compile@1":
+              raise SystemExit("unexpected GLSL source-compile receipt schema")
+          if receipt.get("result") != "passed":
+              raise SystemExit("GLSL source compilation did not pass")
+          if receipt.get("caseCount") != 49 or receipt.get("executedCaseCount") != 49:
+              raise SystemExit("GLSL source-compile closure is incomplete")
+          if receipt.get("familyCaseCounts") != {
+              "caelum": 26,
+              "managed-pssm": 5,
+              "rtshader": 18,
+          }:
+              raise SystemExit("GLSL source-compile family counts changed")
+          PY
+
       - name: Run combined-runtime fail-closed contracts
         shell: bash
         run: |
@@ -255,6 +309,13 @@ jobs:
           python tests/tools/test_mygui_glsl_contract.py
           python tests/tools/test_skyx_glsl_contract.py
           python tests/tools/test_ogre14_remaining_glsl_contract.py
+          python tests/tools/test_modern_shader_source_closure.py
+          python tests/tools/test_validate_modern_glsl_sources.py
+          python tests/tools/test_validate_modern_hlsl_sources.py
+          python tests/tools/test_cg_runtime_route_retired_contract.py
+          python tests/tools/test_rtshader_modern_only_contract.py
+          python tests/tools/test_managed_pssm_shader_contract.py
+          python tests/tools/test_caelum_shader_contract.py
           python tests/tools/test_fresnel_shader_contract.py
           python tests/tools/test_grass_shader_contract.py
           python tests/tools/test_general_shader_contract.py
@@ -269,6 +330,13 @@ jobs:
           python -O tests/tools/test_mygui_glsl_contract.py
           python -O tests/tools/test_skyx_glsl_contract.py
           python -O tests/tools/test_ogre14_remaining_glsl_contract.py
+          python -O tests/tools/test_modern_shader_source_closure.py
+          python -O tests/tools/test_validate_modern_glsl_sources.py
+          python -O tests/tools/test_validate_modern_hlsl_sources.py
+          python -O tests/tools/test_cg_runtime_route_retired_contract.py
+          python -O tests/tools/test_rtshader_modern_only_contract.py
+          python -O tests/tools/test_managed_pssm_shader_contract.py
+          python -O tests/tools/test_caelum_shader_contract.py
           python -O tests/tools/test_fresnel_shader_contract.py
           python -O tests/tools/test_grass_shader_contract.py
           python -O tests/tools/test_general_shader_contract.py
@@ -1076,6 +1144,13 @@ jobs:
           python tests/tools/test_mygui_glsl_contract.py
           python tests/tools/test_skyx_glsl_contract.py
           python tests/tools/test_ogre14_remaining_glsl_contract.py
+          python tests/tools/test_modern_shader_source_closure.py
+          python tests/tools/test_validate_modern_glsl_sources.py
+          python tests/tools/test_validate_modern_hlsl_sources.py
+          python tests/tools/test_cg_runtime_route_retired_contract.py
+          python tests/tools/test_rtshader_modern_only_contract.py
+          python tests/tools/test_managed_pssm_shader_contract.py
+          python tests/tools/test_caelum_shader_contract.py
           python tests/tools/test_fresnel_shader_contract.py
           python tests/tools/test_grass_shader_contract.py
           python tests/tools/test_general_shader_contract.py
@@ -1090,6 +1165,13 @@ jobs:
           python -O tests/tools/test_mygui_glsl_contract.py
           python -O tests/tools/test_skyx_glsl_contract.py
           python -O tests/tools/test_ogre14_remaining_glsl_contract.py
+          python -O tests/tools/test_modern_shader_source_closure.py
+          python -O tests/tools/test_validate_modern_glsl_sources.py
+          python -O tests/tools/test_validate_modern_hlsl_sources.py
+          python -O tests/tools/test_cg_runtime_route_retired_contract.py
+          python -O tests/tools/test_rtshader_modern_only_contract.py
+          python -O tests/tools/test_managed_pssm_shader_contract.py
+          python -O tests/tools/test_caelum_shader_contract.py
           python -O tests/tools/test_fresnel_shader_contract.py
           python -O tests/tools/test_grass_shader_contract.py
           python -O tests/tools/test_general_shader_contract.py
@@ -1757,6 +1839,60 @@ jobs:
           cmake --version
           ninja --version
 
+      - name: Compile the complete Shader Model 4 HLSL source closure
+        shell: pwsh
+        run: |
+          if (-not $env:WindowsSdkDir -or -not $env:WindowsSDKVersion) {
+            throw 'The active MSVC environment did not expose a Windows SDK'
+          }
+          $sdkVersion = $env:WindowsSDKVersion.TrimEnd('\')
+          $candidate = Join-Path $env:WindowsSdkDir "bin\$sdkVersion\x64\fxc.exe"
+          if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+            throw "The active Windows SDK has no x64 fxc.exe: $candidate"
+          }
+          $fxc = (Resolve-Path -LiteralPath $candidate -ErrorAction Stop).Path
+          if ((Split-Path -Leaf $fxc) -cne 'fxc.exe') {
+            throw "The resolved shader compiler is not fxc.exe: $fxc"
+          }
+          $fxcItem = Get-Item -LiteralPath $fxc -ErrorAction Stop
+          $fxcHash = (Get-FileHash -LiteralPath $fxc -Algorithm SHA256).Hash.ToLowerInvariant()
+          $provenance = [ordered]@{
+            schema = 'ror.windows-sdk-fxc-provenance@1'
+            sdkVersion = $sdkVersion
+            fileVersion = $fxcItem.VersionInfo.FileVersion
+            productVersion = $fxcItem.VersionInfo.ProductVersion
+            sha256 = $fxcHash
+            size = $fxcItem.Length
+          }
+          $provenancePath = Join-Path $env:ROR_COMBINED_ARTIFACTS_DIR 'windows-x86_64-fxc-provenance.json'
+          $provenance | ConvertTo-Json | Set-Content -LiteralPath $provenancePath -Encoding utf8NoBOM
+
+          $receiptPath = Join-Path $env:ROR_COMBINED_ARTIFACTS_DIR 'windows-x86_64-modern-hlsl-source-compile.json'
+          & python tools/validate_modern_hlsl_sources.py `
+            --repository-root . `
+            --fxc $fxc `
+            --evidence-out $receiptPath
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Shader Model 4 HLSL source compilation failed'
+          }
+          $receipt = Get-Content -Raw -LiteralPath $receiptPath | ConvertFrom-Json
+          if ($receipt.schema -ne 'ror.modern-hlsl-source-compile-evidence.v1') {
+            throw 'Unexpected HLSL source-compile receipt schema'
+          }
+          if ($receipt.case_count -ne 74) {
+            throw "HLSL source-compile closure is incomplete: $($receipt.case_count)"
+          }
+          if (-not $receipt.claims.hlsl_source_compile_proven) {
+            throw 'HLSL source compilation was not proven'
+          }
+          if (
+            $receipt.claims.ogre_resource_load_proven -or
+            $receipt.claims.rendered_frame_proven -or
+            $receipt.claims.runtime_playability_proven
+          ) {
+            throw 'HLSL source receipt overclaims runtime or rendering evidence'
+          }
+
       - name: Run combined-runtime fail-closed contracts
         shell: pwsh
         run: |
@@ -1776,6 +1912,11 @@ jobs:
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_mygui_glsl_contract.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_skyx_glsl_contract.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_ogre14_remaining_glsl_contract.py')
+          Invoke-CheckedPython -PythonArguments @('tests/tools/test_modern_shader_source_closure.py')
+          Invoke-CheckedPython -PythonArguments @('tests/tools/test_cg_runtime_route_retired_contract.py')
+          Invoke-CheckedPython -PythonArguments @('tests/tools/test_rtshader_modern_only_contract.py')
+          Invoke-CheckedPython -PythonArguments @('tests/tools/test_managed_pssm_shader_contract.py')
+          Invoke-CheckedPython -PythonArguments @('tests/tools/test_caelum_shader_contract.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_fresnel_shader_contract.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_grass_shader_contract.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_general_shader_contract.py')
@@ -1790,6 +1931,11 @@ jobs:
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_mygui_glsl_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_skyx_glsl_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_ogre14_remaining_glsl_contract.py')
+          Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_modern_shader_source_closure.py')
+          Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_cg_runtime_route_retired_contract.py')
+          Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_rtshader_modern_only_contract.py')
+          Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_managed_pssm_shader_contract.py')
+          Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_caelum_shader_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_fresnel_shader_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_grass_shader_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_general_shader_contract.py')
