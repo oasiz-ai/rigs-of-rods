@@ -114,7 +114,6 @@ def render_plugins_config(
             'set(CFG_COMMENT_RENDERSYSTEM_GL "${comments_GL}")\n'
             'set(CFG_COMMENT_RENDERSYSTEM_GL3PLUS "${comments_GL3PLUS}")\n'
             'set(CFG_COMMENT_RENDERSYSTEM_METAL "${comments_METAL}")\n'
-            'set(CFG_COMMENT_PLUGIN_CG "${comments_CG}")\n'
             'set(CFG_OGRE_PLUGIN_CAELUM "# disabled")\n'
             'set(CFG_OGRE_PLUGIN_CAELUM_D "# disabled")\n'
             # OGRE 14 applies `_d` when it resolves the physical Windows DLL;

@@ -25,4 +25,3 @@ endfunction()
 
 copy_libs_for_target("${CMAKE_SOURCE_DIR}/redist/RoR")
 copy_libs_for_target("${CMAKE_SOURCE_DIR}/redist/lib/Codec_FreeImage.so")
-copy_libs_for_target("${CMAKE_SOURCE_DIR}/redist/lib/Plugin_CgProgramManager.so")

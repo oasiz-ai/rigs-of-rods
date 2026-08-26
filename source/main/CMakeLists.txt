@@ -1477,7 +1477,6 @@ endif ()
 set(CFG_COMMENT_RENDERSYSTEM_D3D11 "# ")
 set(CFG_COMMENT_RENDERSYSTEM_GL3PLUS "# ")
 set(CFG_COMMENT_RENDERSYSTEM_METAL "# ")
-set(CFG_COMMENT_PLUGIN_CG "")
 
 if (ROR_OGRE14)
     ror_ogre14_runtime_contract(
@@ -1531,8 +1530,6 @@ if (ROR_OGRE14)
         "${_ror_ogre14_plugin_comments_GL3PLUS}")
     set(CFG_COMMENT_RENDERSYSTEM_METAL
         "${_ror_ogre14_plugin_comments_METAL}")
-    set(CFG_COMMENT_PLUGIN_CG
-        "${_ror_ogre14_plugin_comments_CG}")
 endif ()
 
 if (ROR_OGRE14)
@@ -2096,7 +2093,6 @@ if (ROR_OGRE14)
     unset(_ror_ogre14_plugin_comments_GL)
     unset(_ror_ogre14_plugin_comments_GL3PLUS)
     unset(_ror_ogre14_plugin_comments_METAL)
-    unset(_ror_ogre14_plugin_comments_CG)
 endif ()
 
 

@@ -12,5 +12,4 @@ Plugin=Codec_FreeImage_d
 @CFG_COMMENT_RENDERSYSTEM_METAL@Plugin=RenderSystem_Metal_d
 Plugin=Plugin_ParticleFX_d
 Plugin=Plugin_OctreeSceneManager_d
-@CFG_COMMENT_PLUGIN_CG@Plugin=Plugin_CgProgramManager_d
 @CFG_OGRE_PLUGIN_CAELUM_D@

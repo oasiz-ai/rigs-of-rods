@@ -93,7 +93,6 @@ function(ror_ogre14_plugin_template_contract output_prefix renderer_plugin)
     set(${output_prefix}_GL "${_ror_comment_gl}" PARENT_SCOPE)
     set(${output_prefix}_GL3PLUS "${_ror_comment_gl3plus}" PARENT_SCOPE)
     set(${output_prefix}_METAL "${_ror_comment_metal}" PARENT_SCOPE)
-    set(${output_prefix}_CG "# " PARENT_SCOPE)
 endfunction()
 
 function(ror_ogre14_package_roots
