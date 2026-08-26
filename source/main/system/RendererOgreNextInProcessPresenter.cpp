@@ -912,6 +912,13 @@ public:
     }
     const OgreNextRetainedSceneAudit audit =
         native_frontend->QueryRetainedSceneAudit();
+    const OgreNextN1TextureAllocationAudit texture_audit =
+        native_frontend->QueryTextureAllocationAudit();
+    output.resident_texture_bytes = texture_audit.resident_texture_bytes;
+    output.live_texture_allocations =
+        static_cast<std::uint32_t>(texture_audit.live_native_allocations);
+    output.block_compressed_texture_allocations =
+        texture_audit.block_compressed_allocations;
     output.version = audit.version;
     output.generation = audit.generation;
     output.frames_diffed = audit.frames_diffed;

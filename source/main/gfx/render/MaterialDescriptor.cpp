@@ -522,9 +522,18 @@ ValidateMaterialTextureCompatibility(MaterialTextureSlot slot,
       texture.format == TextureResourceFormat::RGBA8_UNORM ||
       texture.format == TextureResourceFormat::RGBA16_FLOAT ||
       texture.format == TextureResourceFormat::RGBA32_FLOAT;
-  // BC7 carries four channels at one byte per texel and is the only block
-  // format that may hold an sRGB transfer, so it substitutes for RGBA8
-  // wherever a slot wants displayable colour.
+  // BC7 carries four channels at one byte per texel, so it substitutes for
+  // RGBA8 wherever a slot wants displayable colour.
+  //
+  // It is admitted here because this is a platform-neutral contract about what
+  // a format can EXPRESS, and BC7 expresses displayable colour on every target;
+  // it loads natively on D3D12, Vulkan, and Metal. It is nonetheless unusable
+  // for any texture that must also load in the OGRE-14 producer on macOS:
+  // that producer runs GL3Plus, macOS core profile caps at OpenGL 4.1, and
+  // BPTC needs 4.2. Measured from a live producer session: GL_VERSION =
+  // 4.1.0.0, S3TC present, no BPTC extension. Enforcing that here would make
+  // this contract lie on the other two platforms, so the restriction lives in
+  // the content compiler, which is the one place that knows the target.
   // Block-compressed colour splits by what it does to ALPHA, because in this
   // material model alpha is never decorative: base colour uses it for
   // transparency and cutout, and a detail layer uses it to carry the baked
