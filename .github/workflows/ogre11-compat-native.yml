@@ -55,6 +55,7 @@ jobs:
             compiler: gcc11
             cc: gcc-11
             cxx: g++-11
+            conan_build_selectors: --build=missing;--build=zziplib/*;--build=ogre3d/*;--build=ogre3d-caelum/*;--build=ogre3d-pagedgeometry/*
           - name: Windows x64 Ogre 1.11 compatibility (MSVC 19.44)
             runner: windows-2022
             platform: windows-x86_64
@@ -62,6 +63,7 @@ jobs:
             compiler: msvc1944
             cc: cl
             cxx: cl
+            conan_build_selectors: --build=missing;--build=ogre3d/*;--build=ogre3d-caelum/*;--build=ogre3d-pagedgeometry/*
     env:
       CC: ${{ matrix.cc }}
       CXX: ${{ matrix.cxx }}
@@ -209,6 +211,30 @@ jobs:
             "$graph" \
             --platform "${{ matrix.platform }}" \
             | tee "$receipt"
+          if [ "${{ matrix.platform }}" = "linux-x86_64" ]; then
+            python - "$graph" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+
+          graph = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          nodes = graph.get("graph", {}).get("nodes", {}).values()
+          zzip_nodes = [
+              node
+              for node in nodes
+              if node.get("ref")
+              == "zziplib/0.13.78#a702ebdfc849d51f40651cfd8010aecb"
+          ]
+          if len(zzip_nodes) != 1:
+              raise SystemExit("Linux graph does not contain exactly one pinned zziplib node")
+          options = zzip_nodes[0].get("options", {})
+          if options.get("fPIC") != "True" or options.get("shared") != "False":
+              raise SystemExit(
+                  "Linux zziplib graph must be static with fPIC=True: "
+                  + repr(options)
+              )
+          PY
+          fi
 
       - name: Configure isolated Ogre 1.11 compatibility application
         shell: bash
@@ -224,7 +250,7 @@ jobs:
             -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake \
             -DCONAN_HOST_PROFILE="${GITHUB_WORKSPACE}/${{ matrix.profile }}" \
             -DCONAN_BUILD_PROFILE="${GITHUB_WORKSPACE}/${{ matrix.profile }}" \
-            "-DCONAN_INSTALL_ARGS=--build=missing;--build=ogre3d/*;--build=ogre3d-caelum/*;--build=ogre3d-pagedgeometry/*" \
+            "-DCONAN_INSTALL_ARGS=${{ matrix.conan_build_selectors }}" \
             -DROR_BUILD_TESTS=ON \
             -DROR_BUILD_QUALIFICATION_TOOLS=OFF \
             -DROR_CREATE_CONTENT_FOLDER=OFF \

@@ -50,11 +50,44 @@ class Ogre11CompatibilityWorkflowContractTests(unittest.TestCase):
             '--lockfile="${GITHUB_WORKSPACE}/cmake/conan/locks/ror-ogre11-${{ matrix.platform }}-release.lock"',
             "-o='&:ogre14=False'",
             'assert_ogre11_app_graph.py',
-            '"-DCONAN_INSTALL_ARGS=--build=missing;--build=ogre3d/*;--build=ogre3d-caelum/*;--build=ogre3d-pagedgeometry/*"',
+            '"-DCONAN_INSTALL_ARGS=${{ matrix.conan_build_selectors }}"',
             '-DCONAN_HOST_PROFILE="${GITHUB_WORKSPACE}/${{ matrix.profile }}"',
             '-DCONAN_BUILD_PROFILE="${GITHUB_WORKSPACE}/${{ matrix.profile }}"',
         ):
             self.assertIn(fragment, text)
+
+        linux_start = text.index(
+            "- name: Linux x86_64 Ogre 1.11 compatibility (GCC 11)"
+        )
+        windows_start = text.index(
+            "- name: Windows x64 Ogre 1.11 compatibility (MSVC 19.44)"
+        )
+        matrix_end = text.index("\n    env:", windows_start)
+        linux_matrix = text[linux_start:windows_start]
+        windows_matrix = text[windows_start:matrix_end]
+        linux_selectors = (
+            "conan_build_selectors: --build=missing;--build=zziplib/*;"
+            "--build=ogre3d/*;--build=ogre3d-caelum/*;"
+            "--build=ogre3d-pagedgeometry/*"
+        )
+        windows_selectors = (
+            "conan_build_selectors: --build=missing;--build=ogre3d/*;"
+            "--build=ogre3d-caelum/*;--build=ogre3d-pagedgeometry/*"
+        )
+        self.assertEqual(linux_matrix.count(linux_selectors), 1)
+        self.assertEqual(windows_matrix.count(windows_selectors), 1)
+        self.assertEqual(linux_matrix.count("--build=zziplib/*"), 1)
+        self.assertNotIn("--build=zziplib/*", windows_matrix)
+        self.assertEqual(text.count("--build=zziplib/*"), 1)
+        self.assertIn(
+            '== "zziplib/0.13.78#a702ebdfc849d51f40651cfd8010aecb"',
+            text,
+        )
+        self.assertIn('options.get("fPIC") != "True"', text)
+        self.assertIn('options.get("shared") != "False"', text)
+        self.assertIn(
+            'if [ "${{ matrix.platform }}" = "linux-x86_64" ]; then', text
+        )
 
     def test_compatibility_flags_build_ctest_install_and_relocation_are_mandatory(self) -> None:
         text = self.workflow
