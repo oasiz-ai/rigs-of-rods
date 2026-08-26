@@ -445,6 +445,9 @@ class LegacyOgreCgFreeRecipeContractTests(unittest.TestCase):
             'tc.cache_variables["CMAKE_REQUIRE_FIND_PACKAGE_DirectX11"] = True',
             self.legacy_recipe,
         )
+        self.assertIn(
+            "find_windows_d3d11_cache_contract_errors", self.legacy_recipe
+        )
         self.assertNotIn(
             '"find_package(DirectX9)"',
             self.legacy_recipe,
@@ -514,11 +517,11 @@ class LegacyOgreCgFreeRecipeContractTests(unittest.TestCase):
             )
         self.assertIn(
             '"OGRE_BUILD_RENDERSYSTEM_D3D11:BOOL=ON"',
-            self.legacy_recipe,
+            self.legacy_audit,
         )
         self.assertIn(
-            '"OGRE_BUILD_RENDERSYSTEM_D3D9:BOOL=OFF"',
-            self.legacy_recipe,
+            '"OGRE_BUILD_RENDERSYSTEM_D3D9:INTERNAL=OFF"',
+            self.legacy_audit,
         )
         self.assertIn("/windows kits/", self.legacy_audit)
         self.assertIn(
@@ -725,6 +728,72 @@ class LegacyOgreCgFreeRecipeContractTests(unittest.TestCase):
             )
             self.assertEqual(audit(tmp), [])
 
+        for literal_false in ("OFF", "FALSE"):
+            with self.subTest(literal_false=literal_false):
+                with tempfile.TemporaryDirectory(
+                    prefix="ror-ogre11-inactive-d3d9-audit-"
+                ) as tmp:
+                    config = Path(tmp) / "lib/OGRE/cmake/OGREConfig.cmake"
+                    config.parent.mkdir(parents=True)
+                    config.write_text(
+                        f"if({literal_false})\n"
+                        "    ogre_declare_plugin(RenderSystem Direct3D9)\n"
+                        "endif()\n",
+                        encoding="utf-8",
+                    )
+                    self.assertEqual(audit(tmp), [])
+
+        hostile_cmake_stanzas = (
+            "ogre_declare_plugin(RenderSystem Direct3D9)\n",
+            "if(ON)\n"
+            "    ogre_declare_plugin(RenderSystem Direct3D9)\n"
+            "endif()\n",
+            "if(TRUE)\n"
+            "    ogre_declare_plugin(RenderSystem Direct3D9)\n"
+            "endif()\n",
+            "if(NOT OFF)\n"
+            "    ogre_declare_plugin(RenderSystem Direct3D9)\n"
+            "endif()\n",
+            "if(OFF OR ON)\n"
+            "    ogre_declare_plugin(RenderSystem Direct3D9)\n"
+            "endif()\n",
+            "if(OGRE_BUILD_RENDERSYSTEM_D3D9)\n"
+            "    ogre_declare_plugin(RenderSystem Direct3D9)\n"
+            "endif()\n",
+            "if(false)\n"
+            "    ogre_declare_plugin(RenderSystem Direct3D9)\n"
+            "endif()\n",
+        )
+        for hostile_stanza in hostile_cmake_stanzas:
+            with self.subTest(hostile_stanza=hostile_stanza):
+                with tempfile.TemporaryDirectory(
+                    prefix="ror-ogre11-active-d3d9-audit-"
+                ) as tmp:
+                    config = Path(tmp) / "lib/OGRE/cmake/OGREConfig.cmake"
+                    config.parent.mkdir(parents=True)
+                    config.write_text(hostile_stanza, encoding="utf-8")
+                    self.assertTrue(audit(tmp))
+
+        with tempfile.TemporaryDirectory(
+            prefix="ror-ogre11-mixed-d3d9-audit-"
+        ) as tmp:
+            config = Path(tmp) / "lib/OGRE/cmake/OGREConfig.cmake"
+            config.parent.mkdir(parents=True)
+            config.write_text(
+                "if(OFF)\n"
+                "    ogre_declare_plugin(RenderSystem Direct3D9)\n"
+                "endif()\n"
+                "ogre_declare_plugin(RenderSystem Direct3D9)\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                audit(tmp),
+                [
+                    "lib/OGRE/cmake/OGREConfig.cmake:4:"
+                    "ogre_declare_plugin(RenderSystem Direct3D9)"
+                ],
+            )
+
         trusted_path = (
             self.legacy_audit_module.is_trusted_windows_kits_include_path
         )
@@ -802,11 +871,48 @@ class LegacyOgreCgFreeRecipeContractTests(unittest.TestCase):
             self.main_source_cmake,
         )
 
+    def test_windows_d3d11_cache_contract_is_exact_and_hostile(self) -> None:
+        validate = (
+            self.legacy_audit_module.find_windows_d3d11_cache_contract_errors
+        )
+        valid_cache = (
+            "OGRE_BUILD_RENDERSYSTEM_D3D11:BOOL=ON\n"
+            "OGRE_BUILD_RENDERSYSTEM_D3D9:INTERNAL=OFF\n"
+        )
+        self.assertEqual(validate(valid_cache), [])
+
+        hostile_caches = {
+            "missing D3D9": "OGRE_BUILD_RENDERSYSTEM_D3D11:BOOL=ON\n",
+            "duplicate D3D9": valid_cache
+            + "OGRE_BUILD_RENDERSYSTEM_D3D9:INTERNAL=OFF\n",
+            "D3D11 disabled": valid_cache.replace(
+                "D3D11:BOOL=ON", "D3D11:BOOL=OFF"
+            ),
+            "D3D9 enabled": valid_cache.replace(
+                "D3D9:INTERNAL=OFF", "D3D9:INTERNAL=ON"
+            ),
+            "D3D9 type substitution": valid_cache.replace(
+                "D3D9:INTERNAL=OFF", "D3D9:STRING=OFF"
+            ),
+            "D3D9 untyped substitution": valid_cache.replace(
+                "D3D9:INTERNAL=OFF", "D3D9=OFF"
+            ),
+            "valid plus untyped duplicate": valid_cache
+            + "OGRE_BUILD_RENDERSYSTEM_D3D9=OFF\n",
+            "similar key substitution": (
+                "OGRE_BUILD_RENDERSYSTEM_D3D11:BOOL=ON\n"
+                "OGRE_BUILD_RENDERSYSTEM_D3D9_SHADOW:INTERNAL=OFF\n"
+            ),
+        }
+        for name, hostile_cache in hostile_caches.items():
+            with self.subTest(name=name):
+                self.assertTrue(validate(hostile_cache))
+
     def test_caelum_recipe_is_exactly_bound_to_the_cg_free_ogre_host(
         self,
     ) -> None:
         self.assertIn(
-            '"#941abb2273acc4c35eeec8a0e9f30fad"',
+            '"#49bf28ca81e5f1d7c9aba93095ae9a82"',
             self.legacy_caelum_recipe,
         )
         self.assertNotIn("[~14]", self.legacy_caelum_recipe)
@@ -964,7 +1070,7 @@ class LegacyOgreCgFreeRecipeContractTests(unittest.TestCase):
         self,
     ) -> None:
         self.assertIn(
-            '"#941abb2273acc4c35eeec8a0e9f30fad"',
+            '"#49bf28ca81e5f1d7c9aba93095ae9a82"',
             self.legacy_paged_geometry_recipe,
         )
         self.assertNotIn("[~1.11]", self.legacy_paged_geometry_recipe)

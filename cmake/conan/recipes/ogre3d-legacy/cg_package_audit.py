@@ -73,6 +73,15 @@ WINDOWS_IMPORT_LIBRARY_PATH = re.compile(
     r"[a-z]:[/\\][^\"';\r\n]*?(?:d3d11|dxgi|dxguid)\.lib",
     re.IGNORECASE,
 )
+WINDOWS_D3D11_CACHE_CONTRACT = (
+    "OGRE_BUILD_RENDERSYSTEM_D3D11:BOOL=ON",
+    "OGRE_BUILD_RENDERSYSTEM_D3D9:INTERNAL=OFF",
+)
+INACTIVE_DIRECT3D9_CMAKE_STANZA = re.compile(
+    r"(?m)^if\((?:OFF|FALSE)\)\r?\n"
+    r"    ogre_declare_plugin\(RenderSystem Direct3D9\)\r?\n"
+    r"endif\(\)(?:\r?\n|$)"
+)
 
 
 def contains_forbidden_cg_token(value: str) -> bool:
@@ -113,6 +122,32 @@ def contains_forbidden_legacy_directx_token(value: str) -> bool:
         fragment in lowered
         for fragment in FORBIDDEN_LEGACY_DIRECTX_FRAGMENTS
     )
+
+
+def find_windows_d3d11_cache_contract_errors(cache: str) -> list[str]:
+    """Return exact cache-contract mismatches for the Windows D3D11 lane."""
+    cache_lines = cache.splitlines()
+    errors: list[str] = []
+    for expected_entry in WINDOWS_D3D11_CACHE_CONTRACT:
+        cache_name = expected_entry.split(":", 1)[0]
+        matching_entries = [
+            line
+            for line in cache_lines
+            if line.startswith((f"{cache_name}:", f"{cache_name}="))
+        ]
+        if matching_entries != [expected_entry]:
+            actual = ", ".join(matching_entries) or "<missing>"
+            errors.append(f"expected {expected_entry}; found {actual}")
+    return errors
+
+
+def strip_inactive_direct3d9_cmake_stanzas(source: str) -> str:
+    """Blank only Ogre's exact literal-false generated D3D9 stanza."""
+
+    def preserve_line_numbers(match: re.Match[str]) -> str:
+        return "\n" * match.group(0).count("\n")
+
+    return INACTIVE_DIRECT3D9_CMAKE_STANZA.sub(preserve_line_numbers, source)
 
 
 def is_trusted_windows_kits_include_path(value: str) -> bool:
@@ -214,7 +249,14 @@ def find_forbidden_legacy_directx_package_entries(
             config_path = os.path.join(current_root, filename)
             relative_config = os.path.relpath(config_path, package_folder)
             with open(config_path, encoding="utf-8") as config_file:
-                for line_number, line in enumerate(config_file, start=1):
+                config_source = config_file.read()
+                if lowered_filename.endswith(".cmake"):
+                    config_source = strip_inactive_direct3d9_cmake_stanzas(
+                        config_source
+                    )
+                for line_number, line in enumerate(
+                    config_source.splitlines(), start=1
+                ):
                     active_line = line.strip()
                     if not active_line or active_line.startswith("#"):
                         continue

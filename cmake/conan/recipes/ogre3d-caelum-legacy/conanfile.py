@@ -18,7 +18,7 @@ from caelum_package_audit import (
 
 OGRE_LEGACY_REFERENCE = (
     "ogre3d/1.11.6.1@anotherfoxguy/stable"
-    "#941abb2273acc4c35eeec8a0e9f30fad"
+    "#49bf28ca81e5f1d7c9aba93095ae9a82"
 )
 
 

@@ -21,6 +21,7 @@ from cg_package_audit import (
     contains_forbidden_legacy_directx_token,
     find_forbidden_cg_package_entries,
     find_forbidden_legacy_directx_package_entries,
+    find_windows_d3d11_cache_contract_errors,
     is_trusted_windows_kits_include_path,
     is_trusted_windows_kits_library_path,
 )
@@ -216,15 +217,11 @@ class OGRELegacyConan(ConanFile):
         with open(cache_path, encoding="utf-8") as cache_file:
             cache = cache_file.read()
 
-        expected_entries = (
-            "OGRE_BUILD_RENDERSYSTEM_D3D11:BOOL=ON",
-            "OGRE_BUILD_RENDERSYSTEM_D3D9:BOOL=OFF",
-        )
-        missing = [entry for entry in expected_entries if entry not in cache]
-        if missing:
+        cache_contract_errors = find_windows_d3d11_cache_contract_errors(cache)
+        if cache_contract_errors:
             raise ConanInvalidConfiguration(
                 "The Ogre 1.11 Windows build is not D3D11-only: "
-                + ", ".join(missing)
+                + "; ".join(cache_contract_errors)
             )
 
         def cache_path(name):
