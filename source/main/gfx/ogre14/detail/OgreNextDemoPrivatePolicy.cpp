@@ -815,6 +815,25 @@ Render::ValidationResult AccumulateOgreNextDemoTextureSourceCounters(
   candidate.unpresented_legacy_layer_units =
       SaturatingAdd(candidate.unpresented_legacy_layer_units,
                     increment.unpresented_legacy_layer_units);
+  candidate.layered_material_projections =
+      SaturatingAdd(candidate.layered_material_projections,
+                    increment.layered_material_projections);
+  candidate.layered_material_detail_layers =
+      SaturatingAdd(candidate.layered_material_detail_layers,
+                    increment.layered_material_detail_layers);
+  candidate.layered_material_detail_normal_layers =
+      SaturatingAdd(candidate.layered_material_detail_normal_layers,
+                    increment.layered_material_detail_normal_layers);
+  candidate.layered_material_refusals =
+      SaturatingAdd(candidate.layered_material_refusals,
+                    increment.layered_material_refusals);
+  for (std::size_t bucket = 0U;
+       bucket < kMaterialDetailLayerHistogramBuckets; ++bucket) {
+    candidate.layered_material_projections_by_layer_count[bucket] =
+        SaturatingAdd(
+            candidate.layered_material_projections_by_layer_count[bucket],
+            increment.layered_material_projections_by_layer_count[bucket]);
+  }
   candidate.additive_overlay_legacy_material_projections =
       SaturatingAdd(candidate.additive_overlay_legacy_material_projections,
                     increment.additive_overlay_legacy_material_projections);

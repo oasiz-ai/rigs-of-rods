@@ -286,7 +286,9 @@ std::string BuildOgreNextDemoMaterialCoverageSnapshot(
         "curated_cityworld={}/{};curated_observed={};curated_matte={};"
         "curated_environment_pending={};uncurated_spherical_matte={};"
         "layered_legacy={};unpresented_layers={};additive_overlay_legacy={};"
-        "unpresented_additive_overlay_passes={};reasons={}",
+        "unpresented_additive_overlay_passes={};layered_materials={};"
+        "layered_detail_layers={};layered_detail_normals={};"
+        "layered_refusals={};reasons={}",
         active_projections, counters.candidate_sections,
         counters.projected_sections, counters.matte_excluded_sections,
         counters.distinct_eligible_texture_keys,
@@ -325,6 +327,10 @@ std::string BuildOgreNextDemoMaterialCoverageSnapshot(
         counters.unpresented_legacy_layer_units,
         counters.additive_overlay_legacy_material_projections,
         counters.unpresented_legacy_additive_overlay_passes,
+        counters.layered_material_projections,
+        counters.layered_material_detail_layers,
+        counters.layered_material_detail_normal_layers,
+        counters.layered_material_refusals,
         FormatOgreNextDemoMaterialExclusions(counters));
 }
 
@@ -350,7 +356,12 @@ std::string FormatOgreNextDemoMaterialCounters(
         "layered_legacy_material_projections={} "
         "unpresented_legacy_layer_units={} "
         "additive_overlay_legacy_material_projections={} "
-        "unpresented_legacy_additive_overlay_passes={} ",
+        "unpresented_legacy_additive_overlay_passes={} "
+        "layered_material_projections={} "
+        "layered_material_detail_layers={} "
+        "layered_material_detail_normal_layers={} "
+        "layered_material_refusals={} "
+        "layered_material_layers_by_count=[1:{},2:{},3:{},4:{}] ",
         counters.new_frozen_material_decisions, counters.candidate_sections,
         counters.projected_sections, counters.matte_excluded_sections,
         counters.projections, counters.distinct_eligible_texture_keys,
@@ -370,7 +381,15 @@ std::string FormatOgreNextDemoMaterialCounters(
         counters.layered_legacy_material_projections,
         counters.unpresented_legacy_layer_units,
         counters.additive_overlay_legacy_material_projections,
-        counters.unpresented_legacy_additive_overlay_passes);
+        counters.unpresented_legacy_additive_overlay_passes,
+        counters.layered_material_projections,
+        counters.layered_material_detail_layers,
+        counters.layered_material_detail_normal_layers,
+        counters.layered_material_refusals,
+        counters.layered_material_projections_by_layer_count[0U],
+        counters.layered_material_projections_by_layer_count[1U],
+        counters.layered_material_projections_by_layer_count[2U],
+        counters.layered_material_projections_by_layer_count[3U]);
     result += fmt::format(
         "active_texture_state_observations={} "
         "active_normalized_texture_observations={} "
