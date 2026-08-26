@@ -30,6 +30,14 @@ if RUNNER_SPEC is None or RUNNER_SPEC.loader is None:
     raise RuntimeError("could not import OGRE-Next probe runner")
 RUNNER = importlib.util.module_from_spec(RUNNER_SPEC)
 RUNNER_SPEC.loader.exec_module(RUNNER)
+PACKAGER_PATH = PROBE_ROOT / "package_ogre_next_product.py"
+PACKAGER_SPEC = importlib.util.spec_from_file_location(
+    "package_ogre_next_product_for_linux_closure_tests", PACKAGER_PATH
+)
+if PACKAGER_SPEC is None or PACKAGER_SPEC.loader is None:
+    raise RuntimeError("could not import OGRE-Next product packager")
+PACKAGER = importlib.util.module_from_spec(PACKAGER_SPEC)
+PACKAGER_SPEC.loader.exec_module(PACKAGER)
 
 
 class OgreNextLinuxStaticClosureTests(unittest.TestCase):
@@ -253,7 +261,9 @@ class OgreNextLinuxStaticClosureTests(unittest.TestCase):
             "${ROR_FREETYPE_PACKAGE_OVERVIEW_PATH}", self.entry_cmake
         )
         self.assertGreaterEqual(self.entry_cmake.count("-E compare_files"), 10)
-        self.assertIn(".stage-v11", self.entry_cmake)
+        self.assertEqual(PACKAGER.N1_COMPLETION_STAMP, ".stage-v12")
+        self.assertIn(PACKAGER.N1_COMPLETION_STAMP, self.entry_cmake)
+        self.assertNotIn(".stage-v11", self.entry_cmake)
         self.assertIn(
             "ror_ogre_next_linux_static_closure_manifest",
             self.entry_cmake,

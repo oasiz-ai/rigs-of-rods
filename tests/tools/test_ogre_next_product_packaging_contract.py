@@ -62,7 +62,7 @@ class OgreNextProductPackagerTests(unittest.TestCase):
         (media / "2.0" / "scripts" / "Compositors" / "Hdr.compositor").write_text(
             "pinned compositor\n", encoding="utf-8"
         )
-        (n1 / ".stage-v11").write_bytes(b"")
+        (n1 / PACKAGER.N1_COMPLETION_STAMP).write_bytes(b"")
         licenses = n1 / "licenses"
         licenses.mkdir()
         for name in PACKAGER.BASE_NOTICES:
@@ -159,6 +159,28 @@ class OgreNextProductPackagerTests(unittest.TestCase):
                 expected_identity=identity,
                 strict_root=True,
             )
+
+    def test_stage_requires_current_n1_completion_stamp(self) -> None:
+        self.assertEqual(PACKAGER.N1_COMPLETION_STAMP, ".stage-v12")
+        with tempfile.TemporaryDirectory(
+            prefix="ror-ogrenext-product-stale-n1-stamp-"
+        ) as temp:
+            root = Path(temp).resolve()
+            child, n1, presentation, contract, identity = self.make_inputs(root)
+            (n1 / PACKAGER.N1_COMPLETION_STAMP).replace(n1 / ".stage-v11")
+            with self.assertRaisesRegex(
+                PACKAGER.PackageError,
+                "N1 completion stamp must be one regular file",
+            ):
+                PACKAGER.stage_package(
+                    child=child,
+                    n1_package=n1,
+                    presentation_root=presentation,
+                    build_contract=contract,
+                    output=root / "product",
+                    identity=identity,
+                    policy="macos-arm64-metal",
+                )
 
     def test_stage_preserves_schema7_embedded_namespace_contract(self) -> None:
         with tempfile.TemporaryDirectory(

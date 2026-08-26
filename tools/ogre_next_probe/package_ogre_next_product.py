@@ -30,6 +30,7 @@ BUILD_CONTRACT_RELATIVE = PurePosixPath(
     "provenance/ogre-next-product-build-contract.json"
 )
 COMPLETION_RELATIVE = PurePosixPath(".ror-ogre-next-product-complete.json")
+N1_COMPLETION_STAMP = ".stage-v12"
 N1_MEDIA_RELATIVE = PurePosixPath(
     "share/rigsofrods/ogre-next/Samples/Media"
 )
@@ -443,7 +444,10 @@ def stage_package(
         )
     _assert_identity(child, identity)
     _assert_directory(n1_package, "N1 authenticated package")
-    _assert_regular(n1_package / ".stage-v11", "N1 completion stamp")
+    _assert_regular(
+        n1_package / N1_COMPLETION_STAMP,
+        "N1 completion stamp",
+    )
     _assert_directory(presentation_root, "presentation media")
     _assert_regular(build_contract, "OgreNext build contract")
     media_root = n1_package / N1_MEDIA_RELATIVE
