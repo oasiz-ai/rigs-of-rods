@@ -258,6 +258,15 @@ ValidationResult ValidateProducerBoundMaterialMeshCompatibility(
           &material.occlusion_texture,
           &material.emissive_texture,
           &material.specular_texture,
+          &material.detail_weight_texture,
+          &material.detail_textures[0],
+          &material.detail_textures[1],
+          &material.detail_textures[2],
+          &material.detail_textures[3],
+          &material.detail_normal_textures[0],
+          &material.detail_normal_textures[1],
+          &material.detail_normal_textures[2],
+          &material.detail_normal_textures[3],
       }};
   for (std::size_t slot = 0U; slot < descriptor_bindings.size(); ++slot) {
     const GraphicsSceneAssetBinding &binding =
@@ -287,7 +296,13 @@ ValidationResult ValidateProducerBoundMaterialMeshCompatibility(
           "producer-bound material references a missing authored UV stream",
           slot);
     }
-    if (slot == static_cast<std::size_t>(MaterialTextureSlot::NORMAL) &&
+    // Detail normals perturb the same tangent frame the base normal map does,
+    // so they carry the same mesh requirement.
+    const bool tangent_space_slot =
+        slot == static_cast<std::size_t>(MaterialTextureSlot::NORMAL) ||
+        (slot >= static_cast<std::size_t>(MaterialTextureSlot::DETAIL0_NM) &&
+         slot <= static_cast<std::size_t>(MaterialTextureSlot::DETAIL3_NM));
+    if (tangent_space_slot &&
         (mesh.normals.empty() || mesh.tangents.empty())) {
       return ValidationResult::Failure(
           ValidationCode::MISSING_REFERENCE,
