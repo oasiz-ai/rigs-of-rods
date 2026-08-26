@@ -1174,6 +1174,13 @@ ValidationResult DecodeMesh(Reader &reader, RenderAssetPayload &payload) {
 
 ValidationResult DecodeTexture(Reader &reader, RenderAssetPayload &payload) {
   TextureResourceDescriptor texture;
+  // Checked native package v1/v2 artifacts serialize RGBA8 texture records
+  // with the immutable version-1 row-pitch contract.  The live descriptor
+  // later moved to version 2 for block-compressed storage, so decode either
+  // explicit wire contract without reinterpreting one as the other.  Both
+  // publish the current in-memory descriptor, just like the mesh upgrade
+  // above; unknown record versions remain fail-closed.
+  constexpr std::uint32_t kLegacyNativePackageTextureRecordVersion = 1U;
   std::uint32_t version = 0U;
   std::uint8_t type = 0U;
   std::uint8_t format = 0U;
@@ -1181,7 +1188,8 @@ ValidationResult DecodeTexture(Reader &reader, RenderAssetPayload &payload) {
   std::uint8_t reserved = 0U;
   std::uint32_t mip_count = 0U;
   if (!reader.ReadU32(version) ||
-      version != kTextureResourceDescriptorVersion ||
+      (version != kLegacyNativePackageTextureRecordVersion &&
+       version != kTextureResourceDescriptorVersion) ||
       !reader.ReadString(texture.debug_name) || !reader.ReadU8(type) ||
       !reader.ReadU8(format) || !reader.ReadU8(color_space) ||
       !reader.ReadU8(reserved) || reserved != 0U ||
@@ -1190,27 +1198,29 @@ ValidationResult DecodeTexture(Reader &reader, RenderAssetPayload &payload) {
     return Failure(ValidationCode::SIZE_MISMATCH, "native.texture",
                    "texture header is truncated or non-canonical");
   }
-  texture.version = version;
+  texture.version = kTextureResourceDescriptorVersion;
   texture.type = static_cast<TextureResourceType>(type);
   texture.format = static_cast<TextureResourceFormat>(format);
   texture.color_space = static_cast<TextureColorSpace>(color_space);
-  // RGBA8 plus the block-compressed storage set. Anything else is refused by
-  // name rather than reinterpreted, because the pitch rules below are derived
-  // from the format's block geometry and a wrong guess would read garbage.
-  const bool admitted_format =
-      texture.format == TextureResourceFormat::RGBA8_UNORM ||
-      texture.format == TextureResourceFormat::BC4_UNORM ||
-      texture.format == TextureResourceFormat::BC5_UNORM ||
-      texture.format == TextureResourceFormat::BC7_UNORM ||
-      texture.format == TextureResourceFormat::BC1_UNORM ||
-      texture.format == TextureResourceFormat::BC3_UNORM;
-  if (texture.type != TextureResourceType::TEXTURE_2D || !admitted_format ||
+  const bool legacy_rgba8 =
+      version == kLegacyNativePackageTextureRecordVersion &&
+      texture.format == TextureResourceFormat::RGBA8_UNORM;
+  const bool current_format =
+      version == kTextureResourceDescriptorVersion &&
+      (texture.format == TextureResourceFormat::RGBA8_UNORM ||
+       texture.format == TextureResourceFormat::BC1_UNORM ||
+       texture.format == TextureResourceFormat::BC3_UNORM ||
+       texture.format == TextureResourceFormat::BC4_UNORM ||
+       texture.format == TextureResourceFormat::BC5_UNORM ||
+       texture.format == TextureResourceFormat::BC7_UNORM);
+  if (texture.type != TextureResourceType::TEXTURE_2D ||
+      (!legacy_rgba8 && !current_format) ||
       texture.width == 0U || texture.width > kMaximumTextureDimension ||
       texture.height == 0U || texture.height > kMaximumTextureDimension ||
       texture.array_layers != 1U || mip_count == 0U ||
       mip_count > kMaximumTextureMips) {
     return Failure(ValidationCode::UNSUPPORTED_FEATURE, "native.texture",
-                   "package accepts bounded 2D RGBA8, BC1, BC3, BC4, BC5, or BC7 textures only");
+                   "texture record version/format pairing is unsupported");
   }
   std::uint32_t expected_width = texture.width;
   std::uint32_t expected_height = texture.height;

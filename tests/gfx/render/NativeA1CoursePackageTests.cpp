@@ -104,12 +104,15 @@ void CheckTexture(const NativeRenderAssetPackage &package,
   const GraphicsSceneAssetInput *asset = FindAsset(package, name);
   Require(asset != nullptr, "required texture is absent");
   const auto &texture = std::get<TextureResourceDescriptor>(*asset->payload);
-  Require(texture.width == dimension && texture.height == dimension &&
+  Require(texture.version == kTextureResourceDescriptorVersion &&
+              texture.format == TextureResourceFormat::RGBA8_UNORM &&
+              texture.width == dimension && texture.height == dimension &&
               texture.mip_levels.size() == mip_count &&
               texture.color_space == color_space &&
               texture.mip_levels.back().width == 1U &&
               texture.mip_levels.back().height == 1U,
-          "texture dimensions, color space, or complete mip chain changed");
+          "wire-v1 texture upgrade, dimensions, color space, or mip chain "
+          "changed");
 }
 
 void TestCheckedPackage() {

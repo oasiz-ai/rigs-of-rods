@@ -457,11 +457,16 @@ void TestCheckedFixtureDecodesToCanonicalJoinedInputs() {
   }};
   Require(std::all_of(surface_textures.begin(), surface_textures.end(),
                       [](const TextureResourceDescriptor *texture) {
-                        return texture->width == 512U &&
+                        return texture->version ==
+                                   kTextureResourceDescriptorVersion &&
+                               texture->format ==
+                                   TextureResourceFormat::RGBA8_UNORM &&
+                               texture->width == 512U &&
                                texture->height == 512U &&
                                texture->mip_levels.size() == 10U;
                       }),
-          "road/wet maps lost their exact 512px base or full mip chain");
+          "wire-v1 textures were not upgraded or lost their exact RGBA8 mip "
+          "chain");
   Require(road_base_texture.color_space == TextureColorSpace::SRGB &&
               road_mr_texture.color_space == TextureColorSpace::LINEAR &&
               road_normal_texture.color_space == TextureColorSpace::LINEAR &&
@@ -921,6 +926,30 @@ void TestCanonicalRecordAndSemanticMutationsFailClosed() {
       U32(bytes, road_texture.payload_offset + 4U);
   const std::size_t texture_state =
       road_texture.payload_offset + 8U + road_texture_name;
+
+  bytes = fixture;
+  PutU32(bytes, road_texture.payload_offset,
+         kTextureResourceDescriptorVersion);
+  RefreshBodyDigest(bytes);
+  const NativeRenderAssetPackageDecodeResult current_wire =
+      DecodeNativeRenderAssetPackage(bytes.data(), bytes.size(),
+                                     TrustedDigest(bytes));
+  Require(current_wire.ok(), "explicit wire-v2 RGBA8 texture was rejected");
+  const GraphicsSceneAssetInput *current_wire_road =
+      FindAsset(*current_wire.package, "rorng_a0_road_base");
+  Require(current_wire_road != nullptr &&
+              std::get<TextureResourceDescriptor>(*current_wire_road->payload)
+                      .version == kTextureResourceDescriptorVersion,
+          "wire-v2 RGBA8 texture did not publish the live descriptor version");
+
+  bytes = fixture;
+  bytes[texture_state + 1U] =
+      static_cast<std::uint8_t>(TextureResourceFormat::BC4_UNORM);
+  RefreshBodyDigest(bytes);
+  RequireDecodeFailure(bytes,
+                       "block-compressed storage was reinterpreted under wire v1");
+
+  bytes = fixture;
   bytes[texture_state + 2U] = 0U;
   RefreshBodyDigest(bytes);
   RequireDecodeFailure(bytes, "linear base-color source was accepted");
