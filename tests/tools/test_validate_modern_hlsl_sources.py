@@ -42,6 +42,12 @@ mode = os.environ.get("FAKE_FXC_MODE", "pass")
 if mode == "error":
     print("error X9999: hostile compiler failure", file=sys.stderr)
     raise SystemExit(2)
+if mode == "error-both":
+    print("hostile compiler context on stdout")
+    print("error X9997: hostile compiler failure on stderr", file=sys.stderr)
+    raise SystemExit(2)
+if mode == "error-empty":
+    raise SystemExit(2)
 
 try:
     output_index = arguments.index("/Fo") + 1
@@ -528,8 +534,40 @@ class ModernHlslValidatorTests(unittest.TestCase):
                 result = self._run(mode=mode)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(expected, result.stderr)
+                if mode == "error":
+                    self.assertIn("compiler diagnostics:", result.stderr)
+                    self.assertIn("stderr:", result.stderr)
+                    self.assertIn(
+                        "error X9999: hostile compiler failure",
+                        result.stderr,
+                    )
                 self.assertFalse(self.evidence.exists())
                 self.assertFalse(list(self.repository.rglob("*.cso")))
+
+    def test_failed_compiler_reports_bounded_ordered_or_empty_diagnostics(
+        self,
+    ) -> None:
+        both = self._run(mode="error-both")
+        self.assertNotEqual(both.returncode, 0)
+        stdout_marker = "stdout:\nhostile compiler context on stdout"
+        stderr_marker = "stderr:\nerror X9997: hostile compiler failure on stderr"
+        self.assertIn(stdout_marker, both.stderr)
+        self.assertIn(stderr_marker, both.stderr)
+        self.assertLess(both.stderr.index(stdout_marker), both.stderr.index(stderr_marker))
+        self.assertFalse(self.evidence.exists())
+
+        empty = self._run(mode="error-empty")
+        self.assertNotEqual(empty.returncode, 0)
+        self.assertIn("compiler diagnostics: <empty>", empty.stderr)
+        self.assertFalse(self.evidence.exists())
+
+        accepted = b"x" * VALIDATOR.MAX_COMPILER_OUTPUT_BYTES
+        self.assertEqual(VALIDATOR._normalise_output(accepted), accepted.decode())
+        with self.assertRaisesRegex(
+            VALIDATOR.ValidationFailure,
+            f"compiler output exceeds {VALIDATOR.MAX_COMPILER_OUTPUT_BYTES} bytes",
+        ):
+            VALIDATOR._normalise_output(accepted + b"x")
 
     def test_compiled_and_excluded_source_inventories_fail_closed(self) -> None:
         rtshader = self.repository / "resources/rtshader/FFPLib_Common.hlsl"

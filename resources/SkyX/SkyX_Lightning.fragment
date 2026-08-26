@@ -58,7 +58,7 @@ void main(void)
 		intensity = (1.0-2.0*length(0.5-UV.x))*mult;
 	}
 	
-	intensity = pow(intensity,1.0/(0.1+UV.z));
+	intensity = pow(max(intensity,0.0),1.0/(0.1+UV.z));
 	
 	// Falling effect
 	smoothAvance = 6.0;

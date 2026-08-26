@@ -1054,6 +1054,37 @@ class LegacyOgreCgFreeRecipeContractTests(unittest.TestCase):
             self.main_cmake,
         )
         self.assertIn('"--version=1.11.6.1"', self.main_cmake)
+
+        legacy_lane_start = self.main_cmake.index(
+            "else ()\n    # The Ogre 1.11 developer opt-out"
+        )
+        legacy_lane_end = self.main_cmake.index(
+            "\nendif ()\n\nset(ROR_BUILD_INSTALLER", legacy_lane_start
+        )
+        legacy_lane = self.main_cmake[legacy_lane_start:legacy_lane_end]
+        self.assertIn(
+            "find_program(Python3_EXECUTABLE NAMES python3 python REQUIRED)",
+            legacy_lane,
+        )
+        self.assertIn(
+            '"import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)"',
+            legacy_lane,
+        )
+        self.assertIn(
+            '"Ogre 1.11 recipe export requires Python 3.8 or newer"',
+            legacy_lane,
+        )
+        self.assertIsNone(
+            re.search(r"(?m)^\s*find_package\(", legacy_lane)
+        )
+        self.assertLess(
+            legacy_lane.index("_ror_legacy_python_version_result"),
+            legacy_lane.index("cmake/conan/export_pinned_dependency_recipes.py"),
+        )
+        self.assertLess(
+            legacy_lane.index("cmake/conan/export_pinned_dependency_recipes.py"),
+            legacy_lane.index("set(_ror_legacy_conan_args"),
+        )
         self.assertIn('"--user=anotherfoxguy"', self.main_cmake)
         self.assertIn('"--channel=stable"', self.main_cmake)
         self.assertIn('"-o=&:ogre14=False"', self.main_cmake)

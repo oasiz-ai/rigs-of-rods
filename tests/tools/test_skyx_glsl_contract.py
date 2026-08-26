@@ -118,6 +118,20 @@ class SkyXGlslContractTests(unittest.TestCase):
                 )
                 self.assertEqual(source.count(".Sample("), sample_count)
 
+        lightning = (SKYX / "SkyX_Lightning.hlsl").read_text(
+            encoding="utf-8"
+        )
+        fragment_start = lightning.index("void main_fp(")
+        fragment = lightning[fragment_start:]
+        self.assertEqual(fragment.count("float3 uv = iUV;"), 1)
+        self.assertNotRegex(fragment, r"(?m)^\s*iUV\.[xyz]\s*[*+-]?=")
+        self.assertIn("pow(max(intensity,0.0f)", fragment)
+
+        lightning_glsl = (SKYX / "SkyX_Lightning.fragment").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("pow(max(intensity,0.0)", lightning_glsl)
+
     def test_all_shader_pairs_are_core_glsl150_with_exact_interfaces(self) -> None:
         expected_stems = set(SHADER_INTERFACES)
         self.assertEqual(

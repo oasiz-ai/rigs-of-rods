@@ -283,8 +283,23 @@ else ()
         message(FATAL_ERROR
             "Pinned Ogre 1.11 lockfile is missing: ${_ror_legacy_lockfile}")
     endif ()
-    find_program(CONAN_COMMAND "conan" REQUIRED)
-    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    # The Conan dependency provider intercepts find_package(). Discover the
+    # two bootstrap executables without invoking it; the exact legacy option
+    # and lockfile are installed below before the first dependency lookup.
+    find_program(CONAN_COMMAND NAMES conan REQUIRED)
+    find_program(Python3_EXECUTABLE NAMES python3 python REQUIRED)
+    execute_process(
+        COMMAND
+            ${Python3_EXECUTABLE} -c
+            "import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)"
+        RESULT_VARIABLE _ror_legacy_python_version_result
+        OUTPUT_QUIET
+        ERROR_QUIET
+    )
+    if (NOT _ror_legacy_python_version_result EQUAL 0)
+        message(FATAL_ERROR
+            "Ogre 1.11 recipe export requires Python 3.8 or newer")
+    endif ()
     execute_process(
         COMMAND
             ${Python3_EXECUTABLE}
@@ -353,6 +368,7 @@ else ()
     unset(_ror_legacy_caelum_recipe_export_result)
     unset(_ror_legacy_paged_geometry_recipe_export_result)
     unset(_ror_legacy_public_recipe_export_result)
+    unset(_ror_legacy_python_version_result)
     unset(_ror_legacy_conan_args)
     unset(_ror_legacy_conan_arg)
     unset(_ror_legacy_conan_arg_index)

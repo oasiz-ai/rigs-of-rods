@@ -801,8 +801,19 @@ def compile_cases(
             stdout = _normalise_output(completed.stdout)
             stderr = _normalise_output(completed.stderr)
             if completed.returncode != 0:
+                diagnostics = "\n".join(
+                    f"{label}:\n{output.strip()}"
+                    for label, output in (("stdout", stdout), ("stderr", stderr))
+                    if output.strip()
+                )
+                diagnostic_suffix = (
+                    f"\ncompiler diagnostics:\n{diagnostics}"
+                    if diagnostics
+                    else "\ncompiler diagnostics: <empty>"
+                )
                 raise ValidationFailure(
-                    f"fxc.exe failed with exit code {completed.returncode} for {case.case_id}"
+                    f"fxc.exe failed with exit code {completed.returncode} "
+                    f"for {case.case_id}{diagnostic_suffix}"
                 )
             if stderr.strip():
                 raise ValidationFailure(f"fxc.exe wrote to stderr for {case.case_id}")

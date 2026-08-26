@@ -64,28 +64,29 @@ void main_fp(
     float intensity = 0;
 	float mult = 1;
 	float smoothAvance = 16;
+	float3 uv = iUV;
 
-	if (iData.x+iUV.y*(iData.y-iData.x) > iData.z)
+	if (iData.x+uv.y*(iData.y-iData.x) > iData.z)
 	{
-		iUV.z *= 1-saturate(length(iData.x+iUV.y*(iData.y-iData.x) - iData.z)*smoothAvance);
+		uv.z *= 1-saturate(length(iData.x+uv.y*(iData.y-iData.x) - iData.z)*smoothAvance);
 	}
 	
-	if (iUV.y > 2)
+	if (uv.y > 2)
 	{
-		iUV.y-=2; // Get back y coord
-		intensity = saturate((1-2*length(float2(0.5,0.0)-iUV.xy)))*mult;
+		uv.y-=2; // Get back y coord
+		intensity = saturate((1-2*length(float2(0.5,0.0)-uv.xy)))*mult;
 	}
 	else
 	{
-		intensity = (1-2*length(0.5-iUV.x))*mult;
+		intensity = (1-2*length(0.5-uv.x))*mult;
 	}
 	
-	intensity = pow(intensity,1/(0.1f+iUV.z));
+	intensity = pow(max(intensity,0.0f),1.0f/(0.1f+uv.z));
 	
 	// Falling effect
 	smoothAvance = 6;
-	iUV.z *= 1-iData.w*saturate(length(iData.x+iUV.y*(iData.y-iData.x) - iData.z)*smoothAvance);
+	uv.z *= 1-iData.w*saturate(length(iData.x+uv.y*(iData.y-iData.x) - iData.z)*smoothAvance);
 	
 	// Final color
-	oColor = float4(uColor*iUV.z*intensity,1);
+	oColor = float4(uColor*uv.z*intensity,1);
 }
