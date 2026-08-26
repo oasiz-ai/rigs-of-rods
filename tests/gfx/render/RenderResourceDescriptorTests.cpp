@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <utility>
 
 namespace {
 
@@ -274,6 +275,57 @@ void TestTextureValidation() {
               "overflowing texture row span was accepted");
 }
 
+void TestTextureNonOpaqueAlpha() {
+  using namespace RoR::Render;
+
+  TextureResourceDescriptor rgba = MakeTexture();
+  Require(ValidateTextureResourceDescriptor(rgba).ok() &&
+              TextureResourceHasNonOpaqueAlpha(rgba),
+          "transparent RGBA8 texture lost authored alpha");
+  for (TextureMipLevelDescriptor &mip : rgba.mip_levels) {
+    for (std::uint32_t y = 0U; y < mip.height; ++y) {
+      for (std::uint32_t x = 0U; x < mip.width; ++x) {
+        mip.bytes[static_cast<std::size_t>(y * mip.row_pitch_bytes +
+                                           x * 4U + 3U)] = 255U;
+      }
+    }
+  }
+  Require(!TextureResourceHasNonOpaqueAlpha(rgba),
+          "opaque RGBA8 texture was reported as authored alpha");
+
+  TextureResourceDescriptor bc3;
+  bc3.debug_name = "partial-edge BC3 alpha";
+  bc3.format = TextureResourceFormat::BC3_UNORM;
+  bc3.color_space = TextureColorSpace::SRGB;
+  bc3.width = 3U;
+  bc3.height = 1U;
+  TextureMipLevelDescriptor mip;
+  mip.width = bc3.width;
+  mip.height = bc3.height;
+  mip.row_pitch_bytes = 16U;
+  mip.layer_pitch_bytes = 16U;
+  mip.bytes.assign(16U, 0U);
+  mip.bytes[0U] = 0U;
+  mip.bytes[1U] = 255U;
+  std::uint64_t alpha_indices = 0U;
+  for (std::uint32_t texel = 0U; texel < 3U; ++texel) {
+    alpha_indices |= UINT64_C(1) << (texel * 3U);
+  }
+  for (std::uint32_t byte = 0U; byte < 6U; ++byte) {
+    mip.bytes[2U + byte] = static_cast<std::uint8_t>(
+        (alpha_indices >> (byte * 8U)) & UINT64_C(0xff));
+  }
+  bc3.mip_levels.push_back(std::move(mip));
+  Require(ValidateTextureResourceDescriptor(bc3).ok() &&
+              !TextureResourceHasNonOpaqueAlpha(bc3),
+          "transparent BC3 padding outside a partial edge was treated as an "
+          "authored texel");
+
+  bc3.mip_levels.front().bytes[2U] &= UINT8_C(0x3f);
+  Require(TextureResourceHasNonOpaqueAlpha(bc3),
+          "transparent authored BC3 edge texel was ignored");
+}
+
 void TestDynamicMeshUpdateCompatibility() {
   using namespace RoR::Render;
 
@@ -493,6 +545,7 @@ void TestEnvironmentTextureCompatibility() {
 int main() {
   TestMeshValidation();
   TestTextureValidation();
+  TestTextureNonOpaqueAlpha();
   TestDynamicMeshUpdateCompatibility();
   TestSamplerValidation();
   TestEnvironmentTextureCompatibility();

@@ -21,32 +21,6 @@ ValidationResult Failure(ValidationCode code, const char *field,
   return ValidationResult::Failure(code, field, detail, index);
 }
 
-bool HasAuthoredSourceAlpha(const TextureResourceDescriptor &texture) {
-  if (texture.type != TextureResourceType::TEXTURE_2D ||
-      texture.format != TextureResourceFormat::RGBA8_UNORM ||
-      texture.color_space != TextureColorSpace::SRGB ||
-      texture.array_layers != 1U) {
-    return false;
-  }
-  for (const TextureMipLevelDescriptor &mip : texture.mip_levels) {
-    for (std::uint32_t y = 0U; y < mip.height; ++y) {
-      const std::uint64_t row = static_cast<std::uint64_t>(y) *
-                                mip.row_pitch_bytes;
-      for (std::uint32_t x = 0U; x < mip.width; ++x) {
-        const std::uint64_t alpha =
-            row + static_cast<std::uint64_t>(x) * 4U + 3U;
-        if (alpha >= mip.bytes.size()) {
-          return false;
-        }
-        if (mip.bytes[static_cast<std::size_t>(alpha)] != 255U) {
-          return true;
-        }
-      }
-    }
-  }
-  return false;
-}
-
 bool IsExactDustSampler(const SamplerResourceDescriptor &sampler,
                         std::size_t mip_count) noexcept {
   if (mip_count == 0U ||
@@ -186,7 +160,7 @@ ValidationResult ValidateClosure(
       closure.sort_policy !=
           ContinuousParticleSortPolicy::STABLE_PARTICLE_ID ||
       !IsExactDustSampler(*sampler, source_texture->mip_levels.size()) ||
-      !HasAuthoredSourceAlpha(*source_texture)) {
+      !TextureResourceHasNonOpaqueAlpha(*source_texture)) {
     return Failure(
         ValidationCode::UNSUPPORTED_FEATURE,
         "continuous_particles.material_closure",

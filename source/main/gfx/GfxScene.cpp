@@ -188,36 +188,6 @@ bool IsFiniteOgreRealBits(Ogre::Real value) noexcept
     }
 }
 
-bool HasOgreNextDemoDustSourceAlpha(
-    const RoR::Render::TextureResourceDescriptor& texture) noexcept
-{
-    if (texture.type != RoR::Render::TextureResourceType::TEXTURE_2D ||
-        texture.format != RoR::Render::TextureResourceFormat::RGBA8_UNORM ||
-        texture.color_space != RoR::Render::TextureColorSpace::SRGB ||
-        texture.array_layers != 1U)
-    {
-        return false;
-    }
-    for (const auto& mip : texture.mip_levels)
-    {
-        for (std::uint32_t y = 0U; y < mip.height; ++y)
-        {
-            const std::uint64_t row = static_cast<std::uint64_t>(y) *
-                mip.row_pitch_bytes;
-            for (std::uint32_t x = 0U; x < mip.width; ++x)
-            {
-                const std::uint64_t alpha = row +
-                    static_cast<std::uint64_t>(x) * 4U + 3U;
-                if (alpha >= mip.bytes.size())
-                    return false;
-                if (mip.bytes[static_cast<std::size_t>(alpha)] != 255U)
-                    return true;
-            }
-        }
-    }
-    return false;
-}
-
 bool IsOgreNextDemoDustSampler(
     const RoR::Render::SamplerResourceDescriptor& sampler,
     std::size_t mip_count) noexcept
@@ -6736,7 +6706,8 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                         : nullptr;
                 if (dust_texture == nullptr ||
                     dust_sampler == nullptr ||
-                    !HasOgreNextDemoDustSourceAlpha(*dust_texture) ||
+                    !Render::TextureResourceHasNonOpaqueAlpha(
+                        *dust_texture) ||
                     !IsOgreNextDemoDustSampler(
                         *dust_sampler, dust_texture->mip_levels.size()))
                 {

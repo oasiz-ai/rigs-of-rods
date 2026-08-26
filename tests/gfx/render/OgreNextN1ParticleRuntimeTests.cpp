@@ -71,7 +71,8 @@ RenderAssetReference Ref(RenderAssetKind kind, std::uint64_t low) {
 }
 
 std::unique_ptr<RenderAssetRegistry> Catalog(bool authored_alpha = true,
-                                             bool clamp_sampler = true) {
+                                             bool clamp_sampler = true,
+                                             bool bc3_storage = false) {
   auto registry = std::make_unique<RenderAssetRegistry>(61U);
   RenderAssetDelta delta;
   delta.registry_id = 61U;
@@ -82,17 +83,36 @@ std::unique_ptr<RenderAssetRegistry> Catalog(bool authored_alpha = true,
   texture_mutation.asset = Ref(RenderAssetKind::TEXTURE, 1U);
   TextureResourceDescriptor texture;
   texture.debug_name = "source-backed smoke.dds";
-  texture.format = TextureResourceFormat::RGBA8_UNORM;
+  texture.format = bc3_storage ? TextureResourceFormat::BC3_UNORM
+                               : TextureResourceFormat::RGBA8_UNORM;
   texture.color_space = TextureColorSpace::SRGB;
-  texture.width = 1U;
+  texture.width = bc3_storage ? 4U : 1U;
   texture.height = 1U;
   TextureMipLevelDescriptor mip;
-  mip.width = 1U;
+  mip.width = texture.width;
   mip.height = 1U;
-  mip.row_pitch_bytes = 4U;
-  mip.layer_pitch_bytes = 4U;
-  mip.bytes = {220U, 220U, 220U,
-               static_cast<std::uint8_t>(authored_alpha ? 96U : 255U)};
+  if (bc3_storage) {
+    mip.row_pitch_bytes = 16U;
+    mip.layer_pitch_bytes = 16U;
+    mip.bytes.assign(16U, 0U);
+    mip.bytes[0U] = 0U;
+    mip.bytes[1U] = 255U;
+    std::uint64_t alpha_indices = 0U;
+    for (std::uint32_t texel = 0U; texel < 4U; ++texel) {
+      const std::uint64_t index =
+          authored_alpha && texel == 0U ? UINT64_C(0) : UINT64_C(1);
+      alpha_indices |= index << (texel * 3U);
+    }
+    for (std::uint32_t byte = 0U; byte < 6U; ++byte) {
+      mip.bytes[2U + byte] = static_cast<std::uint8_t>(
+          (alpha_indices >> (byte * 8U)) & UINT64_C(0xff));
+    }
+  } else {
+    mip.row_pitch_bytes = 4U;
+    mip.layer_pitch_bytes = 4U;
+    mip.bytes = {220U, 220U, 220U,
+                 static_cast<std::uint8_t>(authored_alpha ? 96U : 255U)};
+  }
   texture.mip_levels.push_back(std::move(mip));
   texture_mutation.payload = std::move(texture);
   delta.mutations.push_back(std::move(texture_mutation));
@@ -454,6 +474,32 @@ void TestRetainedClosureRevalidatesEveryCurrentCatalog() {
 
 void TestFailClosedSourceAlphaAndStopSemantics() {
   const Double3 origin{100.0, 0.0, -50.0};
+  {
+    const std::unique_ptr<RenderAssetRegistry> compressed =
+        Catalog(true, true, true);
+    OgreNextN1ParticleRuntime runtime;
+    ValidationResult result = runtime.Prepare(
+        1U,
+        Frame(1U, {{1U, 10U, Ogre14ParticleLifecycleOperation::CREATE,
+                    System(10U)}}),
+        *compressed, 9U, origin);
+    Require(result.ok() && runtime.Commit(1U) &&
+                runtime.audit().source_alpha_textures == 1U,
+            "transparent BC3 smoke was rejected as source alpha");
+  }
+  {
+    const std::unique_ptr<RenderAssetRegistry> compressed_opaque =
+        Catalog(false, true, true);
+    OgreNextN1ParticleRuntime runtime;
+    const ValidationResult result = runtime.Prepare(
+        1U,
+        Frame(1U, {{1U, 10U, Ogre14ParticleLifecycleOperation::CREATE,
+                    System(10U)}}),
+        *compressed_opaque, 9U, origin);
+    Require(!result && result.code == ValidationCode::UNSUPPORTED_FEATURE &&
+                runtime.audit().committed_source_sequence == 0U,
+            "opaque BC3 smoke was accepted as source alpha");
+  }
   {
     const std::unique_ptr<RenderAssetRegistry> opaque = Catalog(false);
     OgreNextN1ParticleRuntime runtime;

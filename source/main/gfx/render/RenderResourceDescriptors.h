@@ -267,6 +267,12 @@ IsKnownSamplerCompareOperation(SamplerCompareOperation operation) noexcept;
 ValidateMeshResourceDescriptor(const MeshResourceDescriptor &descriptor);
 [[nodiscard]] ValidationResult
 ValidateTextureResourceDescriptor(const TextureResourceDescriptor &descriptor);
+/// Returns true when an already validated, non-array 2D sRGB RGBA8 or BC3
+/// texture contains at least one authored texel whose alpha is not opaque.
+/// Row padding, layer padding, and texels outside a partial BC3 edge block do
+/// not participate in the result.
+[[nodiscard]] bool TextureResourceHasNonOpaqueAlpha(
+    const TextureResourceDescriptor &descriptor) noexcept;
 [[nodiscard]] ValidationResult
 ValidateSamplerResourceDescriptor(const SamplerResourceDescriptor &descriptor);
 /// Validates one already-structural snapshot update against its live base mesh

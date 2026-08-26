@@ -12,6 +12,7 @@
 #include "ValidatedAssetCompatibilityInternal.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -597,6 +598,95 @@ ValidateTextureResourceDescriptor(const TextureResourceDescriptor &descriptor) {
     expected_height = (std::max)(1U, expected_height / 2U);
   }
   return ValidationResult::Success();
+}
+
+bool TextureResourceHasNonOpaqueAlpha(
+    const TextureResourceDescriptor &descriptor) noexcept {
+  if (descriptor.type != TextureResourceType::TEXTURE_2D ||
+      descriptor.color_space != TextureColorSpace::SRGB ||
+      descriptor.array_layers != 1U ||
+      (descriptor.format != TextureResourceFormat::RGBA8_UNORM &&
+       descriptor.format != TextureResourceFormat::BC3_UNORM)) {
+    return false;
+  }
+
+  for (const TextureMipLevelDescriptor &mip : descriptor.mip_levels) {
+    if (descriptor.format == TextureResourceFormat::RGBA8_UNORM) {
+      for (std::uint32_t y = 0U; y < mip.height; ++y) {
+        const std::uint64_t row =
+            static_cast<std::uint64_t>(y) * mip.row_pitch_bytes;
+        for (std::uint32_t x = 0U; x < mip.width; ++x) {
+          const std::uint64_t alpha =
+              row + static_cast<std::uint64_t>(x) * 4U + 3U;
+          if (alpha >= mip.bytes.size()) {
+            return false;
+          }
+          if (mip.bytes[static_cast<std::size_t>(alpha)] != 255U) {
+            return true;
+          }
+        }
+      }
+      continue;
+    }
+
+    const std::uint32_t block_columns = (mip.width + 3U) / 4U;
+    const std::uint32_t block_rows = (mip.height + 3U) / 4U;
+    for (std::uint32_t block_y = 0U; block_y < block_rows; ++block_y) {
+      for (std::uint32_t block_x = 0U; block_x < block_columns; ++block_x) {
+        const std::uint64_t block_offset =
+            static_cast<std::uint64_t>(block_y) * mip.row_pitch_bytes +
+            static_cast<std::uint64_t>(block_x) * 16U;
+        if (block_offset > mip.bytes.size() ||
+            mip.bytes.size() - static_cast<std::size_t>(block_offset) < 8U) {
+          return false;
+        }
+        const std::size_t offset = static_cast<std::size_t>(block_offset);
+        const std::uint8_t endpoint_zero = mip.bytes[offset];
+        const std::uint8_t endpoint_one = mip.bytes[offset + 1U];
+        std::uint64_t indices = 0U;
+        for (std::uint32_t byte = 0U; byte < 6U; ++byte) {
+          indices |= static_cast<std::uint64_t>(mip.bytes[offset + 2U + byte])
+                     << (byte * 8U);
+        }
+        std::array<std::uint8_t, 8U> alpha_table{};
+        alpha_table[0U] = endpoint_zero;
+        alpha_table[1U] = endpoint_one;
+        if (endpoint_zero > endpoint_one) {
+          for (std::uint32_t index = 1U; index <= 6U; ++index) {
+            alpha_table[index + 1U] = static_cast<std::uint8_t>(
+                ((7U - index) * static_cast<std::uint32_t>(endpoint_zero) +
+                 index * static_cast<std::uint32_t>(endpoint_one)) /
+                7U);
+          }
+        } else {
+          for (std::uint32_t index = 1U; index <= 4U; ++index) {
+            alpha_table[index + 1U] = static_cast<std::uint8_t>(
+                ((5U - index) * static_cast<std::uint32_t>(endpoint_zero) +
+                 index * static_cast<std::uint32_t>(endpoint_one)) /
+                5U);
+          }
+          alpha_table[6U] = 0U;
+          alpha_table[7U] = 255U;
+        }
+
+        const std::uint32_t valid_width =
+            (std::min)(4U, mip.width - block_x * 4U);
+        const std::uint32_t valid_height =
+            (std::min)(4U, mip.height - block_y * 4U);
+        for (std::uint32_t y = 0U; y < valid_height; ++y) {
+          for (std::uint32_t x = 0U; x < valid_width; ++x) {
+            const std::uint32_t texel = y * 4U + x;
+            const std::uint32_t alpha_index = static_cast<std::uint32_t>(
+                (indices >> (texel * 3U)) & 7U);
+            if (alpha_table[alpha_index] != 255U) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+  }
+  return false;
 }
 
 ValidationResult
