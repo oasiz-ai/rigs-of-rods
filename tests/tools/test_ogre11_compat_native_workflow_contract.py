@@ -15,6 +15,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/ogre11-compat-native.yml"
+DEPENDENCIES = ROOT / "cmake/DependenciesConfig.cmake"
 LINUX_LAUNCHER = ROOT / "tools/linux/RunRoR"
 TOOLS = ROOT / "tools"
 if str(TOOLS) not in sys.path:
@@ -27,6 +28,29 @@ class Ogre11CompatibilityWorkflowContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
+        cls.dependencies = DEPENDENCIES.read_text(encoding="utf-8")
+
+    def test_ois_header_repair_is_shared_and_alias_safe(self) -> None:
+        text = self.dependencies
+        ogre14_find = text.index("find_package(ois CONFIG REQUIRED)")
+        legacy_find = text.index("find_package(OIS REQUIRED)")
+        repair = text.index("if (NOT TARGET ois::ois)")
+        mygui = text.index("# --- MyGUI")
+
+        self.assertLess(ogre14_find, repair)
+        self.assertLess(legacy_find, repair)
+        self.assertLess(repair, mygui)
+        for fragment in (
+            "${ois_INCLUDE_DIRS} ${OIS_INCLUDE_DIRS}",
+            "get_target_property(_ror_ois_aliased_target ois::ois ALIASED_TARGET)",
+            'set(_ror_ois_target "${_ror_ois_aliased_target}")',
+            '"${_ror_ois_target}" INTERFACE_INCLUDE_DIRECTORIES',
+            'EXISTS "${_ror_ois_include_dir}/OIS.h"',
+            'EXISTS "${_ror_ois_include_dir}/ois/OIS.h"',
+            'INTERFACE_INCLUDE_DIRECTORIES "${_ror_ois_include_dir}/ois"',
+            'message(FATAL_ERROR "The pinned OIS package does not contain OIS.h")',
+        ):
+            self.assertEqual(text.count(fragment), 1, fragment)
 
     def test_selectors_and_matrix_cover_exact_head_linux_and_windows(self) -> None:
         text = self.workflow

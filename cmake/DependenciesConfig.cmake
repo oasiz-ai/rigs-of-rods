@@ -15,35 +15,50 @@ endif ()
 # --- Object Oriented Input System ---
 if (ROR_OGRE14)
     find_package(ois CONFIG REQUIRED)
-    # The upstream OIS package advertises include/, while its public header
-    # lives in include/ois/. Repair the imported target so direct-toolchain and
-    # Conan dependency-provider builds expose the same valid include contract.
-    set(_ror_ois_include_dirs ${ois_INCLUDE_DIRS})
-    get_target_property(_ror_ois_target_include_dirs
-        ois::ois INTERFACE_INCLUDE_DIRECTORIES)
-    list(APPEND _ror_ois_include_dirs ${_ror_ois_target_include_dirs})
-    set(_ror_ois_header_found OFF)
-    foreach (_ror_ois_include_dir IN LISTS _ror_ois_include_dirs)
-        if (EXISTS "${_ror_ois_include_dir}/OIS.h")
-            set(_ror_ois_header_found ON)
-            break()
-        elseif (EXISTS "${_ror_ois_include_dir}/ois/OIS.h")
-            set_property(TARGET ois::ois APPEND PROPERTY
-                INTERFACE_INCLUDE_DIRECTORIES "${_ror_ois_include_dir}/ois")
-            set(_ror_ois_header_found ON)
-            break()
-        endif ()
-    endforeach ()
-    if (NOT _ror_ois_header_found)
-        message(FATAL_ERROR "The pinned OIS package does not contain OIS.h")
-    endif ()
-    unset(_ror_ois_header_found)
-    unset(_ror_ois_include_dir)
-    unset(_ror_ois_include_dirs)
-    unset(_ror_ois_target_include_dirs)
 else ()
     find_package(OIS REQUIRED)
 endif ()
+
+# The upstream OIS package advertises include/, while its public header lives
+# in include/ois/. Repair the concrete imported target for both renderer paths
+# so Conan config-mode and direct FindOIS builds expose the same valid include
+# contract without attempting to mutate a read-only ALIAS target.
+if (NOT TARGET ois::ois)
+    message(FATAL_ERROR "The pinned OIS package does not define ois::ois")
+endif ()
+set(_ror_ois_target ois::ois)
+get_target_property(_ror_ois_aliased_target ois::ois ALIASED_TARGET)
+if (_ror_ois_aliased_target)
+    set(_ror_ois_target "${_ror_ois_aliased_target}")
+endif ()
+set(_ror_ois_include_dirs ${ois_INCLUDE_DIRS} ${OIS_INCLUDE_DIRS})
+get_target_property(_ror_ois_target_include_dirs
+    "${_ror_ois_target}" INTERFACE_INCLUDE_DIRECTORIES)
+if (_ror_ois_target_include_dirs)
+    list(APPEND _ror_ois_include_dirs ${_ror_ois_target_include_dirs})
+endif ()
+list(REMOVE_DUPLICATES _ror_ois_include_dirs)
+set(_ror_ois_header_found OFF)
+foreach (_ror_ois_include_dir IN LISTS _ror_ois_include_dirs)
+    if (EXISTS "${_ror_ois_include_dir}/OIS.h")
+        set(_ror_ois_header_found ON)
+        break()
+    elseif (EXISTS "${_ror_ois_include_dir}/ois/OIS.h")
+        set_property(TARGET "${_ror_ois_target}" APPEND PROPERTY
+            INTERFACE_INCLUDE_DIRECTORIES "${_ror_ois_include_dir}/ois")
+        set(_ror_ois_header_found ON)
+        break()
+    endif ()
+endforeach ()
+if (NOT _ror_ois_header_found)
+    message(FATAL_ERROR "The pinned OIS package does not contain OIS.h")
+endif ()
+unset(_ror_ois_header_found)
+unset(_ror_ois_include_dir)
+unset(_ror_ois_include_dirs)
+unset(_ror_ois_target_include_dirs)
+unset(_ror_ois_aliased_target)
+unset(_ror_ois_target)
 
 # --- MyGUI - graphical user inferface ---
 find_package(MyGUI REQUIRED)
