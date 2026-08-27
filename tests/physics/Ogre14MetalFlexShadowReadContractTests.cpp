@@ -90,18 +90,35 @@ int main(int argc, char** argv)
     const std::string isolated_import = Slice(
         factory, "Ogre::MeshPtr ImportShadowedFlexbodyMesh(",
         "\nclass OgreFlexbodyTopologySource");
+    const std::size_t modern_policy =
+        isolated_import.find("Ogre::HBU_GPU_ONLY");
+    const std::size_t legacy_policy = isolated_import.find(
+        "Ogre::HardwareBuffer::HBU_STATIC_WRITE_ONLY");
     const std::size_t vertex_policy =
-        isolated_import.find("setVertexBufferPolicy(Ogre::HBU_GPU_ONLY, true)");
+        isolated_import.find(
+            "setVertexBufferPolicy(shadowed_static_usage, true)");
     const std::size_t index_policy =
-        isolated_import.find("setIndexBufferPolicy(Ogre::HBU_GPU_ONLY, true)");
+        isolated_import.find(
+            "setIndexBufferPolicy(shadowed_static_usage, true)");
+    const std::size_t mutable_stream =
+        isolated_import.find("Ogre::DataStreamPtr source =");
     const std::size_t serializer_import =
         isolated_import.find("serializer.importMesh(");
-    Require(vertex_policy != std::string::npos &&
+    Require(modern_policy != std::string::npos &&
+                legacy_policy != std::string::npos &&
+                vertex_policy != std::string::npos &&
                 index_policy != std::string::npos &&
+                mutable_stream != std::string::npos &&
                 serializer_import != std::string::npos &&
+                modern_policy < vertex_policy &&
+                legacy_policy < vertex_policy &&
                 vertex_policy < serializer_import &&
-                index_policy < serializer_import,
-            "isolated fallback no longer sets both shadow policies before import");
+                index_policy < serializer_import &&
+                mutable_stream < serializer_import &&
+                isolated_import.find("const Ogre::DataStreamPtr source") ==
+                    std::string::npos,
+            "isolated fallback no longer uses portable shadow policies and "
+            "a mutable serializer stream before import");
     const std::size_t create_flexbody =
         factory.find("FlexBody* FlexFactory::CreateFlexBody(");
     Require(create_flexbody != std::string::npos,

@@ -266,9 +266,16 @@ Ogre::MeshPtr ImportShadowedFlexbodyMesh(
         unique_name, resource_group_name);
     try
     {
-        mesh->setVertexBufferPolicy(Ogre::HBU_GPU_ONLY, true);
-        mesh->setIndexBufferPolicy(Ogre::HBU_GPU_ONLY, true);
-        const Ogre::DataStreamPtr source =
+#if OGRE_VERSION_MAJOR >= 14
+        constexpr Ogre::HardwareBuffer::Usage shadowed_static_usage =
+            Ogre::HBU_GPU_ONLY;
+#else
+        constexpr Ogre::HardwareBuffer::Usage shadowed_static_usage =
+            Ogre::HardwareBuffer::HBU_STATIC_WRITE_ONLY;
+#endif
+        mesh->setVertexBufferPolicy(shadowed_static_usage, true);
+        mesh->setIndexBufferPolicy(shadowed_static_usage, true);
+        Ogre::DataStreamPtr source =
             Ogre::ResourceGroupManager::getSingleton().openResource(
                 source_name, resource_group_name);
         Ogre::MeshSerializer serializer;
