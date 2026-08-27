@@ -701,6 +701,35 @@ objects, the strict state-trace test, and normal/optimized runner hostiles pass;
 this paragraph describes implemented instrumentation, not the still-pending
 combined-runtime receipt.
 
+The contact-conservation slice now closes each accepted internal point/triangle
+force pair across the hit node and the three barycentrically weighted surface
+nodes. Schema 2 audits the exact widened binary32 accumulator differences after
+production's four `+=` operations, rather than the ideal force before narrowing.
+It treats fixed nodes and network-replicated actors as non-integrated for the
+isolated-contact work calculation, retains legacy collision response if planning
+or audit instrumentation fails, and stops only trace evidence on an audit fault.
+The bounded aggregate covers the complete state-trace ceiling of
+`65,536 * 16,777,216` contacts. Its energy fields are explicitly sums of
+isolated-contact attributions; exact whole-step energy for contacts sharing a
+node remains `not_audited` and is still required for full D0 closure.
+
+A macOS arm64 dirty-development run rooted at commit `1adbc7d19` exercised the
+linked `RoR-Combined` Ogre-Next product path for 2,000 steps with one and eight
+workers. Both traces matched all state records, ended at digest
+`f657f9c1ef02f137e623735c6620f22c003bc5243074975d30383d26b2a15c47`,
+and recorded 153 native inter-actor contacts. The maximum normalized linear
+impulse residual was `3.135192940445975e-07`; the isolated-contact identity was
+`3898.1542663391374 = -2425.1934749969514 + 6323.3477413360888` joules.
+The development binary SHA-256 was
+`581cfa803bdcbe88e1aa1917118a04b3892f9f75711d3f8bfcd9fd197e68dcbc`
+and the report SHA-256 was
+`c84ca6863723240c3c734926b6b9d973db3af8f970fe935a5ef408dbe22e21b5`;
+the copied fixture profile was independently bound at SHA-256
+`24d4d21a1a171f11f6bc970fc3dd4d3b885b5ddb7ebf2f145b90a642da416fea`.
+Because the source tree was dirty and its post-link source manifest predated
+the final edits, this is local runtime evidence only, not a qualified artifact,
+release, VM, or playability result.
+
 For a local kernel stress pass, run
 `ROR_PHYSICS_TEST_REPEAT=30 tools/run-physics-tests.sh`, then repeat with
 both `ROR_PHYSICS_TEST_REPEAT=30` and
@@ -1861,10 +1890,16 @@ Do not treat a physical `.jbeam` member as an independent vehicle file in
 first product slice indexes one exact ZIP and exposes a virtual cache entry for
 each resolvable main root; every virtual entry retains the shared archive
 SHA-256/size and root identity and is reminted from the package rather than
-opened by its virtual filename. Virtual main/configuration-pair entries remain
-open until `.pc` selection is implemented. Generated data lives in an untracked
-cache keyed by source SHA-256, main part, configuration/slot tree, variables,
-importer schema, and import options.
+opened by its virtual filename. The configured-importer slice now accepts one
+exact lowercase `.pc` path only when it stays beneath the selected
+`vehicles/<vehicle>/` main-root directory, parses only inert `parts` and `vars`,
+and binds the exact configuration path/bytes and request into an importer-schema
+3 receipt. Traversal, sibling-vehicle, prefix/case-lookalike, top-level, active
+code, and unsupported configuration values fail closed. `CacheSystem` still
+calls the root-only schema-2 API and `ActorManager` still admits schema 2 only,
+so virtual main/configuration-pair entries and `.pc` product spawn remain open.
+Generated data lives in an untracked cache keyed by source SHA-256, main part,
+configuration/slot tree, variables, importer schema, and import options.
 
 The implemented product admission transaction computes the complete ZIP
 SHA-256, creates an immutable bounded snapshot, resolves and lowers every main

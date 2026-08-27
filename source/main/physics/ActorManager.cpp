@@ -147,11 +147,21 @@ struct DeterministicStateTraceRuntime
     std::unique_ptr<DeterministicStateTrace::Writer> writer;
     std::vector<DeterministicContactOrder::InterActorKey> contact_keys;
     std::vector<const Actor*> actors;
+    ContactConservation::Aggregate contact_conservation;
+    ContactConservation::Error contact_conservation_error =
+        ContactConservation::Error::NONE;
     std::uint64_t scenario_id = 0;
     std::uint64_t step_limit =
         DeterministicStateTrace::MAX_TRACE_STEPS;
     std::string output_path;
 };
+
+static_assert(
+    ContactConservation::MAX_AGGREGATE_CONTACTS ==
+        static_cast<std::uint64_t>(
+            DeterministicContactOrder::INTER_ACTOR_CONTACT_BUDGET) *
+        DeterministicStateTrace::MAX_TRACE_STEPS,
+    "contact-conservation aggregate must cover the complete trace ceiling");
 
 struct DeterministicActorInputRuntime:
     DeterministicVehicleInput::SnapshotProvider,
@@ -1055,6 +1065,58 @@ void ActorManager::FinishDeterministicStateTrace(
                 runtime.output_path.c_str(),
                 static_cast<unsigned long long>(step_count),
                 reason != nullptr ? reason : "capture complete");
+
+            const ContactConservation::Aggregate& conservation =
+                runtime.contact_conservation;
+            if (runtime.contact_conservation_error !=
+                    ContactConservation::Error::NONE ||
+                    conservation.maximum_normalized_linear_impulse_residual >
+                        1.0e-6)
+            {
+                RoR::LogFormat(
+                    "[RoR|Determinism|ContactConservation] FAIL "
+                    "schema=%u contacts=%llu fixed_steps=%llu error=%s "
+                    "maximum_normalized_linear_impulse_residual=%.17g",
+                    ContactConservation::SCHEMA_VERSION,
+                    static_cast<unsigned long long>(
+                        conservation.contact_count),
+                    static_cast<unsigned long long>(step_count),
+                    ContactConservation::ErrorToString(
+                        runtime.contact_conservation_error),
+                    conservation.
+                        maximum_normalized_linear_impulse_residual);
+            }
+            else
+            {
+                RoR::LogFormat(
+                    "[RoR|Determinism|ContactConservation] PASS "
+                    "schema=%u contacts=%llu fixed_steps=%llu "
+                    "maximum_normalized_linear_impulse_residual=%.17g "
+                    "maximum_angular_impulse_delta_magnitude_nms=%.17g "
+                    "summed_angular_impulse_delta_x_nms=%.17g "
+                    "summed_angular_impulse_delta_y_nms=%.17g "
+                    "summed_angular_impulse_delta_z_nms=%.17g "
+                    "summed_isolated_contact_work_j=%.17g "
+                    "summed_isolated_contact_kinetic_energy_delta_j=%.17g "
+                    "summed_isolated_contact_integration_energy_delta_j=%.17g "
+                    "whole_step_shared_node_energy=not_audited",
+                    ContactConservation::SCHEMA_VERSION,
+                    static_cast<unsigned long long>(
+                        conservation.contact_count),
+                    static_cast<unsigned long long>(step_count),
+                    conservation.
+                        maximum_normalized_linear_impulse_residual,
+                    conservation.
+                        maximum_angular_impulse_delta_magnitude_nms,
+                    conservation.summed_angular_impulse_delta_nms.x,
+                    conservation.summed_angular_impulse_delta_nms.y,
+                    conservation.summed_angular_impulse_delta_nms.z,
+                    conservation.summed_isolated_contact_work_j,
+                    conservation.
+                        summed_isolated_contact_kinetic_energy_delta_j,
+                    conservation.
+                        summed_isolated_contact_integration_energy_delta_j);
+            }
         }
     }
 
@@ -2163,11 +2225,33 @@ bool ActorManager::PrepareDeterministicStateTraceStep()
 }
 
 void ActorManager::CaptureDeterministicStateTraceStep(
-    bool contact_capture_succeeded)
+    bool contact_capture_succeeded,
+    ContactConservation::Error contact_conservation_error)
 {
     if (m_deterministic_state_trace == nullptr ||
             m_deterministic_state_trace->writer == nullptr)
     {
+        return;
+    }
+
+    DeterministicStateTraceRuntime& runtime =
+        *m_deterministic_state_trace;
+    if (contact_conservation_error !=
+            ContactConservation::Error::NONE)
+    {
+        runtime.contact_conservation_error =
+            contact_conservation_error;
+        RoR::LogFormat(
+            "[RoR|Determinism] State trace contact-conservation audit "
+            "failed at fixed step %llu (%s); physics completed, but "
+            "trace capture is being stopped",
+            static_cast<unsigned long long>(
+                m_completed_physics_steps),
+            ContactConservation::ErrorToString(
+                contact_conservation_error));
+        this->FinishDeterministicStateTrace(
+            "contact-conservation audit failed",
+            true);
         return;
     }
 
@@ -2186,8 +2270,6 @@ void ActorManager::CaptureDeterministicStateTraceStep(
         return;
     }
 
-    DeterministicStateTraceRuntime& runtime =
-        *m_deterministic_state_trace;
     if (m_actors.size() >
             DeterministicStateDigest::MAX_ACTORS)
     {
@@ -3911,6 +3993,12 @@ void ActorManager::UpdatePhysicsSimulation(
                         ? &m_deterministic_state_trace->contact_keys
                         : nullptr;
         bool trace_contact_capture_succeeded = true;
+        ContactConservation::Aggregate* trace_contact_conservation =
+            capture_deterministic_state
+                ? &m_deterministic_state_trace->contact_conservation
+                : nullptr;
+        ContactConservation::Error trace_contact_conservation_error =
+            ContactConservation::Error::NONE;
 
         if (App::sim_deterministic_sleeping_engine->getBool())
         {
@@ -3998,7 +4086,9 @@ void ActorManager::UpdatePhysicsSimulation(
                 [&contact_actors,
                  &contact_schedules,
                  trace_contact_keys,
-                 &trace_contact_capture_succeeded](
+                 &trace_contact_capture_succeeded,
+                 trace_contact_conservation,
+                 &trace_contact_conservation_error](
                     bool update_rate_state)
                 {
                     if (trace_contact_keys != nullptr)
@@ -4012,6 +4102,8 @@ void ActorManager::UpdatePhysicsSimulation(
                             actor_index == 0 ||
                             contact_actors[actor_index - 1]->ar_instance_id <
                                 actor->ar_instance_id);
+                        ContactConservation::Error actor_conservation_error =
+                            ContactConservation::Error::NONE;
                         const bool actor_contacts_captured =
                             ResolveInterActorCollisionContactsSerial(
                             actor->ar_instance_id,
@@ -4028,10 +4120,20 @@ void ActorManager::UpdatePhysicsSimulation(
                            *actor->ar_submesh_ground_model,
                             trace_contact_capture_succeeded
                                 ? trace_contact_keys
-                                : nullptr);
+                                : nullptr,
+                            trace_contact_conservation,
+                            &actor_conservation_error);
                         trace_contact_capture_succeeded =
                             trace_contact_capture_succeeded &&
                             actor_contacts_captured;
+                        if (trace_contact_conservation_error ==
+                                ContactConservation::Error::NONE &&
+                                actor_conservation_error !=
+                                    ContactConservation::Error::NONE)
+                        {
+                            trace_contact_conservation_error =
+                                actor_conservation_error;
+                        }
                     }
                 };
             auto report_contact_fallback =
@@ -4107,14 +4209,25 @@ void ActorManager::UpdatePhysicsSimulation(
                         return contact.key;
                     },
                     [trace_contact_keys,
-                     &trace_contact_capture_succeeded](
+                     &trace_contact_capture_succeeded,
+                     trace_contact_conservation,
+                     &trace_contact_conservation_error](
                         const std::vector<ContactTaskBuffer>& buffers)
                     {
                         for (const ContactTaskBuffer& buffer : buffers)
                         {
-                            ApplyInterActorCollisionContacts(
+                            const ContactConservation::Error error =
+                                ApplyInterActorCollisionContacts(
                                 PHYSICS_DT,
-                                buffer.GetItems());
+                                buffer.GetItems(),
+                                trace_contact_conservation);
+                            if (trace_contact_conservation_error ==
+                                    ContactConservation::Error::NONE &&
+                                    error !=
+                                        ContactConservation::Error::NONE)
+                            {
+                                trace_contact_conservation_error = error;
+                            }
                         }
                         if (trace_contact_keys != nullptr)
                         {
@@ -4153,7 +4266,8 @@ void ActorManager::UpdatePhysicsSimulation(
         if (capture_deterministic_state)
         {
             this->CaptureDeterministicStateTraceStep(
-                trace_contact_capture_succeeded);
+                trace_contact_capture_succeeded,
+                trace_contact_conservation_error);
         }
         if (m_completed_physics_steps ==
                 std::numeric_limits<std::uint64_t>::max())

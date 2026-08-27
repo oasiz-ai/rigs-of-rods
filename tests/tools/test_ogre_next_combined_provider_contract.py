@@ -805,8 +805,15 @@ class CombinedProviderContractTests(unittest.TestCase):
             "resources/scripts/example_deterministic_input_save_checkpoint.as",
             "tools/run_deterministic_savegame_resume.py",
             "tools/run_playable_performance_scene.py",
+            "tools/run_calibrated_beam_soak.py",
+            "tools/run_jbeam_inter_actor_collision.py",
+            "tools/run_jbeam_spawn_soak.py",
             "tests/tools/test_run_deterministic_savegame_resume.py",
+            "tests/tools/test_run_jbeam_inter_actor_collision.py",
             "tests/tools/test_run_playable_performance_scene.py",
+            "resources/scripts/example_jbeam_inter_actor_collision.as",
+            "tests/fixtures/beamng/jbeam_inter_actor_collision/fixture-profile.json",
+            "tests/fixtures/beamng/jbeam_spawn_soak/vehicles/ror_jbeam_spawn/main.jbeam",
         ):
             self.assertIn(f'"{source}"', PROVIDER)
 
@@ -837,7 +844,7 @@ class CombinedProviderContractTests(unittest.TestCase):
             'mv "$build/bin/resources/ogrenext" "$quarantine"',
             'test ! -e "$build/bin/resources/ogrenext"',
             "ror.ogre_next_combined_elf_closure.v1",
-            "ror.ogre_next_combined_linux_package.v4",
+            "ror.ogre_next_combined_linux_package.v5",
             '"transport_dereferences_file_symlinks": True',
             '"all_transport_files_inventoried": True',
             '"staged_symlink_count": staged_symlink_count',
@@ -858,6 +865,7 @@ class CombinedProviderContractTests(unittest.TestCase):
             "tools/run_playable_performance_scene.py",
             "tests/tools/test_run_agora_impact_regression.py",
             "tests/tools/test_run_deterministic_savegame_resume.py",
+            "tests/tools/test_run_jbeam_inter_actor_collision.py",
             "ci.ogre-next-combined.packaged-simple2-semi",
             "simple2_a.terrn2",
             "b6b0UID-semi.truck",
@@ -885,6 +893,28 @@ class CombinedProviderContractTests(unittest.TestCase):
             '"cross_worker_trace_comparisons"',
             '"exact_state_trace_match": True',
             "numerical-impact-fixture-not-physical-calibration",
+            "Prove authenticated native inter-actor contact conservation",
+            "tools/run_jbeam_inter_actor_collision.py",
+            "ror-j2-authenticated-inter-actor-collision-v2",
+            "ror-jbeam-authenticated-inter-actor-collision-v1",
+            "beamng-docs-0.38.5.0-2026-07-27",
+            "24d4d21a1a171f11f6bc970fc3dd4d3b885b5ddb7ebf2f145b90a642da416fea",
+            "152214276db02490d9b87795716dd3e8fecfd7373719610a2a183254d86fc935",
+            "b47115c7c44c1abeb57b32e2acdf77186a6f7f68ded43e75e036a65d68102511",
+            "e91e74b5ad429e27b5d09de3391b8f29d3e96bbde0edb8e92844bcef0b2dc577",
+            "jbeam-inter-actor-contact-conservation",
+            '"authenticated_inter_actor_contact_conservation"',
+            '"fixture_input": "clean-room-jbeam"',
+            '"beamng_pc_runtime_proven": False',
+            '"beamng_force_parity_proven": False',
+            '"fixture_profile": "inputs/fixture-profile.json"',
+            '"fixture_profile_sha256"',
+            '"whole_step_shared_node_energy": "not_audited"',
+            "exact-force-accumulator-deltas-and-isolated-contact-",
+            '"digest_schema_version": 3',
+            "--workers 1 8",
+            "clean-room-normaltype-native-inter-actor-contact-",
+            "conservation-not-beamng-force-parity",
             "Prove exact deterministic save and resume through packaged RoR-Combined",
             "tools/run_deterministic_savegame_resume.py",
             "ror-d0-deterministic-savegame-resume-report-v1",
@@ -902,6 +932,11 @@ class CombinedProviderContractTests(unittest.TestCase):
         self.assertIn(
             'xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \\\n'
             "          python tools/run_playable_performance_scene.py",
+            linux_job,
+        )
+        self.assertIn(
+            'xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \\\n'
+            "          python tools/run_jbeam_inter_actor_collision.py",
             linux_job,
         )
         self.assertIn(
@@ -2086,6 +2121,35 @@ class CombinedProviderContractTests(unittest.TestCase):
                 module._verify_source_manifest(
                     manifest, source_root, manifest_digest, 1, "unit manifest"
                 )
+
+    def test_binary_verifier_canonicalizes_both_provider_proof_references(self) -> None:
+        specification = importlib.util.spec_from_file_location(
+            "combined_binary_verifier_proof_paths", VERIFIER_PATH
+        )
+        self.assertIsNotNone(specification)
+        self.assertIsNotNone(specification.loader)
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            nested = root / "nested"
+            nested.mkdir()
+            proof = root / "provider.json"
+            proof.write_text("{}\n", encoding="utf-8")
+            lexical_alias = nested / ".." / proof.name
+            self.assertNotEqual(str(lexical_alias), str(proof))
+            self.assertEqual(
+                module._regular_absolute(str(lexical_alias), "provider proof"),
+                module._regular_absolute(str(proof), "provider proof"),
+            )
+
+        self.assertIn(
+            'contract_provider = _regular_absolute(', VERIFIER
+        )
+        self.assertIn(
+            'contract_namespace_audit = _regular_absolute(', VERIFIER
+        )
 
     def test_neutral_digest_preserves_transport_api(self) -> None:
         digest_header = (

@@ -2263,6 +2263,35 @@ add_executable(
 )
 
 add_executable(
+    ror_contact_conservation_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/ContactConservationTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/ContactConservation.cpp"
+)
+target_link_libraries(ror_contact_conservation_tests PRIVATE Threads::Threads)
+
+add_executable(
+    ror_contact_conservation_fast_math_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/ContactConservationTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/ContactConservation.cpp"
+)
+target_link_libraries(
+    ror_contact_conservation_fast_math_tests PRIVATE Threads::Threads)
+if (MSVC)
+    target_compile_options(
+        ror_contact_conservation_fast_math_tests PRIVATE /fp:fast)
+    set_source_files_properties(
+        "${ROR_REPOSITORY_ROOT}/source/main/physics/ContactConservation.cpp"
+        PROPERTIES COMPILE_OPTIONS "/fp:strict;/GL-")
+else ()
+    target_compile_options(
+        ror_contact_conservation_fast_math_tests PRIVATE -ffast-math)
+    set_source_files_properties(
+        "${ROR_REPOSITORY_ROOT}/source/main/physics/ContactConservation.cpp"
+        PROPERTIES
+            COMPILE_OPTIONS "-fno-fast-math;-ffp-contract=off;-fno-lto")
+endif ()
+
+add_executable(
     ror_point_col_detector_production_oracle_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/PointColDetectorProductionOracleTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/physics/collision/PointColDetector.cpp"
@@ -3130,6 +3159,8 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_calibrated_beam_savegame_tests
     ror_rigdef_calibrated_beam_material_tests
     ror_deterministic_contact_order_tests
+    ror_contact_conservation_tests
+    ror_contact_conservation_fast_math_tests
     ror_point_col_detector_production_oracle_tests
     ror_deterministic_counter_noise_tests
     ror_deterministic_scenario_identity_tests
@@ -3285,6 +3316,8 @@ set(ROR_CROSS_PLATFORM_PHYSICS_CORE_TARGETS
     ror_fixed_step_capture_bridge_tests
     ror_deterministic_scenario_schedule_tests
     ror_deterministic_contact_order_tests
+    ror_contact_conservation_tests
+    ror_contact_conservation_fast_math_tests
     ror_point_col_detector_production_oracle_tests
     ror_deterministic_state_digest_tests
     ror_deterministic_state_trace_tests
@@ -4002,6 +4035,16 @@ add_test(
 )
 
 add_test(
+    NAME contact_conservation
+    COMMAND ror_contact_conservation_tests
+)
+
+add_test(
+    NAME contact_conservation_fast_math
+    COMMAND ror_contact_conservation_fast_math_tests
+)
+
+add_test(
     NAME point_col_detector_production_oracle
     COMMAND ror_point_col_detector_production_oracle_tests
 )
@@ -4298,6 +4341,8 @@ set(ROR_CROSS_PLATFORM_PHYSICS_CORE_TESTS
     fixed_step_capture_bridge
     deterministic_scenario_schedule
     deterministic_contact_order
+    contact_conservation
+    contact_conservation_fast_math
     point_col_detector_production_oracle
     deterministic_state_digest
     deterministic_state_trace

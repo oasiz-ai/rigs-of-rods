@@ -23,6 +23,7 @@
 
 #include "Application.h"
 #include "Actor.h"
+#include "ContactConservation.h"
 #include "SimData.h"
 #include "CartesianToTriangleTransform.h"
 #include "Collisions.h"
@@ -93,26 +94,222 @@ static bool InsideTriangleTest(const CartesianToTriangleTransform::TriangleCoord
 }
 
 
-/// Calculate collision forces and apply them to the collision node and the three vertex nodes of the collision triangle.
-void ResolveCollisionForces(const float penetration_depth,
+namespace {
+
+struct CollisionForceResult
+{
+    ContactConservation::Error error = ContactConservation::Error::NONE;
+    bool forces_applied = false;
+};
+
+ContactConservation::Vector3 ToConservationVector(
+        const Vector3& value)
+{
+    return ContactConservation::Vector3(
+        static_cast<double>(value.x),
+        static_cast<double>(value.y),
+        static_cast<double>(value.z));
+}
+
+ContactConservation::NodeState ToConservationNode(
+        const node_t& node,
+        const bool movable)
+{
+    ContactConservation::NodeState state;
+    state.position_m = ToConservationVector(node.AbsPosition);
+    state.velocity_mps = ToConservationVector(node.Velocity);
+    state.mass_kg = static_cast<double>(node.mass);
+    state.movable = movable ? 1U : 0U;
+    return state;
+}
+
+Vector3 ToOgreVector(
+        const ContactConservation::AppliedVector3& value)
+{
+    return Vector3(value.x, value.y, value.z);
+}
+
+ContactConservation::AppliedVector3 ToAppliedVector(
+        const Vector3& value)
+{
+    return ContactConservation::AppliedVector3(
+        static_cast<float>(value.x),
+        static_cast<float>(value.y),
+        static_cast<float>(value.z));
+}
+
+void ApplyLegacyCollisionForces(
+        const Vector3& forcevec,
+        node_t& hitnode,
+        node_t& na,
+        node_t& nb,
+        node_t& no,
+        const float alpha,
+        const float beta,
+        const float gamma)
+{
+    hitnode.Forces += forcevec;
+    na.Forces -= forcevec * alpha;
+    nb.Forces -= forcevec * beta;
+    no.Forces -= forcevec * gamma;
+}
+
+/// Calculate collision forces and apply them to the collision node and the
+/// three vertex nodes of the collision triangle. The conservation kernel
+/// narrows and closes the exact binary32 forces before any node force
+/// accumulator is mutated.
+CollisionForceResult ResolveCollisionForces(const float penetration_depth,
         node_t &hitnode, node_t &na, node_t &nb, node_t &no,
         const float alpha, const float beta, const float gamma,
         const Vector3 &normal,
         const float dt,
-        const bool remote,
-        ground_model_t &submesh_ground_model)
+        const bool hit_actor_networked,
+        const bool surface_actor_networked,
+        ground_model_t &submesh_ground_model,
+        ContactConservation::Aggregate* out_conservation)
 {
     const auto velocity = hitnode.Velocity - (na.Velocity * alpha + nb.Velocity * beta + no.Velocity * gamma);
     const float tr_mass = na.mass * alpha + nb.mass * beta + no.mass * gamma;
-    const float    mass = remote ? hitnode.mass : (hitnode.mass * tr_mass) / (hitnode.mass + tr_mass);
+    const float mass = hit_actor_networked
+        ? hitnode.mass
+        : (hitnode.mass * tr_mass) / (hitnode.mass + tr_mass);
 
-    auto forcevec = primitiveCollision(&hitnode, velocity, mass, normal, dt, &submesh_ground_model, penetration_depth);
+    const Vector3 forcevec = primitiveCollision(
+        &hitnode,
+        velocity,
+        mass,
+        normal,
+        dt,
+        &submesh_ground_model,
+        penetration_depth);
 
-    hitnode.Forces += forcevec;
-    na.Forces      -= forcevec * alpha;
-    nb.Forces      -= forcevec * beta;
-    no.Forces      -= forcevec * gamma;
+    ContactConservation::Input input;
+    input.hit_node = ToConservationNode(
+        hitnode,
+        ContactConservation::IsSolverMovable(
+            hitnode.nd_immovable,
+            hit_actor_networked));
+    input.surface_nodes[0] = ToConservationNode(
+        na,
+        ContactConservation::IsSolverMovable(
+            na.nd_immovable,
+            surface_actor_networked));
+    input.surface_nodes[1] = ToConservationNode(
+        nb,
+        ContactConservation::IsSolverMovable(
+            nb.nd_immovable,
+            surface_actor_networked));
+    input.surface_nodes[2] = ToConservationNode(
+        no,
+        ContactConservation::IsSolverMovable(
+            no.nd_immovable,
+            surface_actor_networked));
+    input.barycentric[0] = static_cast<double>(alpha);
+    input.barycentric[1] = static_cast<double>(beta);
+    input.barycentric[2] = static_cast<double>(gamma);
+    input.force_on_hit_n = ToConservationVector(forcevec);
+    input.time_step_s = static_cast<double>(dt);
+
+    ContactConservation::Telemetry telemetry;
+    CollisionForceResult result;
+    result.error = ContactConservation::Evaluate(input, telemetry);
+    if (result.error != ContactConservation::Error::NONE)
+    {
+        ApplyLegacyCollisionForces(
+            forcevec,
+            hitnode,
+            na,
+            nb,
+            no,
+            alpha,
+            beta,
+            gamma);
+        result.forces_applied = true;
+        return result;
+    }
+
+    const Vector3 forces_before[ContactConservation::NODE_COUNT] = {
+        hitnode.Forces,
+        na.Forces,
+        nb.Forces,
+        no.Forces
+    };
+
+    hitnode.Forces += ToOgreVector(
+        telemetry.applied_forces_n[
+            ContactConservation::HIT_NODE_INDEX]);
+    na.Forces += ToOgreVector(
+        telemetry.applied_forces_n[
+            ContactConservation::SURFACE_NODE_A_INDEX]);
+    nb.Forces += ToOgreVector(
+        telemetry.applied_forces_n[
+            ContactConservation::SURFACE_NODE_B_INDEX]);
+    no.Forces += ToOgreVector(
+        telemetry.applied_forces_n[
+            ContactConservation::SURFACE_NODE_C_INDEX]);
+    result.forces_applied = true;
+
+    const std::array<
+        ContactConservation::AppliedVector3,
+        ContactConservation::NODE_COUNT> accumulator_before = {{
+            ToAppliedVector(forces_before[0]),
+            ToAppliedVector(forces_before[1]),
+            ToAppliedVector(forces_before[2]),
+            ToAppliedVector(forces_before[3])
+        }};
+    const std::array<
+        ContactConservation::AppliedVector3,
+        ContactConservation::NODE_COUNT> accumulator_after = {{
+            ToAppliedVector(hitnode.Forces),
+            ToAppliedVector(na.Forces),
+            ToAppliedVector(nb.Forces),
+            ToAppliedVector(no.Forces)
+        }};
+    ContactConservation::Telemetry applied_telemetry;
+    result.error = ContactConservation::AuditAppliedForces(
+        input,
+        telemetry.applied_forces_n,
+        accumulator_before,
+        accumulator_after,
+        applied_telemetry);
+    if (result.error == ContactConservation::Error::NONE &&
+            applied_telemetry.normalized_linear_impulse_residual > 1.0e-6)
+    {
+        result.error = ContactConservation::Error::
+            LINEAR_IMPULSE_RESIDUAL_EXCEEDED;
+    }
+    if (out_conservation != nullptr)
+    {
+        if (result.error == ContactConservation::Error::NONE)
+        {
+            result.error = ContactConservation::Accumulate(
+                applied_telemetry,
+                *out_conservation);
+        }
+    }
+    if (result.error != ContactConservation::Error::NONE)
+    {
+        // The audit is diagnostic and must never become a new physics law.
+        // Restore the exact pre-contact accumulators, then preserve the legacy
+        // force response while reporting the independent trace failure.
+        hitnode.Forces = forces_before[0];
+        na.Forces = forces_before[1];
+        nb.Forces = forces_before[2];
+        no.Forces = forces_before[3];
+        ApplyLegacyCollisionForces(
+            forcevec,
+            hitnode,
+            na,
+            nb,
+            no,
+            alpha,
+            beta,
+            gamma);
+    }
+    return result;
 }
+
+} // namespace
 
 
 void RoR::PrepareInterActorCollisionSchedule(
@@ -140,12 +337,16 @@ namespace {
 class InterActorCollisionResolver
 {
 public:
-    explicit InterActorCollisionResolver(float dt):
-        m_dt(dt)
+    explicit InterActorCollisionResolver(
+            float dt,
+            ContactConservation::Aggregate* out_conservation):
+        m_dt(dt),
+        m_conservation(out_conservation)
     {
     }
 
-    void Apply(const InterActorCollisionContact& contact)
+    ContactConservation::Error Apply(
+            const InterActorCollisionContact& contact)
     {
         if (contact.key.surface_actor != m_cached_surface_actor_id)
         {
@@ -165,17 +366,19 @@ public:
                 m_hit_actor == nullptr ||
                 contact.ground_model == nullptr)
         {
-            return;
+            return ContactConservation::Error::NONE;
         }
 
         node_t& hitnode = m_hit_actor->ar_nodes[contact.key.hit_node];
         node_t& no = m_surface_actor->ar_nodes[contact.surface_node_o];
         node_t& na = m_surface_actor->ar_nodes[contact.surface_node_a];
         node_t& nb = m_surface_actor->ar_nodes[contact.surface_node_b];
-        const bool remote =
+        const bool hit_actor_networked =
             (m_hit_actor->ar_state == ActorState::NETWORKED_OK);
+        const bool surface_actor_networked =
+            (m_surface_actor->ar_state == ActorState::NETWORKED_OK);
 
-        ResolveCollisionForces(
+        CollisionForceResult force_result = ResolveCollisionForces(
             contact.penetration_depth,
             hitnode,
             na,
@@ -186,14 +389,20 @@ public:
             contact.gamma,
             contact.normal,
             m_dt,
-            remote,
-            *contact.ground_model);
+            hit_actor_networked,
+            surface_actor_networked,
+            *contact.ground_model,
+            m_conservation);
+
+        if (!force_result.forces_applied)
+            return force_result.error;
 
         hitnode.nd_last_collision_gm = contact.ground_model;
         hitnode.nd_has_mesh_contact = true;
         na.nd_has_mesh_contact = true;
         nb.nd_has_mesh_contact = true;
         no.nd_has_mesh_contact = true;
+        return force_result.error;
     }
 
 private:
@@ -202,6 +411,7 @@ private:
     ActorInstanceID_t m_cached_hit_actor_id = ACTORINSTANCEID_INVALID;
     Actor* m_surface_actor = nullptr;
     Actor* m_hit_actor = nullptr;
+    ContactConservation::Aggregate* m_conservation = nullptr;
 };
 
 template <typename ContactSink>
@@ -344,13 +554,24 @@ void RoR::CollectInterActorCollisionContacts(
         });
 }
 
-void RoR::ApplyInterActorCollisionContacts(
+ContactConservation::Error RoR::ApplyInterActorCollisionContacts(
         const float dt,
-        const std::vector<InterActorCollisionContact>& contacts)
+        const std::vector<InterActorCollisionContact>& contacts,
+        ContactConservation::Aggregate* out_conservation)
 {
-    InterActorCollisionResolver resolver(dt);
+    InterActorCollisionResolver resolver(dt, out_conservation);
+    ContactConservation::Error first_error =
+        ContactConservation::Error::NONE;
     for (const InterActorCollisionContact& contact : contacts)
-        resolver.Apply(contact);
+    {
+        const ContactConservation::Error error = resolver.Apply(contact);
+        if (first_error == ContactConservation::Error::NONE &&
+                error != ContactConservation::Error::NONE)
+        {
+            first_error = error;
+        }
+    }
+    return first_error;
 }
 
 bool RoR::ResolveInterActorCollisionContactsSerial(
@@ -365,10 +586,14 @@ bool RoR::ResolveInterActorCollisionContactsSerial(
         ground_model_t &submesh_ground_model,
         std::vector<
             DeterministicContactOrder::InterActorKey>*
-                out_contact_keys)
+                out_contact_keys,
+        ContactConservation::Aggregate* out_conservation,
+        ContactConservation::Error* out_conservation_error)
 {
-    InterActorCollisionResolver resolver(dt);
+    InterActorCollisionResolver resolver(dt, out_conservation);
     bool contact_capture_succeeded = true;
+    ContactConservation::Error first_conservation_error =
+        ContactConservation::Error::NONE;
     DiscoverInterActorCollisionContacts(
         surface_actor_id,
         interPointCD,
@@ -383,7 +608,8 @@ bool RoR::ResolveInterActorCollisionContactsSerial(
         submesh_ground_model,
         [&resolver,
          out_contact_keys,
-         &contact_capture_succeeded](
+         &contact_capture_succeeded,
+         &first_conservation_error](
             const InterActorCollisionContact& contact)
         {
             if (out_contact_keys != nullptr &&
@@ -410,8 +636,16 @@ bool RoR::ResolveInterActorCollisionContactsSerial(
                     }
                 }
             }
-            resolver.Apply(contact);
+            const ContactConservation::Error error = resolver.Apply(contact);
+            if (first_conservation_error ==
+                    ContactConservation::Error::NONE &&
+                    error != ContactConservation::Error::NONE)
+            {
+                first_conservation_error = error;
+            }
         });
+    if (out_conservation_error != nullptr)
+        *out_conservation_error = first_conservation_error;
     return contact_capture_succeeded;
 }
 
@@ -469,8 +703,6 @@ void RoR::ResolveIntraActorCollisions(const float dt, PointColDetector &intraPoi
                 const bool is_colliding = InsideTriangleTest(local_point, collrange);
                 if (is_colliding)
                 {
-                    collision = true;
-
                     const auto coord = local_point.barycentric;
                     auto distance = local_point.distance;
                     auto normal   = triangle.normal();
@@ -485,8 +717,11 @@ void RoR::ResolveIntraActorCollisions(const float dt, PointColDetector &intraPoi
 
                     const auto penetration_depth = collrange - distance;
 
-                    ResolveCollisionForces(penetration_depth, hitnode, *na, *nb, *no, coord.alpha,
-                            coord.beta, coord.gamma, normal, dt, false, submesh_ground_model);
+                    const CollisionForceResult force_result =
+                        ResolveCollisionForces(penetration_depth, hitnode, *na, *nb, *no, coord.alpha,
+                            coord.beta, coord.gamma, normal, dt, false, false,
+                            submesh_ground_model, nullptr);
+                    collision = collision || force_result.forces_applied;
                 }
             }
         }

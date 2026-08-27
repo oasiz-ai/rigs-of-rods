@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -64,6 +65,26 @@ def inspection(
     }
 
 
+def conservation_receipt(
+    *,
+    contacts: int = 343,
+    residual: str = "3.985739861966006e-08",
+) -> str:
+    return (
+        "[RoR|Determinism|ContactConservation] PASS schema=2 "
+        f"contacts={contacts} fixed_steps=2000 "
+        f"maximum_normalized_linear_impulse_residual={residual} "
+        "maximum_angular_impulse_delta_magnitude_nms=0.0075 "
+        "summed_angular_impulse_delta_x_nms=-0.01 "
+        "summed_angular_impulse_delta_y_nms=0.02 "
+        "summed_angular_impulse_delta_z_nms=-0.03 "
+        "summed_isolated_contact_work_j=-12.5 "
+        "summed_isolated_contact_kinetic_energy_delta_j=-11.25 "
+        "summed_isolated_contact_integration_energy_delta_j=1.25 "
+        "whole_step_shared_node_energy=not_audited"
+    )
+
+
 class JBeamInterActorCollisionTests(unittest.TestCase):
     def test_profile_binds_exact_sources_and_topology(self) -> None:
         profile, jbeam, script = GATE.read_profile(REPOSITORY_ROOT)
@@ -82,6 +103,24 @@ class JBeamInterActorCollisionTests(unittest.TestCase):
         self.assertEqual(
             profile["scenarioScript"]["sha256"], GATE.sha256_bytes(script)
         )
+        self.assertEqual(
+            GATE.sha256_bytes((REPOSITORY_ROOT / GATE.PROFILE_RELATIVE).read_bytes()),
+            "24d4d21a1a171f11f6bc970fc3dd4d3b885b5ddb7ebf2f145b90a642da416fea",
+        )
+
+    def test_runtime_authorities_must_be_direct_regular_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / "RoR-Combined"
+            executable.write_bytes(b"runtime")
+            self.assertEqual(
+                GATE.resolve_direct_file(executable, "executable"),
+                executable.resolve(strict=True),
+            )
+            with mock.patch.object(Path, "is_symlink", return_value=True):
+                with self.assertRaisesRegex(
+                    GATE.CollisionGateFailure, "missing or indirect"
+                ):
+                    GATE.resolve_direct_file(executable, "executable")
 
     def test_log_gate_requires_contact_response_receipt(self) -> None:
         archive_sha = "ab" * 32
@@ -103,6 +142,7 @@ class JBeamInterActorCollisionTests(unittest.TestCase):
                 "scenario=2026082106",
                 "limit=2000",
                 "with 2000 fixed-step records (trace step limit reached)",
+                conservation_receipt(),
                 "[RoR|ModCache|JBeam] Added exact root "
                 "'ror_jbeam_spawn_fixture' nodes=6, beams=15, hydros=1",
             )
@@ -112,6 +152,15 @@ class JBeamInterActorCollisionTests(unittest.TestCase):
         )
         self.assertEqual(telemetry["maximum_relative_velocity_change"], 7.2)
         self.assertEqual(telemetry["broken_beams"], 0)
+        self.assertEqual(
+            telemetry["contact_conservation"]["contact_count"], 343
+        )
+        self.assertEqual(
+            telemetry["contact_conservation"][
+                "whole_step_shared_node_energy"
+            ],
+            "not_audited",
+        )
 
         for bad in (
             script_log.replace("broken_beams=0", "broken_beams=1"),
@@ -122,6 +171,32 @@ class JBeamInterActorCollisionTests(unittest.TestCase):
                 with self.assertRaises(GATE.CollisionGateFailure):
                     GATE.validate_logs(
                         0, "", engine_log, bad, archive_sha, True
+                    )
+
+        for bad_engine in (
+            engine_log.replace(conservation_receipt(), ""),
+            engine_log + "\n" + conservation_receipt(),
+            engine_log.replace(
+                conservation_receipt(),
+                conservation_receipt(residual="1.000001e-6"),
+            ),
+            engine_log.replace(
+                conservation_receipt(),
+                conservation_receipt(residual="nan"),
+            ),
+            engine_log.replace(
+                "summed_isolated_contact_kinetic_energy_delta_j=-11.25",
+                "summed_isolated_contact_kinetic_energy_delta_j=999",
+            ),
+            engine_log.replace(
+                "whole_step_shared_node_energy=not_audited",
+                "whole_step_shared_node_energy=audited",
+            ),
+        ):
+            with self.subTest(bad_engine=bad_engine[-120:]):
+                with self.assertRaises(GATE.CollisionGateFailure):
+                    GATE.validate_logs(
+                        0, "", bad_engine, script_log, archive_sha, True
                     )
 
     def test_trace_inspection_requires_native_contact_summary(self) -> None:
@@ -145,6 +220,21 @@ class JBeamInterActorCollisionTests(unittest.TestCase):
             self.assertEqual(
                 result["contact_summary"]["total_contact_count"], 343
             )
+            telemetry = {
+                "contact_conservation": {
+                    "contact_count": 343,
+                    "fixed_steps": GATE.EXPECTED_STEPS,
+                }
+            }
+            self.assertEqual(
+                GATE.bind_conservation_to_trace(telemetry, result)[
+                    "contact_count"
+                ],
+                343,
+            )
+            telemetry["contact_conservation"]["contact_count"] = 342
+            with self.assertRaises(GATE.CollisionGateFailure):
+                GATE.bind_conservation_to_trace(telemetry, result)
 
             write(inspection(total_contacts=0, first_contact=None))
             with self.assertRaises(GATE.CollisionGateFailure):
@@ -186,9 +276,12 @@ class JBeamInterActorCollisionTests(unittest.TestCase):
     def test_report_scope_does_not_claim_force_parity(self) -> None:
         source = TOOL_PATH.read_text(encoding="utf-8")
         self.assertIn(
-            "clean-room-normaltype-native-inter-actor-contact-not-force-parity",
+            "clean-room-normaltype-native-inter-actor-contact-conservation-",
             source,
         )
+        self.assertIn("not-beamng-force-parity", source)
+        self.assertIn("CONTACT_CONSERVATION_PASS_PATTERN", source)
+        self.assertIn("bind_conservation_to_trace", source)
         self.assertIn("contact_summary", source)
         self.assertIn("--allow-worker-count-difference", source)
         self.assertNotIn("urlopen", source)

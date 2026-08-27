@@ -1230,10 +1230,17 @@ def main() -> int:
             raise ValueError(
                 "combined executable contract permits legacy-visible presentation"
             )
+        contract_provider = _regular_absolute(
+            str(contract_document.get("provider_contract", "")),
+            "executable-contract provider proof",
+        )
+        contract_namespace_audit = _regular_absolute(
+            str(contract_document.get("namespace_audit_report", "")),
+            "executable-contract namespace audit proof",
+        )
         if (
-            contract_document.get("provider_contract") != str(provider_contract)
-            or contract_document.get("namespace_audit_report")
-            != str(namespace_audit_report)
+            contract_provider != provider_contract
+            or contract_namespace_audit != namespace_audit_report
         ):
             raise ValueError(
                 "combined executable contract names a different provider proof"

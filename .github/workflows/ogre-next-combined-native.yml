@@ -17,6 +17,7 @@ on:
       - doc/nextgen/FORWARD_NATIVE_ASSET_LEDGER.md
       - resources/scripts/example_deterministic_input_resume_checkpoint.as
       - resources/scripts/example_deterministic_input_save_checkpoint.as
+      - resources/scripts/example_jbeam_inter_actor_collision.as
       - resources/nextgen/native/**
       - resources/**/*.frag
       - resources/**/*.fragment
@@ -52,6 +53,8 @@ on:
       - tools/run_agora_impact_regression.py
       - tools/run_calibrated_beam_soak.py
       - tools/run_deterministic_savegame_resume.py
+      - tools/run_jbeam_inter_actor_collision.py
+      - tools/run_jbeam_spawn_soak.py
       - tools/run_nicemetal_shader_smoke.py
       - tools/run_playable_performance_scene.py
       - tools/stage_ogre_next_combined_resources.py
@@ -65,6 +68,7 @@ on:
       - tests/tools/test_run_agora_impact_regression.py
       - tests/tools/test_run_calibrated_beam_soak.py
       - tests/tools/test_run_deterministic_savegame_resume.py
+      - tests/tools/test_run_jbeam_inter_actor_collision.py
       - tests/tools/test_run_playable_performance_scene.py
       - tests/tools/test_renderer_combined_game_wiring_contract.py
       - tests/tools/test_mygui_glsl_contract.py
@@ -85,6 +89,8 @@ on:
       - tests/tools/test_nicemetal_shader_contract.py
       - tests/tools/test_run_nicemetal_shader_smoke.py
       - tests/fixtures/nicemetal_runtime/**
+      - tests/fixtures/beamng/jbeam_inter_actor_collision/**
+      - tests/fixtures/beamng/jbeam_spawn_soak/**
   pull_request:
     paths:
       - .gitattributes
@@ -100,6 +106,7 @@ on:
       - doc/nextgen/FORWARD_NATIVE_ASSET_LEDGER.md
       - resources/scripts/example_deterministic_input_resume_checkpoint.as
       - resources/scripts/example_deterministic_input_save_checkpoint.as
+      - resources/scripts/example_jbeam_inter_actor_collision.as
       - resources/nextgen/native/**
       - resources/**/*.frag
       - resources/**/*.fragment
@@ -135,6 +142,8 @@ on:
       - tools/run_agora_impact_regression.py
       - tools/run_calibrated_beam_soak.py
       - tools/run_deterministic_savegame_resume.py
+      - tools/run_jbeam_inter_actor_collision.py
+      - tools/run_jbeam_spawn_soak.py
       - tools/run_nicemetal_shader_smoke.py
       - tools/run_playable_performance_scene.py
       - tools/stage_ogre_next_combined_resources.py
@@ -148,6 +157,7 @@ on:
       - tests/tools/test_run_agora_impact_regression.py
       - tests/tools/test_run_calibrated_beam_soak.py
       - tests/tools/test_run_deterministic_savegame_resume.py
+      - tests/tools/test_run_jbeam_inter_actor_collision.py
       - tests/tools/test_run_playable_performance_scene.py
       - tests/tools/test_renderer_combined_game_wiring_contract.py
       - tests/tools/test_mygui_glsl_contract.py
@@ -168,6 +178,8 @@ on:
       - tests/tools/test_nicemetal_shader_contract.py
       - tests/tools/test_run_nicemetal_shader_smoke.py
       - tests/fixtures/nicemetal_runtime/**
+      - tests/fixtures/beamng/jbeam_inter_actor_collision/**
+      - tests/fixtures/beamng/jbeam_spawn_soak/**
   workflow_dispatch:
 
 permissions:
@@ -348,6 +360,7 @@ jobs:
           python tests/tools/test_run_playable_performance_scene.py
           python tests/tools/test_run_agora_impact_regression.py
           python tests/tools/test_run_deterministic_savegame_resume.py
+          python tests/tools/test_run_jbeam_inter_actor_collision.py
           python tests/tools/test_renderer_combined_game_wiring_contract.py
           python tests/tools/test_mygui_glsl_contract.py
           python tests/tools/test_skyx_glsl_contract.py
@@ -369,6 +382,7 @@ jobs:
           python -O tests/tools/test_run_playable_performance_scene.py
           python -O tests/tools/test_run_agora_impact_regression.py
           python -O tests/tools/test_run_deterministic_savegame_resume.py
+          python -O tests/tools/test_run_jbeam_inter_actor_collision.py
           python -O tests/tools/test_renderer_combined_game_wiring_contract.py
           python -O tests/tools/test_mygui_glsl_contract.py
           python -O tests/tools/test_skyx_glsl_contract.py
@@ -896,6 +910,371 @@ jobs:
               raise SystemExit("Agora impact report lacks the exact cross-worker match")
           PY
 
+      - name: Prove authenticated native inter-actor contact conservation
+        timeout-minutes: 25
+        shell: bash
+        run: |
+          stage="$ROR_COMBINED_STAGE_DIR"
+          evidence="$stage/qualification/jbeam-inter-actor-contact-conservation"
+          test -x "$stage/RoR-Combined"
+          test ! -L "$stage/RoR-Combined"
+          test -x "$stage/qualification/bin/ror_state_trace"
+          test ! -L "$stage/qualification/bin/ror_state_trace"
+          test -f "$stage/content/simple2-terrain.zip"
+          test -f tools/run_jbeam_inter_actor_collision.py
+          test -f tests/fixtures/beamng/jbeam_inter_actor_collision/fixture-profile.json
+          test -f resources/scripts/example_jbeam_inter_actor_collision.as
+          test ! -e "$evidence"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          LD_LIBRARY_PATH="$stage/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
+          python tools/run_jbeam_inter_actor_collision.py \
+            --executable "$stage/RoR-Combined" \
+            --trace-tool "$stage/qualification/bin/ror_state_trace" \
+            --repository "$GITHUB_WORKSPACE" \
+            --runtime-content "$stage/content" \
+            --artifact-dir "$evidence" \
+            --runs 1 \
+            --workers 1 8 \
+            --timeout 600
+          test -z "$(git status --porcelain --untracked-files=no)"
+          python - "$evidence/report.json" "$GITHUB_SHA" "$evidence" "$GITHUB_WORKSPACE" <<'PY'
+          import hashlib
+          import json
+          import math
+          from pathlib import Path
+          import re
+          import sys
+
+          report_path = Path(sys.argv[1])
+          source_commit = sys.argv[2]
+          evidence = Path(sys.argv[3]).resolve(strict=True)
+          repository = Path(sys.argv[4]).resolve(strict=True)
+          if not report_path.is_file() or report_path.is_symlink():
+              raise SystemExit("inter-actor collision report is missing or indirect")
+          report = json.loads(report_path.read_text(encoding="utf-8"))
+          expected_report_keys = {
+              "documentation_profile",
+              "executable",
+              "executable_sha256",
+              "fixture_id",
+              "fixture_profile",
+              "fixture_profile_sha256",
+              "format",
+              "jbeam_archive_sha256",
+              "jbeam_source_sha256",
+              "machine",
+              "platform",
+              "repository_commit",
+              "results",
+              "runs_per_worker",
+              "scenario_id",
+              "scope",
+              "script_sha256",
+              "state_comparisons",
+              "steps",
+              "workers",
+          }
+          if not isinstance(report, dict) or set(report) != expected_report_keys:
+              raise SystemExit("inter-actor collision report key set changed")
+          expected = {
+              "format": "ror-j2-authenticated-inter-actor-collision-v2",
+              "fixture_id": "ror-jbeam-authenticated-inter-actor-collision-v1",
+              "fixture_profile": "inputs/fixture-profile.json",
+              "fixture_profile_sha256": (
+                  "24d4d21a1a171f11f6bc970fc3dd4d3b885b5ddb7ebf2f145b90a642da416fea"
+              ),
+              "documentation_profile": "beamng-docs-0.38.5.0-2026-07-27",
+              "jbeam_archive_sha256": (
+                  "e91e74b5ad429e27b5d09de3391b8f29d3e96bbde0edb8e92844bcef0b2dc577"
+              ),
+              "repository_commit": source_commit,
+              "runs_per_worker": 1,
+              "scenario_id": 2026082106,
+              "scope": (
+                  "clean-room-normaltype-native-inter-actor-contact-"
+                  "conservation-not-beamng-force-parity"
+              ),
+              "steps": 2000,
+              "workers": [1, 8],
+          }
+          for field, value in expected.items():
+              if report.get(field) != value:
+                  raise SystemExit(
+                      f"inter-actor collision report changed: "
+                      f"{field}={report.get(field)!r}"
+                  )
+          for field in (
+              "executable_sha256",
+              "jbeam_archive_sha256",
+              "jbeam_source_sha256",
+              "script_sha256",
+          ):
+              value = report.get(field)
+              if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+                  raise SystemExit(f"inter-actor collision report lacks {field}")
+          source_expectations = {
+              repository
+              / "tests/fixtures/beamng/jbeam_inter_actor_collision/fixture-profile.json": (
+                  "fixture_profile_sha256",
+                  "24d4d21a1a171f11f6bc970fc3dd4d3b885b5ddb7ebf2f145b90a642da416fea",
+              ),
+              repository
+              / "tests/fixtures/beamng/jbeam_spawn_soak/vehicles/ror_jbeam_spawn/main.jbeam": (
+                  "jbeam_source_sha256",
+                  "152214276db02490d9b87795716dd3e8fecfd7373719610a2a183254d86fc935",
+              ),
+              repository / "resources/scripts/example_jbeam_inter_actor_collision.as": (
+                  "script_sha256",
+                  "b47115c7c44c1abeb57b32e2acdf77186a6f7f68ded43e75e036a65d68102511",
+              ),
+          }
+          for path, (field, expected_digest) in source_expectations.items():
+              if not path.is_file() or path.is_symlink():
+                  raise SystemExit(f"inter-actor authenticated source is missing: {path}")
+              actual_digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              if (
+                  actual_digest != expected_digest
+                  or (field is not None and report.get(field) != actual_digest)
+              ):
+                  raise SystemExit(f"inter-actor authenticated source changed: {path}")
+          staged_profile = evidence / report["fixture_profile"]
+          if (
+              not staged_profile.is_file()
+              or staged_profile.is_symlink()
+              or hashlib.sha256(staged_profile.read_bytes()).hexdigest()
+              != report["fixture_profile_sha256"]
+          ):
+              raise SystemExit("inter-actor staged fixture profile is invalid")
+          executable = Path(report.get("executable", ""))
+          if (
+              not executable.is_file()
+              or executable.is_symlink()
+              or hashlib.sha256(executable.read_bytes()).hexdigest()
+              != report["executable_sha256"]
+          ):
+              raise SystemExit("inter-actor executable digest does not match the report")
+          archives = list(evidence.rglob("RoRJBeamInterActorCollision.zip"))
+          if (
+              len(archives) != 1
+              or not archives[0].is_file()
+              or archives[0].is_symlink()
+              or hashlib.sha256(archives[0].read_bytes()).hexdigest()
+              != report["jbeam_archive_sha256"]
+          ):
+              raise SystemExit("inter-actor staged archive digest does not match the report")
+
+          results = report.get("results")
+          if (
+              not isinstance(results, list)
+              or [(row.get("workers"), row.get("run")) for row in results]
+              != [(1, 1), (8, 1)]
+          ):
+              raise SystemExit("inter-actor collision report lacks exact 1/8-worker runs")
+          expected_traces = (
+              "traces/worker-01-run-01.rortrace",
+              "traces/worker-08-run-01.rortrace",
+          )
+          final_digests = set()
+          contact_counts = set()
+          conservation_receipt = None
+          for row, trace_relative in zip(results, expected_traces):
+              if not isinstance(row, dict) or set(row) != {
+                  "contact_summary",
+                  "final_state_digest",
+                  "run",
+                  "telemetry",
+                  "trace",
+                  "trace_bytes",
+                  "trace_sha256",
+                  "workers",
+              }:
+                  raise SystemExit("inter-actor collision result key set changed")
+              if row.get("trace") != trace_relative:
+                  raise SystemExit("inter-actor collision trace path changed")
+              trace_path = evidence / trace_relative
+              if not trace_path.is_file() or trace_path.is_symlink() or trace_path.stat().st_size <= 0:
+                  raise SystemExit(f"inter-actor collision trace is missing: {trace_path}")
+              digest = row.get("trace_sha256")
+              if (
+                  not isinstance(digest, str)
+                  or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+                  or hashlib.sha256(trace_path.read_bytes()).hexdigest() != digest
+                  or row.get("trace_bytes") != trace_path.stat().st_size
+              ):
+                  raise SystemExit("inter-actor collision trace digest is invalid")
+              final_digest = row.get("final_state_digest")
+              if not isinstance(final_digest, str) or re.fullmatch(r"[0-9a-f]{64}", final_digest) is None:
+                  raise SystemExit("inter-actor collision final state digest is invalid")
+              final_digests.add(final_digest)
+              summary = row.get("contact_summary")
+              telemetry = row.get("telemetry")
+              conservation = (
+                  telemetry.get("contact_conservation")
+                  if isinstance(telemetry, dict)
+                  else None
+              )
+              conservation_keys = {
+                  "contact_count",
+                  "fixed_steps",
+                  "maximum_angular_impulse_delta_magnitude_nms",
+                  "maximum_normalized_linear_impulse_residual",
+                  "schema",
+                  "summed_angular_impulse_delta_x_nms",
+                  "summed_angular_impulse_delta_y_nms",
+                  "summed_angular_impulse_delta_z_nms",
+                  "summed_isolated_contact_integration_energy_delta_j",
+                  "summed_isolated_contact_kinetic_energy_delta_j",
+                  "summed_isolated_contact_work_j",
+                  "whole_step_shared_node_energy",
+              }
+              if (
+                  not isinstance(summary, dict)
+                  or set(summary) != {
+                      "contact_step_count",
+                      "first_contact_physics_step",
+                      "last_contact_physics_step",
+                      "maximum_contact_count",
+                      "total_contact_count",
+                  }
+                  or not isinstance(summary.get("total_contact_count"), int)
+                  or summary["total_contact_count"] <= 0
+                  or not isinstance(summary.get("contact_step_count"), int)
+                  or not 0 < summary["contact_step_count"] <= 2000
+                  or not isinstance(summary.get("maximum_contact_count"), int)
+                  or summary["maximum_contact_count"] <= 0
+                  or summary.get("first_contact_physics_step") != 0
+                  or not isinstance(summary.get("last_contact_physics_step"), int)
+                  or not 0 <= summary["last_contact_physics_step"] < 2000
+                  or not isinstance(telemetry, dict)
+                  or set(telemetry) != {
+                      "broken_beams",
+                      "contact_conservation",
+                      "maximum_relative_velocity_change",
+                      "maximum_vertical_separation",
+                  }
+                  or not isinstance(conservation, dict)
+                  or set(conservation) != conservation_keys
+                  or conservation.get("schema") != 2
+                  or conservation.get("fixed_steps") != 2000
+                  or conservation.get("contact_count")
+                  != summary["total_contact_count"]
+                  or conservation.get("whole_step_shared_node_energy")
+                  != "not_audited"
+                  or not isinstance(
+                      conservation.get("maximum_normalized_linear_impulse_residual"),
+                      (int, float),
+                  )
+                  or not math.isfinite(
+                      conservation["maximum_normalized_linear_impulse_residual"]
+                  )
+                  or not 0.0
+                  <= conservation["maximum_normalized_linear_impulse_residual"]
+                  <= 1.0e-6
+                  or any(
+                      not isinstance(conservation.get(field), (int, float))
+                      or not math.isfinite(conservation[field])
+                      for field in conservation_keys
+                      - {
+                          "contact_count",
+                          "fixed_steps",
+                          "schema",
+                          "whole_step_shared_node_energy",
+                      }
+                  )
+                  or conservation["maximum_angular_impulse_delta_magnitude_nms"]
+                  < 0.0
+                  or conservation[
+                      "summed_isolated_contact_integration_energy_delta_j"
+                  ]
+                  < 0.0
+                  or conservation[
+                      "summed_isolated_contact_kinetic_energy_delta_j"
+                  ]
+                  != conservation["summed_isolated_contact_work_j"]
+                  + conservation[
+                      "summed_isolated_contact_integration_energy_delta_j"
+                  ]
+                  or telemetry.get("broken_beams") != 0
+                  or not isinstance(
+                      telemetry.get("maximum_relative_velocity_change"),
+                      (int, float),
+                  )
+                  or not 0.1
+                  < telemetry["maximum_relative_velocity_change"]
+                  <= 1.0e7
+                  or not isinstance(
+                      telemetry.get("maximum_vertical_separation"),
+                      (int, float),
+                  )
+                  or not 0.03
+                  < telemetry["maximum_vertical_separation"]
+                  <= 1.0e7
+              ):
+                  raise SystemExit("inter-actor native contact receipt changed")
+              contact_counts.add(summary["total_contact_count"])
+              if conservation_receipt is None:
+                  conservation_receipt = conservation
+              elif conservation != conservation_receipt:
+                  raise SystemExit("inter-actor conservation changed across worker counts")
+              label = f"worker-{row['workers']:02d}-run-{row['run']:02d}"
+              for suffix in ("stdout", "RoR.log", "Angelscript.log"):
+                  diagnostic = evidence / "diagnostics" / f"{label}.{suffix}"
+                  if (
+                      not diagnostic.is_file()
+                      or diagnostic.is_symlink()
+                      or (suffix != "stdout" and diagnostic.stat().st_size <= 0)
+                  ):
+                      raise SystemExit(
+                          f"inter-actor diagnostic is missing: {diagnostic}"
+                      )
+          if len(final_digests) != 1 or len(contact_counts) != 1:
+              raise SystemExit("inter-actor worker-count evidence diverged")
+
+          comparisons = report.get("state_comparisons")
+          if not isinstance(comparisons, list) or len(comparisons) != 1:
+              raise SystemExit("inter-actor report lacks one cross-worker comparison")
+          comparison = comparisons[0]
+          if not isinstance(comparison, dict) or set(comparison) != {
+              "difference",
+              "first_divergent_step",
+              "format",
+              "left_metadata",
+              "left_trace",
+              "right_metadata",
+              "right_trace",
+              "status",
+              "steps_compared",
+          }:
+              raise SystemExit("inter-actor comparison key set changed")
+          expected_metadata = {
+              "first_physics_step": 0,
+              "physics_step_denominator": 2000,
+              "physics_step_numerator": 1,
+              "scenario_id": 2026082106,
+              "digest_schema_version": 3,
+          }
+          left_metadata = comparison.get("left_metadata")
+          right_metadata = comparison.get("right_metadata")
+          if (
+              comparison.get("format") != "ror-d0-state-trace-comparison-v2"
+              or comparison.get("status") != "match"
+              or comparison.get("difference") != "none"
+              or comparison.get("first_divergent_step") is not None
+              or comparison.get("steps_compared") != 2000
+              or comparison.get("left_trace") != expected_traces[0]
+              or comparison.get("right_trace") != expected_traces[1]
+              or not isinstance(left_metadata, dict)
+              or not isinstance(right_metadata, dict)
+              or left_metadata.get("worker_count") != 1
+              or right_metadata.get("worker_count") != 8
+              or any(left_metadata.get(key) != value for key, value in expected_metadata.items())
+              or any(right_metadata.get(key) != value for key, value in expected_metadata.items())
+          ):
+              raise SystemExit("inter-actor traces did not match across 1/8 workers")
+          PY
+
       - name: Prove exact deterministic save and resume through packaged RoR-Combined
         shell: bash
         run: |
@@ -1028,7 +1407,7 @@ jobs:
                   entry["stage_link_target"] = link_target
               files.append(entry)
           document = {
-              "schema": "ror.ogre_next_combined_linux_package.v4",
+              "schema": "ror.ogre_next_combined_linux_package.v5",
               "source_commit": source_commit,
               "platform_policy": "linux-x86_64-vulkan",
               "entrypoint": "RunRoR",
@@ -1064,6 +1443,23 @@ jobs:
                   "steps": 6000,
                   "exact_state_trace_match": True,
                   "material_claim": "numerical-impact-fixture-not-physical-calibration",
+              },
+              "authenticated_inter_actor_contact_conservation": {
+                  "qualified": True,
+                  "report": (
+                      "qualification/jbeam-inter-actor-contact-conservation/"
+                      "report.json"
+                  ),
+                  "workers": [1, 8],
+                  "steps": 2000,
+                  "fixture_input": "clean-room-jbeam",
+                  "qualification_scope": (
+                      "exact-force-accumulator-deltas-and-isolated-contact-"
+                      "energy-attribution"
+                  ),
+                  "whole_step_shared_node_energy": "not_audited",
+                  "beamng_pc_runtime_proven": False,
+                  "beamng_force_parity_proven": False,
               },
               "deterministic_savegame_resume": {
                   "qualified": True,
@@ -1206,6 +1602,7 @@ jobs:
           python tests/tools/test_run_playable_performance_scene.py
           python tests/tools/test_run_agora_impact_regression.py
           python tests/tools/test_run_deterministic_savegame_resume.py
+          python tests/tools/test_run_jbeam_inter_actor_collision.py
           python tests/tools/test_renderer_combined_game_wiring_contract.py
           python tests/tools/test_mygui_glsl_contract.py
           python tests/tools/test_skyx_glsl_contract.py
@@ -1227,6 +1624,7 @@ jobs:
           python -O tests/tools/test_run_playable_performance_scene.py
           python -O tests/tools/test_run_agora_impact_regression.py
           python -O tests/tools/test_run_deterministic_savegame_resume.py
+          python -O tests/tools/test_run_jbeam_inter_actor_collision.py
           python -O tests/tools/test_renderer_combined_game_wiring_contract.py
           python -O tests/tools/test_mygui_glsl_contract.py
           python -O tests/tools/test_skyx_glsl_contract.py
@@ -1983,6 +2381,7 @@ jobs:
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_run_playable_performance_scene.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_run_agora_impact_regression.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_run_deterministic_savegame_resume.py')
+          Invoke-CheckedPython -PythonArguments @('tests/tools/test_run_jbeam_inter_actor_collision.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_renderer_combined_game_wiring_contract.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_mygui_glsl_contract.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_skyx_glsl_contract.py')
@@ -2002,6 +2401,7 @@ jobs:
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_playable_performance_scene.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_agora_impact_regression.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_deterministic_savegame_resume.py')
+          Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_jbeam_inter_actor_collision.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_renderer_combined_game_wiring_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_mygui_glsl_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_skyx_glsl_contract.py')

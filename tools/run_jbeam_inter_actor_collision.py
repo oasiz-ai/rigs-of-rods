@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -64,6 +65,22 @@ PASS_PATTERN = re.compile(
     r"maximum_vertical_separation=(?P<separation>[-+0-9.eE]+) "
     r"broken_beams=(?P<broken>[0-9]+)"
 )
+CONTACT_CONSERVATION_PASS_PATTERN = re.compile(
+    r"\[RoR\|Determinism\|ContactConservation\] PASS "
+    r"schema=(?P<schema>[0-9]+) contacts=(?P<contacts>[0-9]+) "
+    r"fixed_steps=(?P<steps>[0-9]+) "
+    r"maximum_normalized_linear_impulse_residual=(?P<linear>[-+0-9.eE]+) "
+    r"maximum_angular_impulse_delta_magnitude_nms=(?P<angular_max>[-+0-9.eE]+) "
+    r"summed_angular_impulse_delta_x_nms=(?P<angular_x>[-+0-9.eE]+) "
+    r"summed_angular_impulse_delta_y_nms=(?P<angular_y>[-+0-9.eE]+) "
+    r"summed_angular_impulse_delta_z_nms=(?P<angular_z>[-+0-9.eE]+) "
+    r"summed_isolated_contact_work_j=(?P<work>[-+0-9.eE]+) "
+    r"summed_isolated_contact_kinetic_energy_delta_j="
+    r"(?P<kinetic>[-+0-9.eE]+) "
+    r"summed_isolated_contact_integration_energy_delta_j="
+    r"(?P<integration>[-+0-9.eE]+) "
+    r"whole_step_shared_node_energy=not_audited"
+)
 FATAL_MARKERS = (
     "[RoR|J2|InterActorCollision] FAIL",
     "[RoR|JBeam] Rejected actor spawn",
@@ -71,6 +88,7 @@ FATAL_MARKERS = (
     "[RoR|ModCache|JBeam] Rejected",
     "State trace snapshot failed",
     "State trace append failed",
+    "[RoR|Determinism|ContactConservation] FAIL",
     "could not be finished",
     "Validation Failed: Sampler error:",
     "GL_INVALID_",
@@ -87,6 +105,12 @@ class CollisionGateFailure(RuntimeError):
 
 def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+def resolve_direct_file(path: Path, label: str) -> Path:
+    if path.is_symlink() or not path.is_file():
+        raise CollisionGateFailure(f"{label} is missing or indirect: {path}")
+    return path.resolve(strict=True)
 
 
 def read_profile(repository: Path) -> tuple[dict[str, object], bytes, bytes]:
@@ -194,7 +218,7 @@ def validate_logs(
     script_log: str,
     archive_sha256: str,
     require_scan_receipt: bool,
-) -> dict[str, float | int]:
+) -> dict[str, object]:
     if returncode != 0:
         raise CollisionGateFailure(f"RoR collision gate exited with {returncode}")
     for marker in (START_MARKER, ARM_MARKER):
@@ -234,11 +258,98 @@ def validate_logs(
         raise CollisionGateFailure("relative-velocity response is outside bounds")
     if not (0.03 < separation <= 1.0e7) or broken != 0:
         raise CollisionGateFailure("collision separation/breakage is outside bounds")
+
+    conservation_matches = list(
+        CONTACT_CONSERVATION_PASS_PATTERN.finditer(engine_log)
+    )
+    if len(conservation_matches) != 1:
+        raise CollisionGateFailure(
+            "expected one native contact-conservation PASS receipt, "
+            f"found {len(conservation_matches)}"
+        )
+    conservation_match = conservation_matches[0]
+    conservation: dict[str, object] = {
+        "schema": int(conservation_match.group("schema")),
+        "contact_count": int(conservation_match.group("contacts")),
+        "fixed_steps": int(conservation_match.group("steps")),
+        "maximum_normalized_linear_impulse_residual": float(
+            conservation_match.group("linear")
+        ),
+        "maximum_angular_impulse_delta_magnitude_nms": float(
+            conservation_match.group("angular_max")
+        ),
+        "summed_angular_impulse_delta_x_nms": float(
+            conservation_match.group("angular_x")
+        ),
+        "summed_angular_impulse_delta_y_nms": float(
+            conservation_match.group("angular_y")
+        ),
+        "summed_angular_impulse_delta_z_nms": float(
+            conservation_match.group("angular_z")
+        ),
+        "summed_isolated_contact_work_j": float(
+            conservation_match.group("work")
+        ),
+        "summed_isolated_contact_kinetic_energy_delta_j": float(
+            conservation_match.group("kinetic")
+        ),
+        "summed_isolated_contact_integration_energy_delta_j": float(
+            conservation_match.group("integration")
+        ),
+        "whole_step_shared_node_energy": "not_audited",
+    }
+    scalar_values = (
+        value for value in conservation.values() if isinstance(value, float)
+    )
+    if (
+        conservation["schema"] != 2
+        or conservation["contact_count"] <= 0
+        or conservation["fixed_steps"] != EXPECTED_STEPS
+        or any(not math.isfinite(value) for value in scalar_values)
+        or conservation["maximum_normalized_linear_impulse_residual"] < 0.0
+        or conservation["maximum_normalized_linear_impulse_residual"] > 1.0e-6
+        or conservation["maximum_angular_impulse_delta_magnitude_nms"] < 0.0
+        or conservation[
+            "summed_isolated_contact_integration_energy_delta_j"
+        ] < 0.0
+    ):
+        raise CollisionGateFailure(
+            "native contact-conservation receipt is outside acceptance bounds"
+        )
+    isolated_work = float(conservation["summed_isolated_contact_work_j"])
+    isolated_kinetic = float(
+        conservation["summed_isolated_contact_kinetic_energy_delta_j"]
+    )
+    isolated_integration = float(
+        conservation["summed_isolated_contact_integration_energy_delta_j"]
+    )
+    if isolated_kinetic != isolated_work + isolated_integration:
+        raise CollisionGateFailure(
+            "native isolated-contact energy identity is inconsistent"
+        )
     return {
         "broken_beams": broken,
+        "contact_conservation": conservation,
         "maximum_relative_velocity_change": relative,
         "maximum_vertical_separation": separation,
     }
+
+
+def bind_conservation_to_trace(
+    telemetry: dict[str, object],
+    inspection: dict[str, object],
+) -> dict[str, object]:
+    conservation = telemetry.get("contact_conservation")
+    summary = inspection.get("contact_summary")
+    if not isinstance(conservation, dict) or not isinstance(summary, dict):
+        raise CollisionGateFailure(
+            "native conservation telemetry or trace summary is missing"
+        )
+    if conservation.get("contact_count") != summary.get("total_contact_count"):
+        raise CollisionGateFailure(
+            "native conservation contact count does not bind to the trace"
+        )
+    return conservation
 
 
 def compare_traces(
@@ -370,17 +481,25 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
-    executable = args.executable.resolve()
-    trace_tool = args.trace_tool.resolve()
+    executable = resolve_direct_file(args.executable, "executable")
+    trace_tool = resolve_direct_file(args.trace_tool, "trace tool")
     repository = args.repository.resolve()
     artifact_dir = args.artifact_dir.resolve()
-    if not executable.is_file() or not trace_tool.is_file():
-        raise CollisionGateFailure("executable and trace tool must exist")
     if artifact_dir.exists():
         raise CollisionGateFailure(f"artifact directory already exists: {artifact_dir}")
     artifact_dir.mkdir(parents=True)
 
     profile, jbeam, script = read_profile(repository)
+    profile_source = resolve_direct_file(
+        repository / PROFILE_RELATIVE, "fixture profile"
+    )
+    profile_sha256 = support.sha256_file(profile_source)
+    inputs = artifact_dir / "inputs"
+    inputs.mkdir()
+    staged_profile = inputs / "fixture-profile.json"
+    shutil.copy2(profile_source, staged_profile)
+    if support.sha256_file(staged_profile) != profile_sha256:
+        raise CollisionGateFailure("fixture profile staging changed bytes")
     runtime_content = (
         support.infer_runtime_content(executable)
         if args.runtime_content is None
@@ -414,6 +533,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     cache_initialized = False
     results: list[dict[str, object]] = []
     state_comparisons: list[dict[str, object]] = []
+    baseline_conservation: dict[str, object] | None = None
 
     for workers in args.workers:
         for run_index in range(1, args.runs + 1):
@@ -462,6 +582,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             compare_traces(trace_tool, trace_path, trace_path, workers, workers, args.timeout)
             inspection = inspect_trace(trace_tool, trace_path, workers, args.timeout)
+            conservation = bind_conservation_to_trace(telemetry, inspection)
+            if baseline_conservation is None:
+                baseline_conservation = conservation
+            elif conservation != baseline_conservation:
+                raise CollisionGateFailure(
+                    "native contact-conservation telemetry changed across "
+                    "worker counts or repeated runs"
+                )
             if baseline is None:
                 baseline = trace_path
                 baseline_workers = workers
@@ -512,7 +640,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "executable": str(executable),
         "executable_sha256": support.sha256_file(executable),
         "fixture_id": profile["fixtureId"],
-        "format": "ror-j2-authenticated-inter-actor-collision-v1",
+        "fixture_profile": str(staged_profile.relative_to(artifact_dir)),
+        "fixture_profile_sha256": profile_sha256,
+        "format": "ror-j2-authenticated-inter-actor-collision-v2",
         "jbeam_archive_sha256": archive_sha256,
         "jbeam_source_sha256": sha256_bytes(jbeam),
         "machine": platform.machine(),
@@ -521,7 +651,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         "results": results,
         "runs_per_worker": args.runs,
         "scenario_id": SCENARIO_ID,
-        "scope": "clean-room-normaltype-native-inter-actor-contact-not-force-parity",
+        "scope": (
+            "clean-room-normaltype-native-inter-actor-contact-conservation-"
+            "not-beamng-force-parity"
+        ),
         "script_sha256": sha256_bytes(script),
         "state_comparisons": state_comparisons,
         "steps": EXPECTED_STEPS,

@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include "ContactConservation.h"
 #include "DeterministicContactOrder.h"
 #include "ForwardDeclarations.h"
 #include "SimData.h"
@@ -70,14 +71,17 @@ void CollectInterActorCollisionContacts(
         DeterministicContactOrder::BoundedTaskBuffer<
             InterActorCollisionContact>& out_contacts);
 
-void ApplyInterActorCollisionContacts(
+ContactConservation::Error ApplyInterActorCollisionContacts(
         const float dt,
-        const std::vector<InterActorCollisionContact>& contacts);
+        const std::vector<InterActorCollisionContact>& contacts,
+        ContactConservation::Aggregate* out_conservation = nullptr);
 
 /// Resolves every discovered contact in canonical order. When
 /// `out_contact_keys` is non-null, it also captures the exact resolved key
 /// stream. A false return only reports that optional trace capture ran out of
-/// storage; collision forces are still applied in full.
+/// storage; collision forces are still applied in full. When supplied,
+/// `out_conservation_error` reports the first fail-closed force evaluation or
+/// telemetry aggregation error independently of contact-key capture.
 bool ResolveInterActorCollisionContactsSerial(
         const ActorInstanceID_t surface_actor_id,
         const float dt,
@@ -90,7 +94,9 @@ bool ResolveInterActorCollisionContactsSerial(
         ground_model_t &submesh_ground_model,
         std::vector<
             DeterministicContactOrder::InterActorKey>*
-                out_contact_keys = nullptr);
+                out_contact_keys = nullptr,
+        ContactConservation::Aggregate* out_conservation = nullptr,
+        ContactConservation::Error* out_conservation_error = nullptr);
 
 void ResolveIntraActorCollisions(const float dt, PointColDetector &intraPointCD,
         const int free_collcab, int collcabs[], int cabs[],

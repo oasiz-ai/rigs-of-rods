@@ -45,6 +45,9 @@ struct InterActorContactBufferPool;
 struct DeterministicStateTraceRuntime;
 struct DeterministicActorInputRuntime;
 struct DeterministicActorInputPendingSavegame;
+namespace ContactConservation {
+enum class Error;
+}
 namespace DeterministicInputContinuationSavegame {
 struct Payload;
 }
@@ -208,7 +211,9 @@ private:
                            ObservationBatch* observation_batch);
     bool           PrepareDeterministicStateTraceStep();
     void           CaptureDeterministicStateTraceStep(
-                       bool contact_capture_succeeded);
+                       bool contact_capture_succeeded,
+                       ContactConservation::Error
+                           contact_conservation_error);
     void           FinishDeterministicStateTrace(
                        const char* reason,
                        bool suppress_until_disabled);

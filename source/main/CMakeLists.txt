@@ -211,6 +211,7 @@ set(SOURCE_FILES
         physics/CalibratedBeamProductionStep.{h,cpp}
         physics/CalibratedBeamSavegame.h
         physics/CalibratedBeamSavegameJson.h
+        physics/ContactConservation.{h,cpp}
         physics/DeterministicContactOrder.h
         physics/DeterministicCounterNoise.h
         physics/DeterministicFixedStepCadence.h
@@ -791,6 +792,7 @@ if (MSVC)
     set_source_files_properties(
         physics/BeamAxialKinematics.cpp
         physics/CalibratedBeamProductionStep.cpp
+        physics/ContactConservation.cpp
         PROPERTIES
             COMPILE_OPTIONS "/fp:strict;/GL-"
             SKIP_PRECOMPILE_HEADERS ON
@@ -799,6 +801,7 @@ else ()
     set_source_files_properties(
         physics/BeamAxialKinematics.cpp
         physics/CalibratedBeamProductionStep.cpp
+        physics/ContactConservation.cpp
         PROPERTIES
             COMPILE_OPTIONS "-fno-fast-math;-ffp-contract=off;-fno-lto"
             SKIP_PRECOMPILE_HEADERS ON
