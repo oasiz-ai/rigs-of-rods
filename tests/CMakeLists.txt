@@ -2285,6 +2285,20 @@ if (MSVC)
 else ()
     target_compile_options(
         ror_contact_conservation_fast_math_tests PRIVATE -ffast-math)
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+        # ContactConservation.cpp deliberately restores strict FP after the
+        # fast-math test target enables the game's release mode. Clang warns
+        # about this intentional per-source override before processing the
+        # final -ffp-contract=off option, and sanitizer jobs promote it to an
+        # error through -Werror.
+        target_compile_options(
+            ror_contact_conservation_fast_math_tests
+            PRIVATE -Wno-overriding-option)
+    elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        target_compile_options(
+            ror_contact_conservation_fast_math_tests
+            PRIVATE -Wno-overriding-t-option)
+    endif ()
     set_source_files_properties(
         "${ROR_REPOSITORY_ROOT}/source/main/physics/ContactConservation.cpp"
         PROPERTIES

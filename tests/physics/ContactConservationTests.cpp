@@ -174,19 +174,28 @@ Contact::Telemetry SentinelTelemetry()
     {
         telemetry.normalized_barycentric[index] = value++;
     }
-    telemetry.surface_contact_position_m = {value++, value++, value++};
+    telemetry.surface_contact_position_m.x = value++;
+    telemetry.surface_contact_position_m.y = value++;
+    telemetry.surface_contact_position_m.z = value++;
     for (std::size_t index = 0; index < Contact::NODE_COUNT; ++index)
     {
         telemetry.applied_forces_n[index].x = static_cast<float>(value++);
         telemetry.applied_forces_n[index].y = static_cast<float>(value++);
         telemetry.applied_forces_n[index].z = static_cast<float>(value++);
-        telemetry.observed_force_accumulator_deltas_n[index] = {
-            value++, value++, value++};
-        telemetry.impulses_ns[index] = {value++, value++, value++};
+        telemetry.observed_force_accumulator_deltas_n[index].x = value++;
+        telemetry.observed_force_accumulator_deltas_n[index].y = value++;
+        telemetry.observed_force_accumulator_deltas_n[index].z = value++;
+        telemetry.impulses_ns[index].x = value++;
+        telemetry.impulses_ns[index].y = value++;
+        telemetry.impulses_ns[index].z = value++;
     }
-    telemetry.linear_impulse_residual_ns = {value++, value++, value++};
+    telemetry.linear_impulse_residual_ns.x = value++;
+    telemetry.linear_impulse_residual_ns.y = value++;
+    telemetry.linear_impulse_residual_ns.z = value++;
     telemetry.normalized_linear_impulse_residual = value++;
-    telemetry.angular_impulse_delta_nms = {value++, value++, value++};
+    telemetry.angular_impulse_delta_nms.x = value++;
+    telemetry.angular_impulse_delta_nms.y = value++;
+    telemetry.angular_impulse_delta_nms.z = value++;
     telemetry.angular_impulse_delta_magnitude_nms = value++;
     telemetry.isolated_contact_work_j = value++;
     telemetry.isolated_contact_kinetic_energy_delta_j = value++;
