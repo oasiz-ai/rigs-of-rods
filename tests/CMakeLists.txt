@@ -2663,6 +2663,12 @@ add_executable(
 )
 
 add_executable(
+    ror_beamng_ogre_script_policy_tests
+    "${CMAKE_CURRENT_LIST_DIR}/resources/BeamNGOgreScriptPolicyTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/BeamNGOgreScriptPolicy.cpp"
+)
+
+add_executable(
     ror_beamng_zip_archive_index_tests
     "${CMAKE_CURRENT_LIST_DIR}/resources/BeamNGZipArchiveIndexTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/BeamNGZipArchiveIndex.cpp"
@@ -2761,6 +2767,7 @@ if (NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         "${CMAKE_CURRENT_LIST_DIR}/resources/JBeamVehicleImporterTests.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/BeamNGPackageManifest.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/BeamNGZipArchiveIndex.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/BeamNGOgreScriptPolicy.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamAdvancedStructureIR.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamExpressionEvaluator.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPartResolver.cpp"
@@ -2782,6 +2789,12 @@ target_include_directories(
 
 target_include_directories(
     ror_beamng_material_inventory_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
+)
+
+target_include_directories(
+    ror_beamng_ogre_script_policy_tests
     PRIVATE
         "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
 )
@@ -3172,6 +3185,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_jbeam_support_beam_tests
     ror_beam_rest_length_scale_tests
     ror_beamng_material_inventory_tests
+    ror_beamng_ogre_script_policy_tests
     ror_beamng_package_manifest_tests
     ror_beamng_zip_archive_index_tests
     ror_beamng_zip_index
@@ -3367,6 +3381,7 @@ set(ROR_CROSS_PLATFORM_PHYSICS_CORE_TARGETS
     ror_jbeam_hydro_savegame_tests
     ror_beamng_package_manifest_tests
     ror_beamng_material_inventory_tests
+    ror_beamng_ogre_script_policy_tests
     ror_beamng_zip_archive_index_tests
     ror_beamng_zip_index
     ror_jbeam_expression_evaluator_tests
@@ -4278,6 +4293,11 @@ add_test(
 )
 
 add_test(
+    NAME beamng_ogre_script_policy
+    COMMAND ror_beamng_ogre_script_policy_tests
+)
+
+add_test(
     NAME beamng_zip_archive_index
     COMMAND ror_beamng_zip_archive_index_tests
 )
@@ -4400,6 +4420,7 @@ set(ROR_CROSS_PLATFORM_PHYSICS_CORE_TESTS
     jbeam_hydro_savegame
     beamng_package_manifest
     beamng_material_inventory
+    beamng_ogre_script_policy
     beamng_zip_archive_index
     beamng_zip_index_help
     beamng_formulacoupe_opt_in

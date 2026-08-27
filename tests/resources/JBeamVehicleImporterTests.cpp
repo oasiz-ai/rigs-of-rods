@@ -1135,6 +1135,43 @@ void TestConfiguredImportFailClosed()
         RoR::BeamNG::JBeamVehicleImportCode::ARCHIVE_INDEX_REJECTED);
 }
 
+void CheckUnsafeOgreScriptMemberRejected(const std::string& member_path)
+{
+    const std::vector<std::uint8_t> archive = BuildArchive({
+        {"vehicles/test/main.jbeam", SupportedVehicle(), 0U, false},
+        {member_path, "MustNeverParse {}\n", 0U, false}});
+    const TempArchive archive_file(archive);
+    const RoR::TerrainBundleAuthenticatedArchiveSnapshot snapshot =
+        LoadSnapshot(archive, archive_file);
+    const RoR::BeamNG::JBeamVehiclePackageInspection inspection =
+        RoR::BeamNG::InspectJBeamVehicleArchiveSnapshot(snapshot);
+    CHECK(!inspection.IsValid());
+    CHECK(inspection.code ==
+        RoR::BeamNG::JBeamVehicleImportCode::UNSAFE_OGRE_SCRIPT_MEMBER);
+    CHECK(inspection.candidates.empty());
+
+    const RoR::BeamNG::JBeamVehicleImportResult imported =
+        RoR::BeamNG::ImportJBeamVehicleFromArchiveSnapshot(
+            snapshot, "beamng-test-group", "test_vehicle");
+    CHECK(!imported.IsAdmitted());
+    CHECK(imported.code ==
+        RoR::BeamNG::JBeamVehicleImportCode::UNSAFE_OGRE_SCRIPT_MEMBER);
+    CHECK(imported.document == nullptr);
+    CHECK(imported.authority == nullptr);
+
+    const RoR::BeamNG::JBeamVehicleImportResult configured =
+        RoR::BeamNG::ImportConfiguredJBeamVehicleFromArchiveSnapshot(
+            snapshot,
+            "beamng-test-group",
+            "test_vehicle",
+            "vehicles/test/config.pc");
+    CHECK(!configured.IsAdmitted());
+    CHECK(configured.code ==
+        RoR::BeamNG::JBeamVehicleImportCode::UNSAFE_OGRE_SCRIPT_MEMBER);
+    CHECK(configured.document == nullptr);
+    CHECK(configured.authority == nullptr);
+}
+
 void TestHostileArchives()
 {
     std::string unsupported_vehicle = SupportedVehicle();
@@ -1168,32 +1205,26 @@ void TestHostileArchives()
     CHECK(rejected.document == nullptr);
     CHECK(rejected.authority == nullptr);
 
-    const std::vector<std::uint8_t> ogre_script_archive = BuildArchive({
-        {"vehicles/test/main.jbeam", SupportedVehicle(), 0U, false},
-        {"vehicles/test/hostile.material",
-         "material MustNeverParse {}\n",
-         0U,
-         false}});
-    const TempArchive ogre_script_file(ogre_script_archive);
-    const RoR::TerrainBundleAuthenticatedArchiveSnapshot
-        ogre_script_snapshot =
-            LoadSnapshot(ogre_script_archive, ogre_script_file);
-    const RoR::BeamNG::JBeamVehiclePackageInspection
-        ogre_script_inspection =
-            RoR::BeamNG::InspectJBeamVehicleArchiveSnapshot(
-                ogre_script_snapshot);
-    CHECK(!ogre_script_inspection.IsValid());
-    CHECK(ogre_script_inspection.code ==
-        RoR::BeamNG::JBeamVehicleImportCode::UNSAFE_OGRE_SCRIPT_MEMBER);
-    CHECK(ogre_script_inspection.candidates.empty());
-    const RoR::BeamNG::JBeamVehicleImportResult ogre_script_import =
-        RoR::BeamNG::ImportJBeamVehicleFromArchiveSnapshot(
-            ogre_script_snapshot, "beamng-test-group", "test_vehicle");
-    CHECK(!ogre_script_import.IsAdmitted());
-    CHECK(ogre_script_import.code ==
-        RoR::BeamNG::JBeamVehicleImportCode::UNSAFE_OGRE_SCRIPT_MEMBER);
-    CHECK(ogre_script_import.document == nullptr);
-    CHECK(ogre_script_import.authority == nullptr);
+    CheckUnsafeOgreScriptMemberRejected("vehicles/test/hostile.material");
+    const std::array<const char*, 13U> exact_script_names = {{
+        ".material",
+        ".MaTeRiAl",
+        ".material.json",
+        ".MaTeRiAl.JsOn",
+        ".program",
+        ".compositor",
+        ".particle",
+        ".overlay",
+        ".fontdef",
+        ".os",
+        ".soundscript",
+        ".shader",
+        ".cgfx",
+    }};
+    for (const char* exact_script_name : exact_script_names)
+    {
+        CheckUnsafeOgreScriptMemberRejected(exact_script_name);
+    }
 
     const std::vector<std::uint8_t> corrupt_archive = BuildArchive({
         {"vehicles/test/main.jbeam", SupportedVehicle(), 0U, true}});

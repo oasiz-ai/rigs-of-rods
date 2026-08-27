@@ -7,6 +7,7 @@
 
 #include "JBeamVehicleImporter.h"
 
+#include "BeamNGOgreScriptPolicy.h"
 #include "BeamNGZipArchiveIndex.h"
 #include "JBeamAdvancedStructureIR.h"
 #include "JBeamPartResolver.h"
@@ -232,58 +233,13 @@ bool IsConfigurationDocumentSubset(const JBeamValue& configuration)
     return true;
 }
 
-bool HasAsciiCaseInsensitiveSuffix(
-    const std::string& path,
-    const char* suffix)
-{
-    const std::size_t suffix_size = std::strlen(suffix);
-    if (suffix_size == 0U || path.size() <= suffix_size)
-    {
-        return false;
-    }
-    const std::size_t offset = path.size() - suffix_size;
-    for (std::size_t index = 0U; index < suffix_size; ++index)
-    {
-        const unsigned char left = static_cast<unsigned char>(
-            path[offset + index]);
-        const unsigned char right = static_cast<unsigned char>(suffix[index]);
-        const unsigned char normalized_left = left >= 'A' && left <= 'Z'
-            ? static_cast<unsigned char>(left - 'A' + 'a')
-            : left;
-        const unsigned char normalized_right = right >= 'A' && right <= 'Z'
-            ? static_cast<unsigned char>(right - 'A' + 'a')
-            : right;
-        if (normalized_left != normalized_right)
-        {
-            return false;
-        }
-    }
-    return true;
-}
-
 bool IsUnsafeOgreScriptMember(const ZipArchiveEntry& entry)
 {
     if (entry.kind != PackageEntryKind::REGULAR_FILE)
     {
         return false;
     }
-    static const char* const SUFFIXES[] = {
-        ".material",
-        ".program",
-        ".compositor",
-        ".particle",
-        ".overlay",
-        ".fontdef",
-        ".os"
-    };
-    for (const char* suffix : SUFFIXES)
-    {
-        if (HasAsciiCaseInsensitiveSuffix(entry.path, suffix))
-        {
-            return true;
-        }
-    }
-    return false;
+    return HasUnsafeOgreScriptSuffix(entry.path);
 }
 
 bool AddWithinLimit(
