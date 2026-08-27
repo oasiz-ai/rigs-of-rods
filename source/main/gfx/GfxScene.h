@@ -30,11 +30,13 @@
 #include "EnvironmentMap.h" // RoR::GfxEnvmap
 #include "GfxActorCaptureInventory.h"
 #include "GfxData.h"
+#include "render/Ogre14GraphicsSceneSource.h"
+#if OGRE_VERSION_MAJOR >= 14
 #include "ogre14/Ogre14LegacyLiveMaterialCoordinator.h"
 #include "ogre14/detail/Ogre14ToOgreNextTerrainSource.h"
 #include "ogre14/detail/OgreNextDemoMaterialSource.h"
-#include "render/Ogre14GraphicsSceneSource.h"
 #include "render/Ogre14ProceduralRoadSource.h"
+#endif
 #include "SimBuffers.h"
 #include "Skidmark.h"
 
@@ -54,11 +56,13 @@ namespace RoR {
 /// immutable payload instead. The payload owner it was derived from is kept
 /// beside it: reuse requires that exact owner, so a rebuilt mesh can never be
 /// published carrying a state that describes the geometry it replaced.
+#if OGRE_VERSION_MAJOR >= 14
 struct Ogre14RigidActorSectionState
 {
     std::shared_ptr<const Render::RenderAssetPayload> payload;
     std::shared_ptr<const Render::Ogre14GraphicsSceneJoinedDynamicState> state;
 };
+#endif
 
 /// Provides a 3D graphical representation of the simulation
 /// Idea: simulation runs at it's own constant rate, scene updates and rendering run asynchronously.
@@ -117,13 +121,23 @@ public:
     /// scene remains a private migration input; it is not a public renderer
     /// compatibility mode or a generalized material API.
     void           EnableOgreNextDemoCapture() noexcept
-                   { m_ogre_next_demo_capture_enabled = true; }
+    {
+#if OGRE_VERSION_MAJOR >= 14
+        m_ogre_next_demo_capture_enabled = true;
+#endif
+    }
     /// The hidden OGRE 14 scene is only an ingestion source in this mode.
     /// Automatic LOD generation may run there as an offline mesh preparation
     /// step, but the visible result is accepted only from the final Ogre-Next
     /// native distance-LOD and selected-triangle receipt.
     [[nodiscard]] bool IsOgreNextDemoCaptureEnabled() const noexcept
-                   { return m_ogre_next_demo_capture_enabled; }
+    {
+#if OGRE_VERSION_MAJOR >= 14
+        return m_ogre_next_demo_capture_enabled;
+#else
+        return false;
+#endif
+    }
     /// Reads only the completed simulation buffer and graphics-owned OGRE 14
     /// state. Incomplete renderer-neutral inventories are identified through
     /// available_fields rather than populated with guessed defaults.
@@ -137,7 +151,13 @@ public:
     /// reuses the immutable byte owner so no asset revision advances.
     void SetOgre14HudOverlayReadback(
         Render::GraphicsSceneHudOverlayInput readback) noexcept
-        { m_ogre14_hud_overlay_latest = std::move(readback); }
+    {
+#if OGRE_VERSION_MAJOR >= 14
+        m_ogre14_hud_overlay_latest = std::move(readback);
+#else
+        (void)readback;
+#endif
+    }
     GameContextSB&     GetSimDataBuffer() { return m_simbuf; }
     GfxEnvmap&     GetEnvMap() { return m_envmap; }
     RoR::SkidmarkConfig* GetSkidmarkConf () { return &m_skidmark_conf; }
@@ -198,6 +218,7 @@ private:
     GameContextSB                     m_simbuf;
     SkidmarkConfig                    m_skidmark_conf;
 
+#if OGRE_VERSION_MAJOR >= 14
     // Exact joined-boundary identity for the OGRE 14 scene adapter. These are
     // copied only inside BufferSimulationData(), before the next physics batch
     // may start; the adapter never reads ActorManager directly.
@@ -499,6 +520,7 @@ private:
         std::uint64_t section_other_ns = 0U;
     };
     std::unique_ptr<Ogre14PendingCaptureState> m_ogre14_pending_capture;
+#endif
 
     // Free beams GFX:
     std::vector<FreeBeamGfx>          m_gfx_freebeams;

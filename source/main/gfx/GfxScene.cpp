@@ -80,6 +80,8 @@ using namespace RoR;
 namespace
 {
 
+#if OGRE_VERSION_MAJOR >= 14
+
 constexpr std::uint64_t kOgreNextDemoMaximumObservedParticleSystems = 4096U;
 constexpr std::uint64_t kOgreNextDemoMaximumParticlesPerSystem = 16384U;
 constexpr std::uint64_t kOgreNextDemoMaximumObservedParticles = 65536U;
@@ -4079,6 +4081,8 @@ RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
     return RoR::Render::ValidationResult::Success();
 }
 
+#endif
+
 } // namespace
 
 void GfxScene::CreateDustPools()
@@ -4119,6 +4123,7 @@ void GfxScene::ClearScene()
 
 void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
 {
+#if OGRE_VERSION_MAJOR >= 14
     DiscardOgre14GraphicsSceneCapture();
     m_ogre_next_demo_terrain_source.Reset();
     // Authenticated material cache entries are immutable anti-tombstone owners
@@ -4179,6 +4184,14 @@ void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
     m_ogre14_dynamic_mesh_cache.clear();
     m_ogre14_particle_capture_state = {};
     m_ogre14_particle_coverage_log_snapshot.clear();
+#else
+    // The Ogre 1.11 compatibility host cannot instantiate the authenticated
+    // OGRE 14 capture implementation. It still owns the ordinary actor and
+    // character registries, which must be cleared at the same scene boundary.
+    m_live_gfx_actors.clear();
+    m_gfx_actor_inventory.Clear();
+    m_all_gfx_characters.clear();
+#endif
 }
 
 void GfxScene::Init()
@@ -4389,6 +4402,7 @@ void GfxScene::UpdateScene(float dt)
         gfx_actor->FinishWheelUpdates();
         gfx_actor->FinishFlexbodyTasks();
     }
+#if OGRE_VERSION_MAJOR >= 14
     if (m_ogre_next_demo_capture_enabled)
     {
         // In capture ownership the legacy Ogre Root never renders a frame, so
@@ -4444,6 +4458,7 @@ void GfxScene::UpdateScene(float dt)
     {
         m_ogre14_post_update_scene_epoch = m_ogre14_joined_buffer_epoch;
     }
+#endif
 }
 
 void GfxScene::SetParticlesVisible(bool visible)
@@ -4469,6 +4484,7 @@ DustPool* GfxScene::GetDustPool(const char* name)
 
 void GfxScene::ProbeOgre14ActorCaptureCoverage(RoR::GfxActor* gfx_actor)
 {
+#if OGRE_VERSION_MAJOR >= 14
     // Diagnostics only. The probe reads exactly the owners the capture reads
     // and changes none of them; it exists so the gap between "geometry the
     // legacy scene draws" and "geometry the joined capture enumerates" is a
@@ -4608,6 +4624,9 @@ void GfxScene::ProbeOgre14ActorCaptureCoverage(RoR::GfxActor* gfx_actor)
                                         : std::string(),
         snapshot));
     m_ogre14_actor_capture_coverage_log_snapshots[actor_id] = snapshot;
+#else
+    (void)gfx_actor;
+#endif
 }
 
 bool GfxScene::RegisterGfxActor(RoR::GfxActor* gfx_actor)
@@ -4656,6 +4675,7 @@ bool GfxScene::UnhideGfxActor(RoR::GfxActor* gfx_actor)
 
 void GfxScene::BufferSimulationData()
 {
+#if OGRE_VERSION_MAJOR >= 14
     ActorManager* actor_manager = nullptr;
     std::uint64_t simulation_tick_before = 0U;
     float simulation_time_before = 0.0F;
@@ -4673,6 +4693,7 @@ void GfxScene::BufferSimulationData()
             actor_manager->GetCompletedPhysicsSteps();
         simulation_time_before = actor_manager->GetTotalTime();
     }
+#endif
 
     m_simbuf.simbuf_player_actor = App::GetGameContext()->GetPlayerActor();
     m_simbuf.simbuf_character_pos = App::GetGameContext()->GetPlayerCharacter()->getPosition();
@@ -4706,6 +4727,7 @@ void GfxScene::BufferSimulationData()
         a->BufferSimulationData();
     }
 
+#if OGRE_VERSION_MAJOR >= 14
     if (!m_ogre_next_demo_capture_enabled)
     {
         return;
@@ -4731,7 +4753,10 @@ void GfxScene::BufferSimulationData()
         m_ogre14_simulation_time_seconds =
             static_cast<double>(simulation_time_after);
     }
+#endif
 }
+
+#if OGRE_VERSION_MAJOR >= 14
 
 Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
     Render::Ogre14GraphicsSceneDynamicIdentityRegistry& identity_registry,
@@ -7856,6 +7881,56 @@ void GfxScene::DiscardOgre14GraphicsSceneCapture() noexcept
         m_ogre14_road_material_coordinator->DiscardPreparedFrame();
     m_ogre14_pending_capture.reset();
 }
+
+#else
+
+Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
+    Render::Ogre14GraphicsSceneDynamicIdentityRegistry& identity_registry,
+    std::map<std::string,
+             Render::Ogre14GraphicsSceneDynamicMeshCacheEntry,
+             std::less<>>& mesh_cache,
+    std::vector<Render::GraphicsSceneAssetInput>& assets,
+    std::vector<Render::GraphicsSceneDynamicMeshInput>& dynamic_meshes,
+    Ogre14DynamicCaptureTiming& timing)
+{
+    (void)identity_registry;
+    (void)mesh_cache;
+    (void)assets;
+    (void)dynamic_meshes;
+    (void)timing;
+    return Render::ValidationResult::Failure(
+        Render::ValidationCode::UNSUPPORTED_FEATURE,
+        "ogre14_capture.renderer",
+        "the Ogre 1.11 compatibility host has no OGRE 14 scene capture");
+}
+
+Render::ValidationResult GfxScene::EnsureOgre14RoadMaterialCoordinator()
+{
+    return Render::ValidationResult::Failure(
+        Render::ValidationCode::UNSUPPORTED_FEATURE,
+        "ogre14_capture.renderer",
+        "the Ogre 1.11 compatibility host has no OGRE 14 material capture");
+}
+
+Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
+    Render::Ogre14GraphicsSceneCapture& capture)
+{
+    (void)capture;
+    return Render::ValidationResult::Failure(
+        Render::ValidationCode::UNSUPPORTED_FEATURE,
+        "ogre14_capture.renderer",
+        "the Ogre 1.11 compatibility host has no OGRE 14 scene capture");
+}
+
+void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
+{
+}
+
+void GfxScene::DiscardOgre14GraphicsSceneCapture() noexcept
+{
+}
+
+#endif
 
 void GfxScene::DestroyGfxActor(RoR::GfxActor* remove_me) noexcept
 {
