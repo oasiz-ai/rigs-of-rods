@@ -26,6 +26,7 @@ PIPELINE = (
     else "rt4_pbr_pssm_hdr_preview"
 )
 NATIVE_RT = "true" if sys.platform == "darwin" else "false"
+EXPECTED_NATIVE_SCENE_DRAWS = 30 if sys.platform == "darwin" else 10
 
 
 def runtime_log(package_sha256: str = PACKAGE_SHA256) -> str:
@@ -125,8 +126,8 @@ class NativeA1LodRuntimeReceiptTests(unittest.TestCase):
             "warmup_frames_requested": 2,
             "native_scene_draw_exact_samples": 12,
             "native_scene_draw_rejected_samples": 0,
-            "native_scene_draw_p99": 30,
-            "native_scene_draw_maximum": 30,
+            "native_scene_draw_p99": EXPECTED_NATIVE_SCENE_DRAWS,
+            "native_scene_draw_maximum": EXPECTED_NATIVE_SCENE_DRAWS,
             "native_scene_draw_p99_limit": 2500,
             "presents_frames": True,
             "rejected_frames": 0,
@@ -326,8 +327,8 @@ class NativeA1LodRuntimeReceiptTests(unittest.TestCase):
 
     def test_native_scene_draw_partition_is_exactly_pinned(self) -> None:
         for overrides in (
-            {"native_scene_draw_p99": 29},
-            {"native_scene_draw_maximum": 31},
+            {"native_scene_draw_p99": EXPECTED_NATIVE_SCENE_DRAWS - 1},
+            {"native_scene_draw_maximum": EXPECTED_NATIVE_SCENE_DRAWS + 1},
             {"native_scene_draw_p99_limit": 2501},
         ):
             with self.subTest(overrides=overrides):

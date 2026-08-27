@@ -50,11 +50,13 @@ LIGHTING_MODES = {
         "platforms": frozenset(("darwin",)),
         "pipeline": "rt4_pbr_hdr_metal_sun_visibility_v2",
         "native_rt": "true",
+        "native_scene_draws": 30,
     },
     "raster-hdr-pssm": {
         "platforms": frozenset(("linux", "win32")),
         "pipeline": "rt4_pbr_pssm_hdr_preview",
         "native_rt": "false",
+        "native_scene_draws": 10,
     },
 }
 
@@ -492,6 +494,7 @@ def build_receipt(
     draw_p99 = frame_receipt.get("native_scene_draw_p99")
     draw_maximum = frame_receipt.get("native_scene_draw_maximum")
     draw_limit = frame_receipt.get("native_scene_draw_p99_limit")
+    expected_draws = lighting["native_scene_draws"]
     if (
         not isinstance(draw_p99, int)
         or isinstance(draw_p99, bool)
@@ -499,12 +502,13 @@ def build_receipt(
         or isinstance(draw_maximum, bool)
         or not isinstance(draw_limit, int)
         or isinstance(draw_limit, bool)
-        or draw_p99 != 30
-        or draw_maximum != 30
+        or draw_p99 != expected_draws
+        or draw_maximum != expected_draws
         or draw_limit != 2500
     ):
         raise ReceiptFailure(
-            "frame-budget native scene draw counters changed from 30/30/2500"
+            "frame-budget native scene draw counters changed from "
+            f"{expected_draws}/{expected_draws}/2500 for {lighting_mode}"
         )
 
     actual_package_sha256 = hashlib.sha256(package_bytes).hexdigest()

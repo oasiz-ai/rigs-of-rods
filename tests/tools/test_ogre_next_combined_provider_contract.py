@@ -300,8 +300,8 @@ class CombinedProviderContractTests(unittest.TestCase):
                     'canonical_json(native_a1_receipt.get("presentation_ownership"))',
                     "canonical_json(expected_presentation_ownership)",
                     '"completed_frames": 1',
-                    '"native_scene_draw_p99": 30',
-                    '"native_scene_draw_maximum": 30',
+                    '"native_scene_draw_p99": 10',
+                    '"native_scene_draw_maximum": 10',
                     '"native_scene_draw_p99_limit": 2500',
                 ):
                     self.assertIn(semantic_token, job)
