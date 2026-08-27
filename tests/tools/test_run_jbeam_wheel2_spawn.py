@@ -191,6 +191,32 @@ class JBeamWheel2SpawnTests(unittest.TestCase):
                 first, same_windows_path, "posix"
             )
         )
+        changed_time = os.stat_result(
+            (mode, 101, 7, 1, 0, 0, 12, 1, 4, 3)
+        )
+        self.assertFalse(
+            WHEEL2._direct_path_snapshot_matches(
+                first, changed_time, "posix"
+            )
+        )
+
+    def test_open_descriptor_must_still_name_the_direct_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / "first"
+            second = root / "second"
+            first.write_bytes(b"same-size")
+            second.write_bytes(b"different")
+            descriptor = os.open(first, os.O_RDONLY)
+            try:
+                self.assertTrue(
+                    WHEEL2._descriptor_matches_direct_path(first, descriptor)
+                )
+                self.assertFalse(
+                    WHEEL2._descriptor_matches_direct_path(second, descriptor)
+                )
+            finally:
+                os.close(descriptor)
 
     def test_fixture_profile_matches_exact_sources_and_bounded_claims(self) -> None:
         profile, profile_bytes, jbeam, script = WHEEL2.read_profile(

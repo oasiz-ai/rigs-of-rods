@@ -173,6 +173,16 @@ def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _stat_time_identity(
+    value: os.stat_result, nanosecond_field: str, second_field: str
+) -> tuple[bool, int | float]:
+    nanoseconds = getattr(value, nanosecond_field, None)
+    return (
+        nanoseconds is not None,
+        nanoseconds if nanoseconds is not None else getattr(value, second_field),
+    )
+
+
 def _direct_path_snapshot_matches(
     before: os.stat_result,
     after: os.stat_result,
@@ -188,25 +198,29 @@ def _direct_path_snapshot_matches(
             before.st_mode,
             before.st_dev,
             before.st_size,
-            before.st_mtime_ns,
-            before.st_ctime_ns,
+            _stat_time_identity(before, "st_mtime_ns", "st_mtime"),
+            _stat_time_identity(before, "st_ctime_ns", "st_ctime"),
         ) == (
             after.st_mode,
             after.st_dev,
             after.st_size,
-            after.st_mtime_ns,
-            after.st_ctime_ns,
+            _stat_time_identity(after, "st_mtime_ns", "st_mtime"),
+            _stat_time_identity(after, "st_ctime_ns", "st_ctime"),
         )
     return (
         before.st_mode,
         before.st_dev,
         before.st_ino,
         before.st_size,
+        _stat_time_identity(before, "st_mtime_ns", "st_mtime"),
+        _stat_time_identity(before, "st_ctime_ns", "st_ctime"),
     ) == (
         after.st_mode,
         after.st_dev,
         after.st_ino,
         after.st_size,
+        _stat_time_identity(after, "st_mtime_ns", "st_mtime"),
+        _stat_time_identity(after, "st_ctime_ns", "st_ctime"),
     )
 
 
@@ -222,7 +236,7 @@ def _opened_file_matches_path_snapshot(
     ):
         return False
     if platform == "nt":
-        return True
+        return path_snapshot.st_dev == opened.st_dev
     return (path_snapshot.st_dev, path_snapshot.st_ino) == (
         opened.st_dev,
         opened.st_ino,
@@ -240,6 +254,23 @@ def _direct_path_owner_matches(
     if platform == "nt":
         return before.st_dev == after.st_dev
     return (before.st_dev, before.st_ino) == (after.st_dev, after.st_ino)
+
+
+def _descriptor_matches_direct_path(
+    path: Path, descriptor: int, open_flags: int | None = None
+) -> bool:
+    flags = os.O_RDONLY if open_flags is None else open_flags
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    verifier = -1
+    try:
+        verifier = os.open(path, flags)
+        return os.path.sameopenfile(descriptor, verifier)
+    except (AttributeError, NotImplementedError, OSError):
+        return False
+    finally:
+        if verifier >= 0:
+            os.close(verifier)
 
 
 def _strict_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -315,6 +346,7 @@ def read_direct_bytes(path: Path, label: str, byte_limit: int) -> bytes:
         if (
             metadata.st_size > byte_limit
             or not _opened_file_matches_path_snapshot(before, metadata)
+            or not _descriptor_matches_direct_path(path, descriptor)
         ):
             raise Wheel2SpawnFailure(f"{label} is not a bounded regular file")
         chunks: list[bytes] = []
@@ -332,6 +364,7 @@ def read_direct_bytes(path: Path, label: str, byte_limit: int) -> bytes:
             or len(payload) > byte_limit
             or not stat.S_ISREG(after.st_mode)
             or not _direct_path_snapshot_matches(before, after)
+            or not _descriptor_matches_direct_path(path, descriptor)
         ):
             raise Wheel2SpawnFailure(f"{label} changed or exceeded its byte limit")
         return payload
@@ -491,7 +524,12 @@ def copy_direct_file_exclusive(
     destination_descriptor = -1
     try:
         source_metadata = os.fstat(source_descriptor)
-        if not _opened_file_matches_path_snapshot(before, source_metadata):
+        if (
+            not _opened_file_matches_path_snapshot(before, source_metadata)
+            or not _descriptor_matches_direct_path(
+                source, source_descriptor, read_flags
+            )
+        ):
             raise Wheel2SpawnFailure(f"{label} source identity changed")
         try:
             os.lstat(destination)
@@ -520,6 +558,9 @@ def copy_direct_file_exclusive(
             or destination_before.st_size != 0
             or not _opened_file_matches_path_snapshot(
                 destination_before, destination_metadata
+            )
+            or not _descriptor_matches_direct_path(
+                destination, destination_descriptor
             )
         ):
             raise Wheel2SpawnFailure(
@@ -556,8 +597,14 @@ def copy_direct_file_exclusive(
             or not _direct_path_owner_matches(
                 destination_before, destination_after
             )
+            or not _descriptor_matches_direct_path(
+                destination, destination_descriptor
+            )
             or not stat.S_ISREG(after.st_mode)
             or not _direct_path_snapshot_matches(before, after)
+            or not _descriptor_matches_direct_path(
+                source, source_descriptor, read_flags
+            )
         ):
             raise Wheel2SpawnFailure(f"{label} source or destination changed")
         return copied, digest.hexdigest()
