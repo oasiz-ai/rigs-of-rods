@@ -21,10 +21,10 @@ const int EXPECTED_GROUND_CONTACT_NODES = 73;
 const uint64 EXPECTED_PHYSICS_STEPS = 20000;
 const uint64 EXPECTED_AUDIT_STRIDE = 100;
 const int EXPECTED_AUDIT_SAMPLES = 201;
-const string SCENARIO_ID = "2026082701";
+const string SCENARIO_ID = "2026082702";
 const string VEHICLE = "ror_jbeam_wheel2_fixture.jbeam";
 const vector3 INITIAL_TEST_TRANSLATION(0.0f, 0.75f, 0.0f);
-const vector3 INITIAL_TEST_VELOCITY(0.0f, 0.0f, 0.0f);
+const vector3 INITIAL_TEST_VELOCITY(0.0f, -1.0f, 0.0f);
 
 enum ScenarioState
 {
@@ -351,7 +351,7 @@ void frameStep(float dt)
         if (!actor.trySetDeterministicImpactPlacementAndVelocity(
                 INITIAL_TEST_TRANSLATION, INITIAL_TEST_VELOCITY))
         {
-            FailScenario("initial-test-placement-rejected");
+            FailScenario("initial-test-placement-or-velocity-rejected");
             return;
         }
         gInitialCenterOfMassY = double(CenterOfMassPosition(actor).y);
@@ -359,7 +359,9 @@ void frameStep(float dt)
         const vector3 armedVelocity = CenterOfMassVelocity(actor);
         if (gState == FINISHED ||
             abs((gInitialCenterOfMassY - spawnCenterY) - 0.75) > 1.0e-5 ||
-            double(armedVelocity.length()) > 1.0e-5)
+            abs(double(armedVelocity.x)) > 1.0e-5 ||
+            abs(double(armedVelocity.y) + 1.0) > 1.0e-5 ||
+            abs(double(armedVelocity.z)) > 1.0e-5)
         {
             FailScenario("initial-test-state-drift");
             return;

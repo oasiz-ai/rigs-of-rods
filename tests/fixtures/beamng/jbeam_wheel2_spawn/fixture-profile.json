@@ -12,7 +12,7 @@
   },
   "scenarioScript": {
     "path": "resources/scripts/example_jbeam_wheel2_spawn.as",
-    "sha256": "696f1ef12dee0cf7f82f1ea227820bd18c451fd163dd43e258bc2375a710c718"
+    "sha256": "55bd32dae0eec72b9e9170faa02dcd067e1987603267a3c97461934b67f5256d"
   },
   "expectedRuntime": {
     "auditStrideFixedSteps": 100,
@@ -37,7 +37,7 @@
     "cabTriangles": 0,
     "collisionCabTriangles": 0,
     "initialTranslationY": 0.75,
-    "initialVelocityMps": 0
+    "initialVelocityMps": 1
   },
   "batchBoundaryStateEnvelope": {
     "schema": 1,

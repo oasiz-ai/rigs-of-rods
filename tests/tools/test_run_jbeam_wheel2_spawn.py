@@ -165,7 +165,7 @@ def engine_log(archive_sha256: str) -> str:
             f"archive_sha256={archive_sha256}",
             "roots=1",
             "[RoR|Determinism] Recording state trace",
-            "scenario=2026082701",
+            "scenario=2026082702",
             "limit=20000",
             "with 20000 fixed-step records (trace step limit reached)",
             "[RoR|ModCache|JBeam] Added exact root "
@@ -570,6 +570,9 @@ class JBeamWheel2SpawnTests(unittest.TestCase):
         self.assertIn("wheel.braking = RoR::WheelBraking::NONE", adapter)
         self.assertIn("wheel.propulsion = RoR::WheelPropulsion::NONE", adapter)
         self.assertIn("game.setTrucksForcedActive(true)", script)
+        self.assertIn(
+            "INITIAL_TEST_VELOCITY(0.0f, -1.0f, 0.0f)", script
+        )
         self.assertGreaterEqual(
             script.count("game.setTrucksForcedActive(false)"), 2
         )

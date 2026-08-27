@@ -1679,7 +1679,7 @@ jobs:
               "generatedWheelNodes": 64,
               "groundContactNodes": 73,
               "initialTranslationY": 0.75,
-              "initialVelocityMps": 0,
+              "initialVelocityMps": 1,
               "physicsStepDenominator": 2000,
               "physicsStepNumerator": 1,
               "raysPerWheel": 16,
@@ -1745,7 +1745,7 @@ jobs:
               or not isinstance(report.get("platform"), str)
               or not report["platform"]
               or type(report.get("scenario_id")) is not int
-              or report.get("scenario_id") != 2026082701
+              or report.get("scenario_id") != 2026082702
               or type(report.get("steps")) is not int
               or report.get("steps") != 20000
               or type(report.get("runs_per_worker")) is not int
@@ -1998,7 +1998,7 @@ jobs:
               "physics_flags": 1,
               "physics_step_denominator": 2000,
               "physics_step_numerator": 1,
-              "scenario_id": 2026082701,
+              "scenario_id": 2026082702,
               "worker_count": 1,
           }
           expected_right_metadata = dict(expected_left_metadata)
@@ -2401,7 +2401,7 @@ jobs:
               "generatedWheelNodes": 64,
               "groundContactNodes": 73,
               "initialTranslationY": 0.75,
-              "initialVelocityMps": 0,
+              "initialVelocityMps": 1,
               "physicsStepDenominator": 2000,
               "physicsStepNumerator": 1,
               "raysPerWheel": 16,

@@ -46,7 +46,7 @@ JBEAM_ARCHIVE = "RoRJBeamWheel2Spawn.zip"
 SCRIPT_MEMBER = "example_jbeam_wheel2_spawn.as"
 VEHICLE = "ror_jbeam_wheel2_fixture.jbeam"
 TERRAIN = "simple2.terrn2"
-SCENARIO_ID = 2026082701
+SCENARIO_ID = 2026082702
 EXPECTED_STEPS = 20000
 EXPECTED_ACTORS = 1
 EXPECTED_STATE_DIGEST_SCHEMA_VERSION = 3
@@ -62,7 +62,7 @@ EXPECTED_TOPOLOGY = {
     "generatedWheelNodes": 64,
     "groundContactNodes": 73,
     "initialTranslationY": 0.75,
-    "initialVelocityMps": 0,
+    "initialVelocityMps": 1,
     "physicsStepDenominator": 2000,
     "physicsStepNumerator": 1,
     "raysPerWheel": 16,
@@ -114,7 +114,7 @@ EXPECTED_CLAIMS = {
     "zeroBrokenBeams": True,
 }
 START_MARKER = (
-    "[RoR|J3|Wheel2Spawn] START scenario=2026082701 "
+    "[RoR|J3|Wheel2Spawn] START scenario=2026082702 "
     "vehicle=ror_jbeam_wheel2_fixture.jbeam steps=20000 "
     "pressure_volume=false friction=false braking=false "
     "propulsion=false steering=false rolling=false driveability=false "
@@ -664,7 +664,7 @@ def validate_logs(
         f"archive_sha256={archive_sha256}",
         "roots=1",
         "[RoR|Determinism] Recording state trace",
-        "scenario=2026082701",
+        "scenario=2026082702",
         "limit=20000",
         "with 20000 fixed-step records (trace step limit reached)",
     )
