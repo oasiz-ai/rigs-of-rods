@@ -2051,6 +2051,27 @@ else ()
         install(FILES ${CMAKE_SOURCE_DIR}/tools/linux/.itch.toml DESTINATION .)
         install(CODE "file(GLOB_RECURSE files ${RUNTIME_OUTPUT_DIRECTORY}/*.so)
                 file(INSTALL \${files} DESTINATION \${CMAKE_INSTALL_PREFIX}/lib FOLLOW_SYMLINK_CHAIN)")
+        # The pinned Ogre 1.11 packages carry Conan build paths in their
+        # install RPATHs. The compatibility entrypoint owns LD_LIBRARY_PATH,
+        # so remove loader paths from the relocated ELF closure instead of
+        # publishing runner-specific package prefixes.
+        install(CODE [=[
+            set(_ror_legacy_linux_install_root
+                "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")
+            file(GLOB_RECURSE _ror_legacy_linux_elfs
+                LIST_DIRECTORIES FALSE
+                "${_ror_legacy_linux_install_root}/lib/*.so*")
+            list(APPEND _ror_legacy_linux_elfs
+                "${_ror_legacy_linux_install_root}/RoR")
+            foreach (_ror_legacy_linux_elf IN LISTS
+                    _ror_legacy_linux_elfs)
+                if (EXISTS "${_ror_legacy_linux_elf}"
+                        AND NOT IS_DIRECTORY "${_ror_legacy_linux_elf}"
+                        AND NOT IS_SYMLINK "${_ror_legacy_linux_elf}")
+                    file(RPATH_REMOVE FILE "${_ror_legacy_linux_elf}")
+                endif ()
+            endforeach ()
+        ]=])
     endif ()
 endif ()
 

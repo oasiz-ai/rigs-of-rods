@@ -191,6 +191,19 @@ class Ogre11CompatibilityWorkflowContractTests(unittest.TestCase):
             r"file\(GLOB files \$\{RUNTIME_OUTPUT_DIRECTORY\}/\*\.exe\)",
         )
 
+    def test_linux_legacy_install_removes_package_build_rpaths(self) -> None:
+        self.assertEqual(self.main_cmake.count("file(RPATH_REMOVE FILE"), 1)
+        self.assertIn(
+            '"$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}"', self.main_cmake
+        )
+        self.assertIn(
+            '"${_ror_legacy_linux_install_root}/lib/*.so*"',
+            self.main_cmake,
+        )
+        self.assertIn(
+            '"${_ror_legacy_linux_install_root}/RoR"', self.main_cmake
+        )
+
     def test_success_and_failure_artifacts_cannot_be_confused_with_product(self) -> None:
         text = self.workflow
         success = text.index("- name: Upload passed Ogre 1.11 compatibility artifact")
