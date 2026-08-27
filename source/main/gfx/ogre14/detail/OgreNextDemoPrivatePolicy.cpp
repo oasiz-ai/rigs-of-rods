@@ -318,7 +318,11 @@ bool HasConsistentMaterialDenominators(
   const std::size_t decode_normalization_partition = SaturatingAdd(
       counters.opaque_source_normalizations,
       SaturatingAdd(counters.straight_alpha_source_normalizations,
-                    counters.linear_specular_source_normalizations));
+                    SaturatingAdd(
+                        counters.linear_specular_source_normalizations,
+                        SaturatingAdd(
+                            counters.linear_data_rgba_source_normalizations,
+                            counters.srgb_data_alpha_source_normalizations))));
   return exclusions == counters.source_exclusions &&
          exclusions == counters.matte_excluded_sections &&
          counters.candidate_sections ==
@@ -340,7 +344,15 @@ bool HasConsistentMaterialDenominators(
                            counters.generated_mip_tail_levels) &&
          counters.normalized_specular_output_mip_levels ==
              SaturatingAdd(counters.authored_specular_mip_prefix_levels,
-                           counters.generated_specular_mip_tail_levels);
+                           counters.generated_specular_mip_tail_levels) &&
+         counters.linear_data_rgba_normalized_output_mip_levels ==
+             SaturatingAdd(
+                 counters.linear_data_rgba_authored_mip_prefix_levels,
+                 counters.linear_data_rgba_generated_mip_tail_levels) &&
+         counters.srgb_data_alpha_normalized_output_mip_levels ==
+             SaturatingAdd(
+                 counters.srgb_data_alpha_authored_mip_prefix_levels,
+                 counters.srgb_data_alpha_generated_mip_tail_levels);
 }
 
 } // namespace
@@ -830,6 +842,30 @@ Render::ValidationResult AccumulateOgreNextDemoTextureSourceCounters(
   candidate.straight_alpha_source_normalizations =
       SaturatingAdd(candidate.straight_alpha_source_normalizations,
                     increment.straight_alpha_source_normalizations);
+  candidate.linear_data_rgba_source_normalizations = SaturatingAdd(
+      candidate.linear_data_rgba_source_normalizations,
+      increment.linear_data_rgba_source_normalizations);
+  candidate.linear_data_rgba_authored_mip_prefix_levels = SaturatingAdd(
+      candidate.linear_data_rgba_authored_mip_prefix_levels,
+      increment.linear_data_rgba_authored_mip_prefix_levels);
+  candidate.linear_data_rgba_generated_mip_tail_levels = SaturatingAdd(
+      candidate.linear_data_rgba_generated_mip_tail_levels,
+      increment.linear_data_rgba_generated_mip_tail_levels);
+  candidate.linear_data_rgba_normalized_output_mip_levels = SaturatingAdd(
+      candidate.linear_data_rgba_normalized_output_mip_levels,
+      increment.linear_data_rgba_normalized_output_mip_levels);
+  candidate.srgb_data_alpha_source_normalizations = SaturatingAdd(
+      candidate.srgb_data_alpha_source_normalizations,
+      increment.srgb_data_alpha_source_normalizations);
+  candidate.srgb_data_alpha_authored_mip_prefix_levels = SaturatingAdd(
+      candidate.srgb_data_alpha_authored_mip_prefix_levels,
+      increment.srgb_data_alpha_authored_mip_prefix_levels);
+  candidate.srgb_data_alpha_generated_mip_tail_levels = SaturatingAdd(
+      candidate.srgb_data_alpha_generated_mip_tail_levels,
+      increment.srgb_data_alpha_generated_mip_tail_levels);
+  candidate.srgb_data_alpha_normalized_output_mip_levels = SaturatingAdd(
+      candidate.srgb_data_alpha_normalized_output_mip_levels,
+      increment.srgb_data_alpha_normalized_output_mip_levels);
   candidate.alpha_test_material_projections =
       SaturatingAdd(candidate.alpha_test_material_projections,
                     increment.alpha_test_material_projections);
@@ -1284,6 +1320,17 @@ BuildOgreNextDemoCachedProjectionPublicationTransaction(
                      "cached projection texture or sampler owner is absent",
                      index);
     }
+    for (const auto &dependency : input.additional_dependencies) {
+      if (dependency.first.empty() || dependency.second.empty() ||
+          textures_by_key.find(dependency.first) == textures_by_key.end() ||
+          samplers_by_key.find(dependency.second) == samplers_by_key.end()) {
+        return Failure(
+            Render::ValidationCode::MISSING_REFERENCE,
+            "ogre_next_demo.material.publication.additional_dependency",
+            "cached projection additional texture or sampler owner is absent",
+            index);
+      }
+    }
   }
 
   std::map<std::string, bool, std::less<>> used_keys;
@@ -1327,14 +1374,26 @@ BuildOgreNextDemoCachedProjectionPublicationTransaction(
     }
     candidate.frame_root_material_source_ids.push_back(
         input.material_source_id);
-    if (IsOgreNextDemoAuthenticatedTextureSourceMode(texture.source_mode)) {
-      if (observed_authenticated_textures.emplace(input.texture_key, true)
-              .second) {
-        candidate.authenticated_texture_keys.push_back(input.texture_key);
-      }
-    } else if (observed_ordinary_textures.emplace(input.texture_key, true)
-                   .second) {
-      candidate.ordinary_texture_keys.push_back(input.texture_key);
+    const auto append_reachable_texture =
+        [&](const std::string &texture_key) {
+          const OgreNextDemoCachedTexturePublicationInput &reachable =
+              *textures_by_key.find(texture_key)->second;
+          if (IsOgreNextDemoAuthenticatedTextureSourceMode(
+                  reachable.source_mode)) {
+            if (observed_authenticated_textures
+                    .emplace(texture_key, true)
+                    .second) {
+              candidate.authenticated_texture_keys.push_back(texture_key);
+            }
+          } else if (observed_ordinary_textures
+                         .emplace(texture_key, true)
+                         .second) {
+            candidate.ordinary_texture_keys.push_back(texture_key);
+          }
+        };
+    append_reachable_texture(input.texture_key);
+    for (const auto &dependency : input.additional_dependencies) {
+      append_reachable_texture(dependency.first);
     }
   }
   if (!candidate.authenticated_texture_keys.empty()) {

@@ -21,6 +21,7 @@
 #include <OgreMaterialManager.h>
 #include <OgrePass.h>
 #include <OgreRoot.h>
+#include <OgreResourceGroupManager.h>
 #include <OgreTechnique.h>
 #include <OgreTexture.h>
 #include <OgreTextureUnitState.h>
@@ -2513,6 +2514,251 @@ void TestLegacyAdditiveOverlayPassAdmission() {
   source.Discard();
 }
 
+void TestDetailLayerAuthorityAccountingAndMemoReuse() {
+  constexpr char kLayeredMaterialName[] = "LayeredRoadMaterial";
+  constexpr char kLayeredSectionKey[] = "static/road/layered-section-0";
+  constexpr char kWeightTextureName[] = "road-detail-weight.png";
+  constexpr char kAlbedoTextureName[] = "road-detail-albedo.png";
+  const std::vector<std::uint8_t> bytes = OpaqueRgbPng();
+  auto readbacks = std::make_shared<std::size_t>(0U);
+  Ogre::ResourceGroupManager &resource_groups =
+      Ogre::ResourceGroupManager::getSingleton();
+  const bool created_resource_group =
+      !resource_groups.resourceGroupExists(kGroup);
+  if (created_resource_group) {
+    resource_groups.createResourceGroup(kGroup);
+  }
+
+  Ogre14AuthenticatedTextureReceiptRegistry authenticated_registry;
+  RequireOk(InitializeOgre14AuthenticatedTextureReceiptRegistry(
+                Ogre14AuthenticatedTextureRegistryConfiguration{},
+                authenticated_registry),
+            "initialize detail-layer authenticated authority");
+  OrdinaryTrustResolver trust_resolver;
+  EmptyAuthorityProvider authority_provider;
+  authority_provider.registry = &authenticated_registry;
+  authority_provider.resolver = &trust_resolver;
+
+  Ogre14SelectedTextureSourceReceiptRegistry selected_registry;
+  RequireOk(InitializeOgre14SelectedTextureSourceRegistry({},
+                                                           selected_registry),
+            "initialize detail-layer selected registry");
+  RequireOk(AdvanceOgre14SelectedTextureSourceGroupGeneration(
+                kGroup, 1U, selected_registry),
+            "activate detail-layer selected group");
+  SelectedResolver selected_resolver;
+  selected_resolver.registry = &selected_registry;
+
+  Ogre::TexturePtr base_texture =
+      std::make_shared<TestTexture>(kTextureName, 121U, kGroup, readbacks);
+  Ogre::TexturePtr weight_texture = std::make_shared<TestTexture>(
+      kWeightTextureName, 122U, kGroup, readbacks);
+  Ogre::TexturePtr albedo_texture = std::make_shared<TestTexture>(
+      kAlbedoTextureName, 123U, kGroup, readbacks);
+  RequireOk(CommitOgre14SelectedTextureSourceReceipt(
+                BuildReceipt(*base_texture, 1U, 0U, 0x6100U, bytes),
+                selected_registry),
+            "commit detail-layer base receipt");
+  RequireOk(CommitOgre14SelectedTextureSourceReceipt(
+                BuildReceipt(*weight_texture, 1U, 0U, 0x6200U, bytes),
+                selected_registry),
+            "commit detail-layer weight receipt");
+  RequireOk(CommitOgre14SelectedTextureSourceReceipt(
+                BuildReceipt(*albedo_texture, 1U, 0U, 0x6300U, bytes),
+                selected_registry),
+            "commit detail-layer albedo receipt");
+  base_texture->load();
+  weight_texture->load();
+  albedo_texture->load();
+
+  NativeMaterial native(base_texture, 124U, kLayeredMaterialName, kGroup);
+  const std::string companion_name =
+      BuildMaterialDetailLayerCompanionName(kLayeredMaterialName);
+  Ogre::MaterialPtr companion = Ogre::MaterialManager::getSingleton().create(
+      companion_name, kGroup);
+  Ogre::Pass *const companion_pass =
+      companion->createTechnique()->createPass();
+  const auto add_detail_unit =
+      [&](const char *name, const Ogre::TexturePtr &texture,
+          bool anisotropic) {
+        Ogre::TextureUnitState *const unit =
+            companion_pass->createTextureUnitState();
+        unit->setName(name);
+        Ogre::SamplerPtr sampler = std::make_shared<Ogre::Sampler>();
+        sampler->setFiltering(anisotropic ? Ogre::FO_ANISOTROPIC
+                                          : Ogre::FO_LINEAR,
+                              anisotropic ? Ogre::FO_ANISOTROPIC
+                                          : Ogre::FO_LINEAR,
+                              anisotropic ? Ogre::FO_LINEAR
+                                          : Ogre::FO_POINT);
+        sampler->setAddressingMode(Ogre::TAM_WRAP);
+        sampler->setMipmapBias(0.0F);
+        sampler->setAnisotropy(anisotropic ? 8U : 1U);
+        sampler->setCompareEnabled(false);
+        sampler->setBorderColour(Ogre::ColourValue::Black);
+        unit->setSampler(sampler);
+        unit->setTexture(texture);
+      };
+  add_detail_unit(kMaterialDetailWeightUnitName, weight_texture, false);
+  add_detail_unit("ror_detail0", albedo_texture, true);
+  // This fixture intentionally has no RenderSystem, so the null capabilities
+  // object advertises zero texture units. Compile without OGRE's automatic
+  // fixed-function pass splitting; the companion is a declaration-only
+  // resource and remains structurally observable even though it cannot render.
+  companion->compile(false);
+  companion->load();
+
+  OgreNextDemoMaterialSource source;
+  Require(source.BindAuthenticatedTextureAuthority(trust_resolver,
+                                                   authority_provider) &&
+              source.BindOrdinarySelectedTextureSourceResolver(
+                  selected_resolver),
+          "bind detail-layer MaterialSource authorities");
+  const auto capture_input = [&]() {
+    Ogre14GraphicsSceneMaterialCaptureInput input = CaptureInput();
+    input.exact_name = kLayeredMaterialName;
+    return input;
+  };
+
+  Require(source.BeginCapture(), "begin first detail-layer capture");
+  Ogre14GraphicsSceneMaterialCaptureInput input = capture_input();
+  bool projected = false;
+  RequireOk(source.TryProject(kLayeredSectionKey, native.material, true, true,
+                              input, projected),
+            "project first detail-layer capture");
+  std::vector<GraphicsSceneAssetInput> assets = BuildPlaceholderAssets(input);
+  const std::size_t revalidations_before_apply =
+      selected_resolver.revalidate_calls;
+  RequireOk(source.Apply(assets), "apply first detail-layer capture");
+  const GraphicsSceneAssetInput *const material = FindProjectedMaterial(assets);
+  const OgreNextDemoMaterialSourceCounters first =
+      source.CurrentCaptureCounters();
+  Require(projected && material != nullptr,
+          "detail projection or projected material is absent");
+  Require(assets.size() == 7U,
+          "detail projection did not publish seven material/dependency owners");
+  Require(material->material_bindings[static_cast<std::size_t>(
+              MaterialTextureSlot::DETAIL_WEIGHT)]
+                  .texture_source_asset_id != 0U &&
+              material->material_bindings[static_cast<std::size_t>(
+                  MaterialTextureSlot::DETAIL0)]
+                  .texture_source_asset_id != 0U,
+          "detail projection did not bind weight and first albedo slots");
+  Require(selected_resolver.revalidate_calls >=
+              revalidations_before_apply + 3U,
+          "detail dependencies skipped the fresh Apply authority pass");
+  Require(first.ordinary_observed_source_decodes == 3U &&
+              first.modern_source_normalizations == 3U &&
+              first.linear_data_rgba_source_normalizations == 1U &&
+              first.linear_data_rgba_authored_mip_prefix_levels == 1U &&
+              first.linear_data_rgba_generated_mip_tail_levels == 1U &&
+              first.linear_data_rgba_normalized_output_mip_levels == 2U &&
+              first.srgb_data_alpha_source_normalizations == 1U &&
+              first.srgb_data_alpha_authored_mip_prefix_levels == 1U &&
+              first.srgb_data_alpha_generated_mip_tail_levels == 1U &&
+              first.srgb_data_alpha_normalized_output_mip_levels == 2U &&
+              first.active_normalized_texture_observations == 3U &&
+              first.active_opaque_texture_normalizations == 1U &&
+              first.active_linear_data_rgba_texture_normalizations == 1U &&
+              first.active_srgb_data_alpha_texture_normalizations == 1U &&
+              first.anisotropic_sampler_projections == 1U &&
+              first.active_anisotropic_sampler_projections == 1U &&
+              first.distinct_eligible_texture_keys == 3U &&
+              first.distinct_projected_texture_keys == 3U &&
+              first.distinct_matte_only_texture_keys == 0U,
+          "first detail capture lost policy, mip, active, or projected "
+          "accounting");
+  RequireZeroReadback(source, *readbacks);
+  source.Commit();
+
+  // The declaration memo may avoid a second decode, but not live native or
+  // selected-source authority. All three reachable textures stay active and
+  // the two detail keys remain projected rather than becoming matte-only.
+  Require(source.BeginCapture(), "begin detail-layer memo reuse");
+  input = capture_input();
+  projected = false;
+  RequireOk(source.TryProject(kLayeredSectionKey, native.material, true, true,
+                              input, projected),
+            "project detail-layer memo reuse");
+  assets = BuildPlaceholderAssets(input);
+  const std::size_t memo_revalidations_before_apply =
+      selected_resolver.revalidate_calls;
+  RequireOk(source.Apply(assets), "apply detail-layer memo reuse");
+  const OgreNextDemoMaterialSourceCounters memo =
+      source.CurrentCaptureCounters();
+  Require(projected && memo.source_cache_hits == 3U &&
+              memo.modern_source_normalizations == 0U &&
+              memo.active_texture_state_observations == 3U &&
+              memo.active_normalized_texture_observations == 3U &&
+              memo.active_linear_data_rgba_texture_normalizations == 1U &&
+              memo.active_srgb_data_alpha_texture_normalizations == 1U &&
+              memo.anisotropic_sampler_projections == 0U &&
+              memo.active_anisotropic_sampler_projections == 1U &&
+              memo.distinct_projected_texture_keys == 3U &&
+              selected_resolver.revalidate_calls >=
+                  memo_revalidations_before_apply + 3U,
+          "detail memo hit bypassed source/native revalidation or active "
+          "accounting");
+  source.Commit();
+  const OgreNextDemoMaterialSourceCounters lifetime = source.LifetimeCounters();
+  Require(lifetime.ordinary_observed_source_decodes == 3U &&
+              lifetime.source_cache_hits == 3U &&
+              lifetime.linear_data_rgba_source_normalizations == 1U &&
+              lifetime.linear_data_rgba_normalized_output_mip_levels == 2U &&
+              lifetime.srgb_data_alpha_source_normalizations == 1U &&
+              lifetime.srgb_data_alpha_normalized_output_mip_levels == 2U &&
+              lifetime.active_linear_data_rgba_texture_normalizations == 2U &&
+              lifetime.active_srgb_data_alpha_texture_normalizations == 2U &&
+              lifetime.anisotropic_sampler_projections == 1U &&
+              lifetime.active_anisotropic_sampler_projections == 2U,
+          "committed detail lifetime counters lost first-decode or memo "
+          "observations");
+
+  // Mutating a reachable detail source after TryProject but before Apply must
+  // fail the common publication authority batch and leave assets untouched.
+  Require(source.BeginCapture(), "begin detail Apply mutation gate");
+  input = capture_input();
+  projected = false;
+  RequireOk(source.TryProject(kLayeredSectionKey, native.material, true, true,
+                              input, projected),
+            "reuse detail projection before Apply mutation");
+  assets = BuildPlaceholderAssets(input);
+  const std::vector<GraphicsSceneAssetInput> before_mutation = assets;
+  auto *const mutable_weight = static_cast<TestTexture *>(weight_texture.get());
+  mutable_weight->MutateUsage(Ogre::TU_STATIC | Ogre::TU_AUTOMIPMAP);
+  const ValidationResult mutated_apply = source.Apply(assets);
+  Require(!mutated_apply &&
+              mutated_apply.code == ValidationCode::REVISION_MISMATCH &&
+              SameAssetOwners(assets, before_mutation),
+          "detail native-source mutation partially published assets");
+  mutable_weight->MutateUsage(Ogre::TU_STATIC);
+  source.Discard();
+
+  // Advancing the source generation without reissuing the detail receipts
+  // revokes their authority. Capture must reject before the frozen projection
+  // can be reused; a cached payload is never a substitute for a live receipt.
+  RequireOk(AdvanceOgre14SelectedTextureSourceGroupGeneration(
+                kGroup, 2U, selected_registry),
+            "revoke detail selected-source generation");
+  selected_resolver.generation = 2U;
+  Require(source.BeginCapture(), "begin revoked detail authority gate");
+  input = capture_input();
+  projected = false;
+  const ValidationResult revoked = source.TryProject(
+      kLayeredSectionKey, native.material, true, true, input, projected);
+  Require(!revoked && revoked.code == ValidationCode::REVISION_MISMATCH &&
+              !projected,
+          "revoked detail source authority reused a cached projection");
+  source.Discard();
+  source.Reset();
+  Ogre::MaterialManager::getSingleton().remove(companion_name);
+  companion.reset();
+  if (created_resource_group) {
+    resource_groups.destroyResourceGroup(kGroup);
+  }
+  RequireZeroReadback(source, *readbacks);
+}
+
 void TestNativeMaterialSourceLifecycle() {
   TestTexture::destruction_count = 0U;
   const std::vector<std::uint8_t> bytes = OpaqueRgbPng();
@@ -3091,6 +3337,7 @@ int main(int argc, char **argv) {
   TestManagedSpecularProjectionAndRollback();
   TestAlphaStateAndAnisotropicProjection();
   TestLegacyAdditiveOverlayPassAdmission();
+  TestDetailLayerAuthorityAccountingAndMemoReuse();
   TestNativeMaterialSourceLifecycle();
   std::cout << "OgreNext demo MaterialSource native lifecycle tests passed\n";
   return EXIT_SUCCESS;

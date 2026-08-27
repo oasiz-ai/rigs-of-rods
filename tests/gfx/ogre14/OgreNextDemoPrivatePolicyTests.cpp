@@ -1014,6 +1014,21 @@ void CheckSourceAccountingAndEligibility() {
   counters.active_linear_specular_texture_normalizations = 1U;
   counters.active_linear_data_rgba_texture_normalizations = 1U;
   counters.active_srgb_data_alpha_texture_normalizations = 1U;
+  counters.modern_source_normalizations = 5U;
+  counters.opaque_source_normalizations = 1U;
+  counters.straight_alpha_source_normalizations = 1U;
+  counters.linear_specular_source_normalizations = 1U;
+  counters.linear_data_rgba_source_normalizations = 1U;
+  counters.linear_data_rgba_authored_mip_prefix_levels = 2U;
+  counters.linear_data_rgba_generated_mip_tail_levels = 1U;
+  counters.linear_data_rgba_normalized_output_mip_levels = 3U;
+  counters.srgb_data_alpha_source_normalizations = 1U;
+  counters.srgb_data_alpha_authored_mip_prefix_levels = 1U;
+  counters.srgb_data_alpha_generated_mip_tail_levels = 2U;
+  counters.srgb_data_alpha_normalized_output_mip_levels = 3U;
+  counters.authored_mip_prefix_levels = 3U;
+  counters.generated_mip_tail_levels = 3U;
+  counters.normalized_output_mip_levels = 6U;
 
   OgreNextDemoTextureSourceCounters committed;
   Require(
@@ -1022,6 +1037,10 @@ void CheckSourceAccountingAndEligibility() {
           committed.ordinary_observed_source_decodes == 3U &&
           committed.active_linear_data_rgba_texture_normalizations == 1U &&
           committed.active_srgb_data_alpha_texture_normalizations == 1U &&
+          committed.linear_data_rgba_source_normalizations == 1U &&
+          committed.linear_data_rgba_normalized_output_mip_levels == 3U &&
+          committed.srgb_data_alpha_source_normalizations == 1U &&
+          committed.srgb_data_alpha_normalized_output_mip_levels == 3U &&
           committed.gpu_readbacks == 0U,
       "valid source-byte counters did not commit atomically");
   OgreNextDemoTextureSourceCounters hostile_increment;
@@ -1062,6 +1081,12 @@ void CheckSourceAccountingAndEligibility() {
                broken_normalization_partition, committed)
                .ok(),
           "normalized texture disappeared from the exact policy partition");
+  OgreNextDemoTextureSourceCounters broken_data_mips = counters;
+  ++broken_data_mips.linear_data_rgba_normalized_output_mip_levels;
+  Require(!AccumulateOgreNextDemoTextureSourceCounters(broken_data_mips,
+                                                       committed)
+               .ok(),
+          "linear RGBA data mip accounting escaped its exact partition");
 }
 
 void CheckExactSamplerMappingAndFingerprint() {
@@ -1239,6 +1264,10 @@ PublicationCatalogFingerprint(const FrozenPublicationCatalog &catalog) {
     append(projection.texture_key);
     append(projection.sampler_key);
     append(std::to_string(projection.material_source_id));
+    for (const auto &dependency : projection.additional_dependencies) {
+      append(dependency.first);
+      append(dependency.second);
+    }
   }
   for (const auto &texture : catalog.textures) {
     append(texture.texture_key);
@@ -1260,13 +1289,28 @@ FrozenPublicationCatalog RepresentativePublicationCatalog() {
   catalog.textures.push_back(
       {"texture/ordinary", 102U,
        OgreNextDemoTextureSourceMode::ORDINARY_OBSERVED_SOURCE_BYTES});
+  catalog.textures.push_back(
+      {"texture/detail-authenticated", 103U,
+       OgreNextDemoTextureSourceMode::AUTHENTICATED_ARCHIVE_SOURCE_BYTES});
+  catalog.textures.push_back(
+      {"texture/detail-ordinary", 104U,
+       OgreNextDemoTextureSourceMode::ORDINARY_OBSERVED_SOURCE_BYTES});
   catalog.samplers.push_back({"sampler/authenticated", 201U});
   catalog.samplers.push_back({"sampler/ordinary", 202U});
-  catalog.projections.push_back({"projection/authenticated",
-                                 "texture/authenticated",
-                                 "sampler/authenticated", 301U});
+  catalog.samplers.push_back({"sampler/detail-authenticated", 203U});
+  catalog.samplers.push_back({"sampler/detail-ordinary", 204U});
+  OgreNextDemoCachedProjectionPublicationInput authenticated;
+  authenticated.projection_key = "projection/authenticated";
+  authenticated.texture_key = "texture/authenticated";
+  authenticated.sampler_key = "sampler/authenticated";
+  authenticated.material_source_id = 301U;
+  authenticated.additional_dependencies = {
+      {"texture/detail-authenticated", "sampler/detail-authenticated"},
+      {"texture/detail-ordinary", "sampler/detail-ordinary"}};
+  catalog.projections.push_back(std::move(authenticated));
   catalog.projections.push_back(
-      {"projection/ordinary", "texture/ordinary", "sampler/ordinary", 302U});
+      {"projection/ordinary", "texture/ordinary", "sampler/ordinary", 302U,
+       {}});
   return catalog;
 }
 
@@ -1344,9 +1388,11 @@ void CheckCachedPublicationTransactionSequence() {
           frame_n.frame_root_material_source_ids ==
               std::vector<std::uint64_t>({301U, 302U}) &&
           frame_n.authenticated_texture_keys ==
-              std::vector<std::string>{"texture/authenticated"} &&
+              std::vector<std::string>{"texture/authenticated",
+                                       "texture/detail-authenticated"} &&
           frame_n.ordinary_texture_keys ==
-              std::vector<std::string>{"texture/ordinary"} &&
+              std::vector<std::string>{"texture/detail-ordinary",
+                                       "texture/ordinary"} &&
           frame_n_validator.batch_calls == 1U &&
           frame_n_validator.ordinary_batch_calls == 1U &&
           frame_n_validator.observed_texture_keys ==

@@ -431,6 +431,19 @@ struct OgreNextDemoTextureSourceCounters final {
   std::size_t lossy_material_normalizations = 0U;
   std::size_t opaque_source_normalizations = 0U;
   std::size_t straight_alpha_source_normalizations = 0U;
+  /// Decode-time lifetime partitions for the two detail-only data policies.
+  /// These are deliberately not folded into opaque, coverage-alpha, or
+  /// specular normalization: all four linear RGBA channels survive the first
+  /// policy, while the second keeps authored alpha without using it to weight
+  /// sRGB colour filtering.
+  std::size_t linear_data_rgba_source_normalizations = 0U;
+  std::size_t linear_data_rgba_authored_mip_prefix_levels = 0U;
+  std::size_t linear_data_rgba_generated_mip_tail_levels = 0U;
+  std::size_t linear_data_rgba_normalized_output_mip_levels = 0U;
+  std::size_t srgb_data_alpha_source_normalizations = 0U;
+  std::size_t srgb_data_alpha_authored_mip_prefix_levels = 0U;
+  std::size_t srgb_data_alpha_generated_mip_tail_levels = 0U;
+  std::size_t srgb_data_alpha_normalized_output_mip_levels = 0U;
   std::size_t alpha_test_material_projections = 0U;
   std::size_t straight_source_over_material_projections = 0U;
   std::size_t legacy_straight_alpha_material_projections = 0U;
@@ -655,6 +668,11 @@ struct OgreNextDemoCachedProjectionPublicationInput final {
   std::string texture_key;
   std::string sampler_key;
   std::uint64_t material_source_id = 0U;
+  /// Additional texture/sampler owners reachable through this material (for
+  /// example weighted detail slots). They participate in the same final
+  /// authority batch as the base texture; publishing them later without that
+  /// batch would create a check/use gap.
+  std::vector<std::pair<std::string, std::string>> additional_dependencies;
 };
 
 struct OgreNextDemoCachedTexturePublicationInput final {

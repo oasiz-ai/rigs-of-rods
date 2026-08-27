@@ -1934,6 +1934,8 @@ struct CapturedTexture final {
   OgreNextDemoTextureNormalizationObservation normalization_observation;
   OgreNextDemoTextureAlphaPolicy alpha_policy =
       OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE;
+  Render::Ogre14SourceTextureColorSemantic color_semantic =
+      Render::Ogre14SourceTextureColorSemantic::SRGB_COLOR;
   Render::Ogre14AuthenticatedTextureReceipt authenticated_receipt;
   AuthenticatedTextureProvenance authenticated_provenance;
   /// Separate from the stable public source-asset identity. A reload or byte
@@ -1992,7 +1994,8 @@ bool ResolveFrozenAuthenticatedTexture(
     const Render::Ogre14SourceTextureDecodeOptions options =
         metadata != nullptr
             ? BuildAuthenticatedDecodeOptions(*metadata,
-                                              captured.alpha_policy)
+                                              captured.alpha_policy,
+                                              captured.color_semantic)
                             : Render::Ogre14SourceTextureDecodeOptions{};
     AuthenticatedTextureProvenance observed;
     std::string observed_key;
@@ -2066,7 +2069,8 @@ bool ResolveFrozenOrdinaryTexture(
         resolution ? fresh.source_receipt() : nullptr;
     const Render::Ogre14SourceTextureDecodeOptions options =
         receipt != nullptr
-            ? BuildOrdinaryDecodeOptions(*receipt, captured.alpha_policy)
+            ? BuildOrdinaryDecodeOptions(*receipt, captured.alpha_policy,
+                                         captured.color_semantic)
                            : Render::Ogre14SourceTextureDecodeOptions{};
     OrdinaryTextureProvenance observed;
     std::string observed_key;
@@ -3211,6 +3215,27 @@ struct MaterialCache final {
   std::size_t retained_owner_asset_count = 0U;
 };
 
+[[nodiscard]] bool HasAnisotropicDetailSampler(
+    const CapturedDetailLayers &layers, const MaterialCache &cache) noexcept {
+  bool anisotropic = false;
+  layers.ForEachBoundSlot(
+      [&](Render::MaterialTextureSlot, const CapturedDetailSlot &slot) {
+        if (anisotropic) {
+          return;
+        }
+        const auto sampler = cache.samplers.find(slot.sampler_key);
+        if (sampler == cache.samplers.end() || !sampler->second.payload) {
+          return;
+        }
+        const auto *const descriptor =
+            std::get_if<Render::SamplerResourceDescriptor>(
+                sampler->second.payload.get());
+        anisotropic =
+            descriptor != nullptr && descriptor->anisotropy_enabled;
+      });
+  return anisotropic;
+}
+
 /// Per-texel discharge of clauses 1 and 3 of the additive-equivalence
 /// argument. `reject_function`/`reject_value` are the overlay pass's own
 /// authored alpha rejection, so this walks exactly the fragments the overlay
@@ -3299,6 +3324,9 @@ bool AuthoredTexelsProveAddedLightOnly(
 
 struct PendingNativeTextureOwner final {
   Ogre::MaterialPtr native_material;
+  bool detail_layer_owner = false;
+  std::string detail_unit_name;
+  std::string detail_declaration_identity;
   std::uintptr_t native_pass_pointer_token = 0U;
   std::uintptr_t native_unit_pointer_token = 0U;
   std::uintptr_t native_sampler_pointer_token = 0U;
@@ -3357,6 +3385,58 @@ Render::ValidationResult RevalidatePendingNativeTextureOwners(
         technique != nullptr && technique->getNumPasses() != 0U
             ? technique->getPass(0U)
             : nullptr;
+    if (owner.detail_layer_owner) {
+      Ogre::TextureUnitState *const unit =
+          pass != nullptr
+              ? pass->getTextureUnitState(owner.detail_unit_name)
+              : nullptr;
+      const Ogre::SamplerPtr sampler =
+          unit != nullptr ? unit->getSampler() : Ogre::SamplerPtr{};
+      Detail::MaterialDetailLayerDeclaration declaration;
+      Detail::MaterialDetailLayerRefusal refusal =
+          Detail::MaterialDetailLayerRefusal::ABSENT;
+      if (technique == nullptr || pass == nullptr || unit == nullptr ||
+          !sampler || owner.native_material->getNumTechniques() != 1U ||
+          technique->getNumPasses() != 1U ||
+          reinterpret_cast<std::uintptr_t>(pass) !=
+              owner.native_pass_pointer_token ||
+          reinterpret_cast<std::uintptr_t>(unit) !=
+              owner.native_unit_pointer_token ||
+          reinterpret_cast<std::uintptr_t>(sampler.get()) !=
+              owner.native_sampler_pointer_token ||
+          unit->_getTexturePtr().get() != native_texture.get() ||
+          !HasAvailableNamedTextureSource(*unit) ||
+          !MatchOgreNextDemoExactSamplerObservation(
+              owner.sampler_observation, ObserveExactSampler(*sampler)) ||
+          !Detail::ReadMaterialDetailLayerDeclaration(owner.native_material,
+                                                      declaration, refusal) ||
+          Detail::BuildMaterialDetailLayerDeclarationIdentity(declaration) !=
+              owner.detail_declaration_identity) {
+        return Failure(
+            Render::ValidationCode::REVISION_MISMATCH,
+            "ogre_next_demo.material.pending_detail_native_owner",
+            "detail declaration, TUS, sampler, or texture owner changed "
+            "before publication");
+      }
+      OgreNextDemoExactTextureObservation current;
+      Render::ValidationResult validation =
+          ObserveExactTexture(*unit, *native_texture, current);
+      if (!validation) {
+        return validation;
+      }
+      if (!MatchOgreNextDemoExactTextureObservation(owner.texture_observation,
+                                                    current) ||
+          (observed && !MatchOgreNextDemoExactTextureObservation(
+                           common_observation, current))) {
+        return Failure(
+            Render::ValidationCode::REVISION_MISMATCH,
+            "ogre_next_demo.material.pending_detail_native_texture",
+            "detail native texture provenance changed before publication");
+      }
+      common_observation = current;
+      observed = true;
+      continue;
+    }
     Ogre::TextureUnitState *const unit =
         pass != nullptr && pass->getNumTextureUnitStates() != 0U
             ? pass->getTextureUnitState(0U)
@@ -3835,35 +3915,41 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
   AppendField(resolution_key, native_material->getName());
   const auto resolved =
       pending_->cache->detail_layer_resolutions.find(resolution_key);
-  if (resolved != pending_->cache->detail_layer_resolutions.end()) {
-    layers = resolved->second.layers;
-    refusal = resolved->second.refusal;
-    declaration_identity = resolved->second.declaration_identity;
-    return true;
-  }
-  // Resolving writes textures, samplers, identities and the memo below into
-  // the structural cache. That cache is copy-on-write and still shared with
-  // the committed transaction at this point, so mutating it in place would
-  // edit committed state directly and leave the derived retained-publication
-  // caches claiming to describe a cache that no longer matches them. Every
-  // other mutation site takes this step; this one was missing it, and the
-  // result was a frozen projection whose revalidation disagreed with the
-  // publication plan built from it.
-  //
-  // Taken once per material per cache, on the resolution path only, so a
-  // steady-state frame that hits the memo never invalidates retained
-  // publication.
-  EnsurePendingCacheWritable();
+  const bool has_frozen_resolution =
+      resolved != pending_->cache->detail_layer_resolutions.end();
+  const CachedDetailLayerResolution frozen_resolution =
+      has_frozen_resolution ? resolved->second
+                            : CachedDetailLayerResolution{};
 
-  // Whatever this resolution concludes is what the material means for the
-  // life of this structural cache, success or refusal alike.
-  const auto remember = [&]() {
+  // The memo freezes declaration/output identity, not authority. Every call
+  // below re-reads the live companion and revalidates every reachable source.
+  // A memo hit therefore remains the fast no-decode path, but it can never
+  // outlive a revoked receipt or a changed native TUS/sampler/declaration.
+  const auto finish = [&]() -> bool {
+    if (has_frozen_resolution) {
+      if (frozen_resolution.refusal != refusal ||
+          frozen_resolution.declaration_identity != declaration_identity ||
+          frozen_resolution.layers.declared != layers.declared ||
+          frozen_resolution.layers.identity != layers.identity ||
+          frozen_resolution.layers.layer_count != layers.layer_count ||
+          frozen_resolution.layers.normal_layer_count !=
+              layers.normal_layer_count) {
+        failure = Failure(
+            Render::ValidationCode::REVISION_MISMATCH,
+            "ogre_next_demo.material.detail_resolution",
+            "frozen detail declaration or captured dependency changed");
+        return false;
+      }
+      return true;
+    }
+    EnsurePendingCacheWritable();
     CachedDetailLayerResolution record;
     record.layers = layers;
     record.refusal = refusal;
     record.declaration_identity = declaration_identity;
     pending_->cache->detail_layer_resolutions.insert_or_assign(
         resolution_key, std::move(record));
+    return true;
   };
 
   Ogre::MaterialPtr companion;
@@ -3874,14 +3960,12 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
             native_material->getName()),
         native_material->getGroup());
     if (!companion) {
-      remember();
-      return true;
+      return finish();
     }
     companion->load();
   } catch (...) {
     refusal = Detail::MaterialDetailLayerRefusal::COMPANION_SHAPE_UNSUPPORTED;
-    remember();
-    return true;
+    return finish();
   }
   if (!Detail::ReadMaterialDetailLayerDeclaration(companion, declaration,
                                                   refusal)) {
@@ -3891,8 +3975,7 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
     declaration_identity.push_back('\x1f');
     declaration_identity.append(
         Detail::MaterialDetailLayerRefusalToken(refusal));
-    remember();
-    return true;
+    return finish();
   }
   declaration_identity =
       Detail::BuildMaterialDetailLayerDeclarationIdentity(declaration);
@@ -3953,9 +4036,29 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
                    kOgreNextDemoStraightAlphaNormalizationPolicyVersion);
     }
     pending_->eligible_texture_keys.insert(texture_key);
+    const auto active_native =
+        pending_->active_native_texture_observations.emplace(
+            texture_key, texture_observation);
+    if (!active_native.second &&
+        !MatchOgreNextDemoExactTextureObservation(active_native.first->second,
+                                                  texture_observation)) {
+      failure = Failure(
+          Render::ValidationCode::REVISION_MISMATCH,
+          "ogre_next_demo.material.detail.active_observation",
+          "one capture observed conflicting native state for one detail "
+          "texture identity");
+      return false;
+    }
 
     auto texture = pending_->cache->textures.find(texture_key);
+    const bool texture_cache_hit =
+        texture != pending_->cache->textures.end();
     if (texture == pending_->cache->textures.end()) {
+      // A new detail source changes the structural cache. Detach before the
+      // identity/texture insertion so a failed changed declaration cannot
+      // mutate the committed cache through the shared pending pointer.
+      EnsurePendingCacheWritable();
+      texture = pending_->cache->textures.find(texture_key);
       // Layer artwork ships in whatever package the base material's content
       // does, and the CityWorld overlay that carries it is an authenticated
       // mount. Both source modes are therefore admitted, exactly as they are
@@ -3967,6 +4070,7 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
               *native_texture);
       CapturedTexture captured;
       captured.alpha_policy = alpha_policy;
+      captured.color_semantic = semantic;
       Render::ValidationResult validation = DeriveOgreNextDemoSourceId(
           kTextureIdDomain, texture_key, captured.source_id);
       if (!validation) {
@@ -4045,6 +4149,69 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
         failure = std::move(validation);
         return false;
       }
+      pending_->counters.modern_source_normalizations += 1U;
+      const std::size_t authored_mips =
+          captured.normalization_observation.authored_mip_prefix_levels;
+      const std::size_t generated_mips =
+          captured.normalization_observation.generated_mip_tail_levels;
+      const std::size_t output_mips = authored_mips + generated_mips;
+      switch (captured.normalization_observation.policy) {
+      case OgreNextDemoTextureNormalizationObservation::Policy::
+          SRGB_OPAQUE_V2:
+        pending_->counters.opaque_source_normalizations += 1U;
+        break;
+      case OgreNextDemoTextureNormalizationObservation::Policy::
+          SRGB_STRAIGHT_ALPHA_V1:
+        pending_->counters.straight_alpha_source_normalizations += 1U;
+        break;
+      case OgreNextDemoTextureNormalizationObservation::Policy::
+          LINEAR_SPECULAR_V1:
+        pending_->counters.linear_specular_source_normalizations += 1U;
+        break;
+      case OgreNextDemoTextureNormalizationObservation::Policy::
+          LINEAR_DATA_RGBA_V1:
+        pending_->counters.linear_data_rgba_source_normalizations += 1U;
+        pending_->counters.linear_data_rgba_authored_mip_prefix_levels +=
+            authored_mips;
+        pending_->counters.linear_data_rgba_generated_mip_tail_levels +=
+            generated_mips;
+        pending_->counters.linear_data_rgba_normalized_output_mip_levels +=
+            output_mips;
+        break;
+      case OgreNextDemoTextureNormalizationObservation::Policy::
+          SRGB_DATA_ALPHA_V1:
+        pending_->counters.srgb_data_alpha_source_normalizations += 1U;
+        pending_->counters.srgb_data_alpha_authored_mip_prefix_levels +=
+            authored_mips;
+        pending_->counters.srgb_data_alpha_generated_mip_tail_levels +=
+            generated_mips;
+        pending_->counters.srgb_data_alpha_normalized_output_mip_levels +=
+            output_mips;
+        break;
+      }
+      pending_->counters.authored_mip_prefix_levels += authored_mips;
+      pending_->counters.generated_mip_tail_levels += generated_mips;
+      pending_->counters.normalized_output_mip_levels += output_mips;
+      pending_->counters.legacy_native_additional_mip_levels +=
+          captured.exact_texture_observation.additional_mip_count;
+      if (captured.exact_texture_observation.texture_unit_gamma != 1.0F) {
+        pending_->counters.legacy_texture_unit_gamma_nonunit_observations +=
+            1U;
+      }
+      if (captured.exact_texture_observation.texture_gamma != 1.0F) {
+        pending_->counters.legacy_texture_gamma_nonunit_observations += 1U;
+      }
+      if (!captured.exact_texture_observation.texture_unit_hardware_gamma) {
+        pending_->counters
+            .legacy_texture_unit_hardware_gamma_off_observations += 1U;
+      }
+      if (!captured.exact_texture_observation.texture_hardware_gamma) {
+        pending_->counters.legacy_hardware_gamma_off_observations += 1U;
+      }
+      if ((captured.exact_texture_observation.usage_token &
+           static_cast<std::uint32_t>(Ogre::TU_AUTOMIPMAP)) != 0U) {
+        pending_->counters.legacy_automipmap_observations += 1U;
+      }
       std::string identity(kTextureIdDomain);
       identity.push_back('\0');
       identity.append(texture_key);
@@ -4061,6 +4228,38 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
                     .first;
     }
 
+    if (texture->second.native_state_count != native_texture->getStateCount() ||
+        !MatchOgreNextDemoExactTextureObservation(
+            texture->second.exact_texture_observation,
+            texture_observation)) {
+      failure = Failure(
+          Render::ValidationCode::REVISION_MISMATCH,
+          "ogre_next_demo.material.detail.texture_cache",
+          "cached detail loaded-texture identity changed");
+      return false;
+    }
+    const auto active_normalization =
+        pending_->active_normalization_observations.emplace(
+            texture_key, texture->second.normalization_observation);
+    if (!active_normalization.second &&
+        (active_normalization.first->second.policy !=
+             texture->second.normalization_observation.policy ||
+         active_normalization.first->second.policy_version !=
+             texture->second.normalization_observation.policy_version ||
+         active_normalization.first->second.authored_mip_prefix_levels !=
+             texture->second.normalization_observation
+                 .authored_mip_prefix_levels ||
+         active_normalization.first->second.generated_mip_tail_levels !=
+             texture->second.normalization_observation
+                 .generated_mip_tail_levels)) {
+      failure = Failure(
+          Render::ValidationCode::REVISION_MISMATCH,
+          "ogre_next_demo.material.detail.active_normalization",
+          "one capture observed conflicting normalization for one detail "
+          "texture identity");
+      return false;
+    }
+
     const Ogre::SamplerPtr native_sampler = unit->getSampler();
     if (!native_sampler) {
       refusal = Detail::MaterialDetailLayerRefusal::UNIT_TEXTURE_UNSUPPORTED;
@@ -4068,10 +4267,156 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
     }
     const OgreNextDemoExactSamplerObservation sampler_observation =
         ObserveExactSampler(*native_sampler);
+    PendingNativeTextureOwner detail_owner;
+    detail_owner.native_material = companion;
+    detail_owner.detail_layer_owner = true;
+    detail_owner.detail_unit_name = std::string(unit_name);
+    detail_owner.detail_declaration_identity = declaration_identity;
+    detail_owner.native_pass_pointer_token =
+        reinterpret_cast<std::uintptr_t>(companion_pass);
+    detail_owner.native_unit_pointer_token =
+        reinterpret_cast<std::uintptr_t>(unit);
+    detail_owner.native_sampler_pointer_token =
+        reinterpret_cast<std::uintptr_t>(native_sampler.get());
+    detail_owner.sampler_observation = sampler_observation;
+    detail_owner.texture_observation = texture_observation;
+    const auto append_detail_owner =
+        [&detail_owner](std::vector<PendingNativeTextureOwner> &owners) {
+          const auto existing = std::find_if(
+              owners.begin(), owners.end(), [&](const auto &owner) {
+                return owner.native_unit_pointer_token ==
+                       detail_owner.native_unit_pointer_token;
+              });
+          if (existing == owners.end()) {
+            owners.push_back(detail_owner);
+          } else {
+            *existing = detail_owner;
+          }
+        };
+    if (texture_resolver_ == nullptr) {
+      failure = Failure(Render::ValidationCode::MISSING_REFERENCE,
+                        "ogre_next_demo.material.detail.resolver",
+                        "detail cache has no bound texture resolver");
+      return false;
+    }
+    if (IsOgreNextDemoAuthenticatedTextureSourceMode(texture->second.source)) {
+      const bool authenticated_source_required =
+          texture_resolver_->RequiresAuthenticatedTextureSource(
+              *native_texture);
+      Render::Ogre14AuthenticatedTextureResolution fresh;
+      const bool immutable_receipt_matches =
+          authenticated_source_required &&
+          ResolveFrozenAuthenticatedTexture(
+              *native_texture, *texture_resolver_, texture->second,
+              texture_observation, &fresh);
+      const Render::ValidationResult fresh_result =
+          immutable_receipt_matches
+              ? Render::ValidationResult::Success()
+              : Failure(
+                    Render::ValidationCode::REVISION_MISMATCH,
+                    "ogre_next_demo.material.detail.authenticated_revalidation",
+                    "cached authenticated detail source provenance or "
+                    "authority changed");
+      Render::ValidationResult authority =
+          ValidateOgreNextDemoCachedTextureSourceAuthority(
+              texture->second.source, true, authenticated_source_required,
+              authenticated_source_required, fresh_result,
+              immutable_receipt_matches);
+      if (!authority) {
+        failure = std::move(authority);
+        return false;
+      }
+      auto pending =
+          pending_->authenticated_texture_observations.find(texture_key);
+      if (pending == pending_->authenticated_texture_observations.end()) {
+        PendingAuthenticatedTextureObservation observation;
+        observation.native_texture = native_texture;
+        observation.resolution = std::move(fresh);
+        observation.native_owners.push_back(std::move(detail_owner));
+        pending_->authenticated_texture_observations.emplace(
+            texture_key, std::move(observation));
+      } else {
+        if (pending->second.native_texture.get() != native_texture.get()) {
+          failure = Failure(
+              Render::ValidationCode::REVISION_MISMATCH,
+              "ogre_next_demo.material.detail.authenticated_pending_texture",
+              "one capture observed two native detail textures for one "
+              "frozen source identity");
+          return false;
+        }
+        pending->second.resolution = std::move(fresh);
+        append_detail_owner(pending->second.native_owners);
+      }
+    } else if (texture->second.source ==
+               OgreNextDemoTextureSourceMode::ORDINARY_OBSERVED_SOURCE_BYTES) {
+      const bool ordinary_source_required =
+          !texture_resolver_->RequiresAuthenticatedTextureSource(
+              *native_texture);
+      Render::Ogre14SelectedTextureSourceResolution fresh;
+      const bool immutable_receipt_matches =
+          ordinary_source_required &&
+          ResolveFrozenOrdinaryTexture(
+              *native_texture, *ordinary_texture_source_resolver_,
+              texture->second, texture_observation, &fresh);
+      const Render::ValidationResult fresh_result =
+          immutable_receipt_matches
+              ? Render::ValidationResult::Success()
+              : Failure(
+                    Render::ValidationCode::REVISION_MISMATCH,
+                    "ogre_next_demo.material.detail.ordinary_revalidation",
+                    "cached ordinary detail source provenance or authority "
+                    "changed");
+      Render::ValidationResult authority =
+          ValidateOgreNextDemoCachedTextureSourceAuthority(
+              texture->second.source, true, ordinary_source_required,
+              ordinary_source_required, fresh_result,
+              immutable_receipt_matches);
+      if (!authority) {
+        failure = std::move(authority);
+        return false;
+      }
+      auto pending = pending_->ordinary_texture_observations.find(texture_key);
+      if (pending == pending_->ordinary_texture_observations.end()) {
+        PendingOrdinaryTextureObservation observation;
+        observation.native_texture = native_texture;
+        observation.resolution = std::move(fresh);
+        observation.native_owners.push_back(std::move(detail_owner));
+        pending_->ordinary_texture_observations.emplace(
+            texture_key, std::move(observation));
+      } else {
+        if (pending->second.native_texture.get() != native_texture.get()) {
+          failure = Failure(
+              Render::ValidationCode::REVISION_MISMATCH,
+              "ogre_next_demo.material.detail.ordinary_pending_texture",
+              "one capture observed two native detail textures for one "
+              "frozen source identity");
+          return false;
+        }
+        pending->second.resolution = std::move(fresh);
+        append_detail_owner(pending->second.native_owners);
+      }
+    } else {
+      failure = Failure(Render::ValidationCode::INVALID_ENUM,
+                        "ogre_next_demo.material.detail.texture_cache_mode",
+                        "cached detail texture has an invalid source mode");
+      return false;
+    }
+    if (texture_cache_hit &&
+        pending_->source_cache_hits.emplace(texture_key).second) {
+      Render::ValidationResult cache_hit =
+          RecordOgreNextDemoTextureSourceCacheHit(pending_->counters);
+      if (!cache_hit) {
+        failure = std::move(cache_hit);
+        return false;
+      }
+    }
     std::string sampler_key = texture_key;
     AppendExactSamplerObservation(sampler_key, sampler_observation);
     auto sampler = pending_->cache->samplers.find(sampler_key);
     if (sampler == pending_->cache->samplers.end()) {
+      EnsurePendingCacheWritable();
+      texture = pending_->cache->textures.find(texture_key);
+      sampler = pending_->cache->samplers.find(sampler_key);
       CapturedSampler captured_sampler;
       Render::ValidationResult validation = DeriveOgreNextDemoSourceId(
           kSamplerIdDomain, sampler_key, captured_sampler.source_id);
@@ -4115,8 +4460,7 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
                     Render::Ogre14SourceTextureColorSemantic::LINEAR_DATA,
                     OgreNextDemoTextureAlphaPolicy::PRESERVE_DATA,
                     candidate.weight)) {
-    remember();
-    return true;
+    return failure ? finish() : false;
   }
 
   std::size_t admitted = 0U;
@@ -4146,8 +4490,7 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
                         Render::Ogre14SourceTextureColorSemantic::SRGB_COLOR,
                         OgreNextDemoTextureAlphaPolicy::PRESERVE_DATA,
                         candidate.albedo[layer])) {
-        remember();
-        return true;
+        return failure ? finish() : false;
       }
     }
     if (kTier.detail_normals && !request.normal_texture_name.empty()) {
@@ -4158,8 +4501,7 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
                         Render::Ogre14SourceTextureColorSemantic::LINEAR_DATA,
                         OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE,
                         candidate.normal[layer])) {
-        remember();
-        return true;
+        return failure ? finish() : false;
       }
       ++candidate.normal_layer_count;
     }
@@ -4172,8 +4514,7 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
   }
   if (admitted == 0U) {
     refusal = Detail::MaterialDetailLayerRefusal::NO_LAYER_DECLARED;
-    remember();
-    return true;
+    return finish();
   }
   candidate.layer_count = admitted;
 
@@ -4202,8 +4543,7 @@ bool OgreNextDemoMaterialSource::CaptureDetailLayers(
   candidate.declared = true;
   refusal = Detail::MaterialDetailLayerRefusal::NONE;
   layers = std::move(candidate);
-  remember();
-  return true;
+  return finish();
 }
 
 bool OgreNextDemoMaterialSource::TryProjectCurrent(
@@ -5608,7 +5948,8 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     if (IsCanonicalAnisotropicSampler(sampler_observation) ||
         (managed_specular != nullptr &&
          IsCanonicalAnisotropicSampler(
-             managed_specular_native.sampler_observation))) {
+             managed_specular_native.sampler_observation)) ||
+        HasAnisotropicDetailSampler(detail_layers, *pending_->cache)) {
       pending_->counters.anisotropic_sampler_projections += 1U;
     }
     projection = pending_->cache->projections
@@ -5813,6 +6154,10 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
 
   pending_->used_projections.insert(projection_key);
   pending_->projected_texture_keys.insert(texture_key);
+  projection->second.detail_layers.ForEachBoundSlot(
+      [&](Render::MaterialTextureSlot, const CapturedDetailSlot &bound) {
+        pending_->projected_texture_keys.insert(bound.texture_key);
+      });
   input.exact_resource_group = kMaterialGroup;
   input.exact_name = projection->second.exact_name;
   input.pass_count = 1U;
@@ -6261,6 +6606,12 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
         input.texture_key = projection.second.texture_key;
         input.sampler_key = projection.second.sampler_key;
         input.material_source_id = projection.second.material_source_id;
+        projection.second.detail_layers.ForEachBoundSlot(
+            [&](Render::MaterialTextureSlot,
+                const CapturedDetailSlot &bound) {
+              input.additional_dependencies.emplace_back(
+                  bound.texture_key, bound.sampler_key);
+            });
         cached_projection_publications.push_back(std::move(input));
       }
       for (const auto &texture : pending_->cache->textures) {
@@ -7084,7 +7435,9 @@ OgreNextDemoMaterialSource::CurrentCaptureCounters() const noexcept {
             projection->second.sampler_observation) ||
         (!projection->second.managed_specular_sampler_key.empty() &&
          IsCanonicalAnisotropicSampler(
-             projection->second.managed_specular_sampler_observation))) {
+             projection->second.managed_specular_sampler_observation)) ||
+        HasAnisotropicDetailSampler(projection->second.detail_layers,
+                                    *pending_->cache)) {
       ++counters.active_anisotropic_sampler_projections;
     }
   }
