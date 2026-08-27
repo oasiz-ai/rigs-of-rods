@@ -2068,7 +2068,12 @@ else ()
                 if (EXISTS "${_ror_legacy_linux_elf}"
                         AND NOT IS_DIRECTORY "${_ror_legacy_linux_elf}"
                         AND NOT IS_SYMLINK "${_ror_legacy_linux_elf}")
-                    file(RPATH_REMOVE FILE "${_ror_legacy_linux_elf}")
+                    file(READ "${_ror_legacy_linux_elf}"
+                        _ror_legacy_linux_elf_magic
+                        OFFSET 0 LIMIT 4 HEX)
+                    if (_ror_legacy_linux_elf_magic STREQUAL "7f454c46")
+                        file(RPATH_REMOVE FILE "${_ror_legacy_linux_elf}")
+                    endif ()
                 endif ()
             endforeach ()
         ]=])

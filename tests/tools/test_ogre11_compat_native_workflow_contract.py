@@ -203,6 +203,13 @@ class Ogre11CompatibilityWorkflowContractTests(unittest.TestCase):
         self.assertIn(
             '"${_ror_legacy_linux_install_root}/RoR"', self.main_cmake
         )
+        self.assertIn(
+            'file(READ "${_ror_legacy_linux_elf}"', self.main_cmake
+        )
+        self.assertIn(
+            '_ror_legacy_linux_elf_magic STREQUAL "7f454c46"',
+            self.main_cmake,
+        )
 
     def test_success_and_failure_artifacts_cannot_be_confused_with_product(self) -> None:
         text = self.workflow
