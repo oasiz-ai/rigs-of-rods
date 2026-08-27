@@ -1420,6 +1420,14 @@ void AppContext::ShutDownRTShaderSystem()
     Ogre::RTShader::ShaderGenerator::destroy();
     m_shader_generator = nullptr;
 }
+#else
+size_t AppContext::PrewarmRTShaderTechniques()
+{
+    // The Ogre 1.11 compatibility renderer does not install the Ogre 14
+    // RTShader generator/listener used by the hidden resource host. Preserve
+    // the common terrain-loading call as an explicit no-op on that lane.
+    return 0U;
+}
 #endif
 
 Ogre::RenderWindow* AppContext::CreateCustomRenderWindow(std::string const& window_name, int width, int height)
