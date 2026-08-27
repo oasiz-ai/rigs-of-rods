@@ -5436,6 +5436,16 @@ void ContentManager::InitModCache(CacheValidity validity)
 
 Ogre::DataStreamPtr ContentManager::resourceLoading(const Ogre::String& name, const Ogre::String& group, Ogre::Resource* resource)
 {
+#if OGRE_VERSION_MAJOR < 14
+    // Authenticated archive, material-script, and texture authority is an
+    // OGRE 14 ingestion boundary. The Ogre 1.11 compatibility application has
+    // none of that state; returning an empty stream preserves ResourceGroupManager's
+    // ordinary lookup without pretending the authenticated path is available.
+    (void)name;
+    (void)group;
+    (void)resource;
+    return Ogre::DataStreamPtr();
+#else
 #if OGRE_VERSION_MAJOR >= 14
     this->RequireAuthenticatedResourceThread(
         "ContentManager::resourceLoading");
@@ -6890,6 +6900,7 @@ Ogre::DataStreamPtr ContentManager::resourceLoading(const Ogre::String& name, co
 #else
     (void)resource;
     return Ogre::DataStreamPtr();
+#endif
 #endif
 }
 
