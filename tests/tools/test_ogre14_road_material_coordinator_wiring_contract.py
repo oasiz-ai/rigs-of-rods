@@ -124,7 +124,7 @@ class RoadMaterialCoordinatorWiringTests(unittest.TestCase):
         body = terrain[start : start + 4200]
         for token in (
             '"road2", "MaterialsRG"',
-            "cityworld_road2_basecolor.png",
+            "cityworld_road2_basecolor.dds",
             "hwGammaCorrection:",
             "setHardwareGammaEnabled(true)",
             "setAmbient",
@@ -133,6 +133,7 @@ class RoadMaterialCoordinatorWiringTests(unittest.TestCase):
             "setShininess(0.0f)",
         ):
             self.assertIn(token, body, token)
+        self.assertNotIn("cityworld_road2_basecolor.png", body)
         # Preparation precedes road finalization so every finalized snapshot
         # observes the canonical state.
         prepare_call = terrain.index(

@@ -18,7 +18,7 @@ CONTRACT_MODULE = (
 STAGER = REPOSITORY_ROOT / "cmake" / "linux" / "StageLinuxRuntime.cmake"
 SOURCE_CMAKE = REPOSITORY_ROOT / "source" / "main" / "CMakeLists.txt"
 PLATFORM_MODULE = REPOSITORY_ROOT / "cmake" / "Ogre14Platform.cmake"
-LEGACY_LAUNCHER = REPOSITORY_ROOT / "tools" / "linux" / "RunRoR"
+RUN_ROR_LAUNCHER = REPOSITORY_ROOT / "tools" / "linux" / "RunRoR"
 OGRE14_LAUNCHER = (
     REPOSITORY_ROOT / "tools" / "linux" / "RunRoR-ogre14"
 )
@@ -883,7 +883,7 @@ class LinuxOgre14RuntimeContractTests(unittest.TestCase):
             stager,
         )
 
-        legacy_install_contract = (
+        standard_install_contract = (
             '        set(PLUGINS_FOLDER "lib")\n'
             "        configure_file(plugins.cfg.in "
             "${CMAKE_CURRENT_BINARY_DIR}/plugins-install.cfg)\n"
@@ -899,12 +899,30 @@ class LinuxOgre14RuntimeContractTests(unittest.TestCase):
             "                file(INSTALL \\${files} DESTINATION "
             "\\${CMAKE_INSTALL_PREFIX}/lib FOLLOW_SYMLINK_CHAIN)\")\n"
         )
-        self.assertIn(legacy_install_contract, source)
-        self.assertEqual(
-            LEGACY_LAUNCHER.read_text(encoding="utf-8"),
+        self.assertIn(standard_install_contract, source)
+        expected_launcher = (
             "#!/bin/sh\n"
-            "export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:./lib/\n"
-            './RoR "$@"\n',
+            "\n"
+            "ror_launcher_dir=$(\n"
+            "    CDPATH='' cd -P \"$(dirname \"$0\")\" 2>/dev/null && pwd -P\n"
+            ") || exit 1\n"
+            "\n"
+            'if [ -n "${LD_LIBRARY_PATH:-}" ]; then\n'
+            '    LD_LIBRARY_PATH="${ror_launcher_dir}/lib:${LD_LIBRARY_PATH}"\n'
+            "else\n"
+            '    LD_LIBRARY_PATH="${ror_launcher_dir}/lib"\n'
+            "fi\n"
+            "export LD_LIBRARY_PATH\n"
+            "\n"
+            'exec "${ror_launcher_dir}/RoR" "$@"\n'
+        )
+        self.assertEqual(
+            RUN_ROR_LAUNCHER.read_text(encoding="utf-8"),
+            expected_launcher,
+        )
+        self.assertEqual(
+            OGRE14_LAUNCHER.read_text(encoding="utf-8"),
+            expected_launcher,
         )
 
     def test_ogre14_launcher_is_cwd_independent_and_preserves_arguments(
