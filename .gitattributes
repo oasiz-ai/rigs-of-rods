@@ -76,6 +76,13 @@ tests/fixtures/nicemetal_runtime/** text eol=lf
 # SHA-256. Keep that profile byte-identical on Windows and POSIX checkouts.
 tests/fixtures/beamng/jbeam_inter_actor_collision/fixture-profile.json text eol=lf
 
+# The Wheel2 qualification inventory binds these authored source bytes across
+# Windows and POSIX checkouts.
+resources/scripts/example_jbeam_wheel2_spawn.as text eol=lf
+tests/fixtures/beamng/jbeam_wheel2_spawn/** text eol=lf
+tools/run_jbeam_wheel2_spawn.py text eol=lf
+tests/tools/test_run_jbeam_wheel2_spawn.py text eol=lf
+
 # OGRE-Next dependency, patch, and shader-license contracts are verified by
 # exact byte hashes. Keep the isolated probe identical on every checkout.
 cmake/RendererLauncherPackageConfig.cmake text eol=lf

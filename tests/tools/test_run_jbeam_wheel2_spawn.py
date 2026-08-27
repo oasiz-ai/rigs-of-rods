@@ -7,8 +7,10 @@ import copy
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import shutil
+import stat
 import sys
 import tempfile
 import unittest
@@ -173,6 +175,23 @@ def engine_log(archive_sha256: str) -> str:
 
 
 class JBeamWheel2SpawnTests(unittest.TestCase):
+    def test_direct_identity_uses_stable_windows_path_metadata(self) -> None:
+        mode = stat.S_IFREG | 0o600
+        first = os.stat_result((mode, 101, 7, 1, 0, 0, 12, 1, 2, 3))
+        same_windows_path = os.stat_result(
+            (mode, 202, 7, 1, 0, 0, 12, 1, 2, 3)
+        )
+        self.assertTrue(
+            WHEEL2._direct_path_snapshot_matches(
+                first, same_windows_path, "nt"
+            )
+        )
+        self.assertFalse(
+            WHEEL2._direct_path_snapshot_matches(
+                first, same_windows_path, "posix"
+            )
+        )
+
     def test_fixture_profile_matches_exact_sources_and_bounded_claims(self) -> None:
         profile, profile_bytes, jbeam, script = WHEEL2.read_profile(
             REPOSITORY_ROOT
