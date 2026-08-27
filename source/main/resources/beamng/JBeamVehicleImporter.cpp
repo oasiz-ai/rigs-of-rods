@@ -74,6 +74,164 @@ bool HasJBeamSuffix(const std::string& path)
         path.compare(path.size() - SUFFIX_SIZE, SUFFIX_SIZE, SUFFIX) == 0;
 }
 
+bool HasConfigurationSuffix(const std::string& path)
+{
+    constexpr char SUFFIX[] = ".pc";
+    constexpr std::size_t SUFFIX_SIZE = sizeof(SUFFIX) - 1U;
+    return path.size() > SUFFIX_SIZE &&
+        path.compare(path.size() - SUFFIX_SIZE, SUFFIX_SIZE, SUFFIX) == 0;
+}
+
+bool IsCanonicalConfigurationPath(const std::string& path)
+{
+    if (!HasConfigurationSuffix(path) || path.empty() ||
+        path.front() == '/' || path.back() == '/')
+    {
+        return false;
+    }
+    std::size_t component_begin = 0U;
+    for (std::size_t i = 0U; i <= path.size(); ++i)
+    {
+        if (i != path.size())
+        {
+            const unsigned char byte =
+                static_cast<unsigned char>(path[i]);
+            if (byte == 0U || byte < 0x20U || byte == 0x7fU ||
+                path[i] == '\\')
+            {
+                return false;
+            }
+            if (path[i] != '/')
+            {
+                continue;
+            }
+        }
+        const std::size_t component_size = i - component_begin;
+        if (component_size == 0U ||
+            (component_size == 1U && path[component_begin] == '.') ||
+            (component_size == 2U && path[component_begin] == '.' &&
+             path[component_begin + 1U] == '.'))
+        {
+            return false;
+        }
+        component_begin = i + 1U;
+    }
+    return true;
+}
+
+std::string DeriveVehicleDirectoryRoot(const std::string& package_path)
+{
+    constexpr char VEHICLES_PREFIX[] = "vehicles/";
+    constexpr std::size_t VEHICLES_PREFIX_SIZE =
+        sizeof(VEHICLES_PREFIX) - 1U;
+    if (package_path.size() <= VEHICLES_PREFIX_SIZE ||
+        package_path.compare(
+            0U,
+            VEHICLES_PREFIX_SIZE,
+            VEHICLES_PREFIX) != 0)
+    {
+        return std::string();
+    }
+    const std::size_t vehicle_end =
+        package_path.find('/', VEHICLES_PREFIX_SIZE);
+    if (vehicle_end == std::string::npos ||
+        vehicle_end == VEHICLES_PREFIX_SIZE)
+    {
+        return std::string();
+    }
+    return package_path.substr(0U, vehicle_end + 1U);
+}
+
+bool SharesVehicleDirectoryRoot(
+    const std::string& configuration_path,
+    const std::string& vehicle_directory_root)
+{
+    return !vehicle_directory_root.empty() &&
+        configuration_path.size() > vehicle_directory_root.size() &&
+        configuration_path.compare(
+            0U,
+            vehicle_directory_root.size(),
+            vehicle_directory_root) == 0;
+}
+
+void AppendLengthPrefixed(
+    std::ostringstream& output,
+    const std::string& value)
+{
+    output << value.size() << ':' << value;
+}
+
+bool AppendCanonicalConfigurationValue(
+    std::ostringstream& output,
+    const JBeamValue& value)
+{
+    switch (value.type)
+    {
+    case JBeamValueType::BOOLEAN:
+        output << (value.boolean_value ? "b1" : "b0");
+        return true;
+    case JBeamValueType::NUMBER:
+        output << 'd';
+        AppendLengthPrefixed(output, value.scalar_text);
+        return true;
+    case JBeamValueType::STRING:
+        output << 's';
+        AppendLengthPrefixed(output, value.scalar_text);
+        return true;
+    case JBeamValueType::NULL_VALUE:
+    case JBeamValueType::ARRAY:
+    case JBeamValueType::OBJECT:
+        return false;
+    }
+    return false;
+}
+
+std::string SerializeCanonicalResolveRequest(
+    const JBeamResolveRequest& request)
+{
+    std::ostringstream output;
+    output << "ror-beamng-resolve-request-v1\nroot\t";
+    AppendLengthPrefixed(output, request.root_part_name);
+    output << "\nselections\t" << request.part_selections.size() << '\n';
+    for (const JBeamPartSelection& selection : request.part_selections)
+    {
+        output << "Q\t";
+        AppendLengthPrefixed(output, selection.slot_name);
+        output << '\t';
+        AppendLengthPrefixed(output, selection.part_name);
+        output << '\n';
+    }
+    output << "variables\t" << request.variables.size() << '\n';
+    for (const JBeamVariableAssignment& variable : request.variables)
+    {
+        output << "V\t";
+        AppendLengthPrefixed(output, variable.name);
+        output << '\t';
+        if (!AppendCanonicalConfigurationValue(output, variable.value))
+        {
+            return std::string();
+        }
+        output << '\n';
+    }
+    return output.str();
+}
+
+bool IsConfigurationDocumentSubset(const JBeamValue& configuration)
+{
+    if (configuration.type != JBeamValueType::OBJECT)
+    {
+        return false;
+    }
+    for (const JBeamObjectField& field : configuration.object_fields)
+    {
+        if (field.key != "parts" && field.key != "vars")
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool HasAsciiCaseInsensitiveSuffix(
     const std::string& path,
     const char* suffix)
@@ -250,7 +408,8 @@ struct ParsedPackage
 
 ParsedPackage ParsePackage(
     const TerrainBundleAuthenticatedArchiveSnapshot& snapshot,
-    const JBeamVehicleImportLimits& limits)
+    const JBeamVehicleImportLimits& limits,
+    ZipArchiveIndex* authenticated_index = nullptr)
 {
     ParsedPackage result;
     if (!snapshot.initialized() || snapshot.bytes() == nullptr ||
@@ -268,6 +427,10 @@ ParsedPackage ParsePackage(
         result.detail = std::string("ZIP index rejected: ") +
             ZipArchiveIndexErrorCodeToString(archive.error.code);
         return result;
+    }
+    if (authenticated_index != nullptr)
+    {
+        *authenticated_index = archive.index;
     }
 
     for (const ZipArchiveEntry& entry : archive.index.entries)
@@ -408,6 +571,52 @@ bool ValidateActiveSections(
     return true;
 }
 
+bool ValidateExplicitSelections(
+    const std::shared_ptr<JBeamResolvedPartNode>& node,
+    std::string& detail)
+{
+    if (!node)
+    {
+        detail = "Configured resolved part tree contains a null node";
+        return false;
+    }
+    for (const JBeamResolvedSlot& slot : node->slots)
+    {
+        if (slot.explicitly_selected &&
+            slot.status != JBeamResolvedSlotStatus::RESOLVED &&
+            !(slot.selected_part.empty() &&
+              slot.status == JBeamResolvedSlotStatus::EMPTY))
+        {
+            detail = "Explicit configuration selection for slot '" +
+                slot.definition.name + "' did not resolve exactly";
+            return false;
+        }
+        if (slot.child &&
+            !ValidateExplicitSelections(slot.child, detail))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ValidateConfiguredGraph(
+    const JBeamResolvedGraph& graph,
+    std::string& detail)
+{
+    for (const JBeamResolveDiagnostic& diagnostic : graph.diagnostics)
+    {
+        if (diagnostic.code ==
+            JBeamResolveDiagnosticCode::UNUSED_PART_SELECTION)
+        {
+            detail = "Explicit configuration selection did not match a "
+                "resolved slot";
+            return false;
+        }
+    }
+    return ValidateExplicitSelections(graph.root, detail);
+}
+
 std::vector<JBeamVehicleCandidate> MainCandidates(
     const JBeamPackageIndex& index)
 {
@@ -442,15 +651,290 @@ std::vector<JBeamVehicleCandidate> MainCandidates(
     return candidates;
 }
 
+struct ParsedConfiguration
+{
+    JBeamVehicleImportCode code =
+        JBeamVehicleImportCode::CONFIGURATION_PATH_REJECTED;
+    std::string detail;
+    std::string configuration_sha256;
+    std::string resolve_request_sha256;
+    JBeamResolveRequest request;
+};
+
+ParsedConfiguration ParseExplicitConfiguration(
+    const TerrainBundleAuthenticatedArchiveSnapshot& snapshot,
+    const ZipArchiveIndex& archive,
+    const std::string& configuration_path,
+    const std::string& vehicle_directory_root,
+    const std::string& root_part_name,
+    const JBeamVehicleImportLimits& limits)
+{
+    ParsedConfiguration result;
+    if (!IsCanonicalConfigurationPath(configuration_path))
+    {
+        result.detail =
+            "Configuration path must be one exact canonical lowercase .pc "
+            "archive member";
+        return result;
+    }
+    if (!SharesVehicleDirectoryRoot(
+            configuration_path, vehicle_directory_root))
+    {
+        result.detail =
+            "Configuration path must remain under the selected main "
+            "part's exact vehicles/<vehicle>/ directory root";
+        return result;
+    }
+
+    const ZipArchiveEntry* entry = nullptr;
+    for (const ZipArchiveEntry& candidate : archive.entries)
+    {
+        if (candidate.path != configuration_path)
+        {
+            continue;
+        }
+        if (entry != nullptr)
+        {
+            result.code =
+                JBeamVehicleImportCode::CONFIGURATION_PATH_REJECTED;
+            result.detail = "Configuration path is not unique";
+            return result;
+        }
+        entry = &candidate;
+    }
+    if (entry == nullptr)
+    {
+        result.code =
+            JBeamVehicleImportCode::CONFIGURATION_MEMBER_NOT_FOUND;
+        result.detail =
+            "Requested configuration is not an exact archive member";
+        return result;
+    }
+
+    if (limits.max_configuration_bytes == 0U ||
+        entry->expanded_size > limits.max_configuration_bytes)
+    {
+        result.code =
+            JBeamVehicleImportCode::CONFIGURATION_MEMBER_DECODE_REJECTED;
+        result.detail = "Configuration member exceeds its byte limit";
+        return result;
+    }
+    JBeamVehicleImportLimits configuration_limits = limits;
+    configuration_limits.max_member_bytes = std::min(
+        limits.max_member_bytes, limits.max_configuration_bytes);
+    std::string decoded;
+    if (!DecodeMember(
+            snapshot,
+            *entry,
+            configuration_limits,
+            decoded,
+            result.detail))
+    {
+        result.code =
+            JBeamVehicleImportCode::CONFIGURATION_MEMBER_DECODE_REJECTED;
+        result.detail = configuration_path + ": " + result.detail;
+        return result;
+    }
+    result.configuration_sha256 = Sha256(decoded);
+    if (result.configuration_sha256.empty())
+    {
+        result.code = JBeamVehicleImportCode::INTERNAL_FAILURE;
+        result.detail = "Could not hash exact configuration bytes";
+        return result;
+    }
+
+    const JBeamParseResult parsed = ParseJBeam(decoded, configuration_path);
+    if (!parsed.IsValid())
+    {
+        result.code = JBeamVehicleImportCode::CONFIGURATION_PARSE_REJECTED;
+        result.detail = "Explicit .pc relaxed-JBeam parse rejected";
+        return result;
+    }
+    if (!IsConfigurationDocumentSubset(parsed.root))
+    {
+        result.code =
+            JBeamVehicleImportCode::CONFIGURATION_REQUEST_REJECTED;
+        result.detail =
+            "Explicit .pc contains content outside inert parts/vars data";
+        return result;
+    }
+    const JBeamConfigurationResult configuration =
+        ParseJBeamConfiguration(parsed.root);
+    if (!configuration.IsValid())
+    {
+        result.code =
+            JBeamVehicleImportCode::CONFIGURATION_REQUEST_REJECTED;
+        result.detail = "Explicit .pc parts/vars request rejected";
+        return result;
+    }
+    result.request = configuration.request;
+    result.request.root_part_name = root_part_name;
+    const std::string canonical_request =
+        SerializeCanonicalResolveRequest(result.request);
+    result.resolve_request_sha256 = Sha256(canonical_request);
+    if (canonical_request.empty() || result.resolve_request_sha256.empty())
+    {
+        result.code = JBeamVehicleImportCode::INTERNAL_FAILURE;
+        result.detail = "Could not hash canonical resolve request";
+        return result;
+    }
+    result.code = JBeamVehicleImportCode::ADMITTED;
+    return result;
+}
+
+struct PreparedVehicleImport
+{
+    JBeamVehicleImportCode code =
+        JBeamVehicleImportCode::INVALID_ARCHIVE_AUTHORITY;
+    std::string detail;
+    RigDef::DocumentPtr document;
+    std::string package_index_sha256;
+    std::string resolved_graph_sha256;
+    std::string wheel2_plan_sha256;
+    std::size_t wheel2_plan_count = 0U;
+    std::uint32_t wheel2_approximated_semantics = 0U;
+    std::size_t jbeam_member_count = 0U;
+    std::size_t retained_jbeam_bytes = 0U;
+};
+
+PreparedVehicleImport PrepareVehicleImport(
+    ParsedPackage parsed,
+    const std::string& root_part_name,
+    const JBeamResolveRequest& request)
+{
+    PreparedVehicleImport result;
+    result.code = parsed.code;
+    result.detail = parsed.detail;
+    if (parsed.code != JBeamVehicleImportCode::ADMITTED)
+    {
+        return result;
+    }
+
+    const std::vector<JBeamVehicleCandidate> candidates =
+        MainCandidates(parsed.index);
+    if (std::find_if(
+            candidates.begin(),
+            candidates.end(),
+            [&](const JBeamVehicleCandidate& candidate)
+            {
+                return candidate.root_part_name == root_part_name;
+            }) == candidates.end())
+    {
+        result.code = JBeamVehicleImportCode::ROOT_PART_NOT_FOUND;
+        result.detail = "Requested root is not an exact slotType main part";
+        return result;
+    }
+
+    const JBeamResolvedGraph graph =
+        ResolveJBeamPartGraph(parsed.index, request);
+    if (!graph.IsValid())
+    {
+        result.code = JBeamVehicleImportCode::PART_RESOLUTION_REJECTED;
+        result.detail = "Selected JBeam part graph did not resolve";
+        return result;
+    }
+    if (!request.part_selections.empty() &&
+        !ValidateConfiguredGraph(graph, result.detail))
+    {
+        result.code = JBeamVehicleImportCode::PART_RESOLUTION_REJECTED;
+        return result;
+    }
+    if (!ValidateActiveSections(graph.root, result.detail))
+    {
+        result.code = JBeamVehicleImportCode::UNSUPPORTED_ACTIVE_SECTION;
+        return result;
+    }
+
+    const JBeamStructuralIR structural = BuildJBeamStructuralIR(graph);
+    if (!structural.IsValid())
+    {
+        result.code = JBeamVehicleImportCode::STRUCTURAL_IR_REJECTED;
+        result.detail =
+            "Resolved graph did not produce a valid structural IR";
+        return result;
+    }
+    const JBeamHydroRuntimePlanSet hydro_plans =
+        BuildJBeamHydroRuntimePlanSet(graph);
+    if (!hydro_plans.IsAdmitted())
+    {
+        result.code = JBeamVehicleImportCode::HYDRO_PLAN_REJECTED;
+        result.detail = std::string("Hydro plan set rejected: ") +
+            JBeamHydroRuntimePlanSetCodeToString(hydro_plans.code);
+        return result;
+    }
+    const JBeamWheel2ApproximationPlanSet wheel_plans =
+        BuildJBeamWheel2ApproximationPlanSet(graph);
+    if (!wheel_plans.IsAdmitted())
+    {
+        result.code = JBeamVehicleImportCode::WHEEL2_PLAN_REJECTED;
+        result.detail = std::string("Wheel2 plan set rejected: ") +
+            JBeamWheel2ApproximationCodeToString(wheel_plans.code);
+        return result;
+    }
+    const std::string canonical_wheel_plans =
+        SerializeCanonicalJBeamWheel2ApproximationPlanSet(wheel_plans);
+    result.wheel2_plan_sha256 = Sha256(canonical_wheel_plans);
+    if (canonical_wheel_plans.empty() ||
+        result.wheel2_plan_sha256.empty())
+    {
+        result.code = JBeamVehicleImportCode::INTERNAL_FAILURE;
+        result.detail = "Could not hash canonical Wheel2 plans";
+        return result;
+    }
+
+    std::vector<JBeamToRigDefDiagnostic> diagnostics;
+    result.document = ConvertJBeamToRigDefWithRuntimePlans(
+        structural,
+        hydro_plans,
+        wheel_plans,
+        root_part_name,
+        diagnostics);
+    if (!result.document || !diagnostics.empty())
+    {
+        result.code = JBeamVehicleImportCode::RIGDEF_CONVERSION_REJECTED;
+        result.detail = diagnostics.empty()
+            ? "RigDef conversion returned no document"
+            : std::string("RigDef conversion rejected: ") +
+                ToString(diagnostics[0].code);
+        result.document.reset();
+        return result;
+    }
+
+    const std::string canonical_graph =
+        SerializeCanonicalJBeamResolvedGraph(graph);
+    result.resolved_graph_sha256 = Sha256(canonical_graph);
+    if (result.resolved_graph_sha256.empty())
+    {
+        result.code = JBeamVehicleImportCode::INTERNAL_FAILURE;
+        result.detail = "Could not hash canonical resolved graph";
+        result.document.reset();
+        return result;
+    }
+
+    result.package_index_sha256 = parsed.package_index_sha256;
+    result.wheel2_plan_count = wheel_plans.plans.size();
+    result.wheel2_approximated_semantics = wheel_plans.plans.empty()
+        ? 0U
+        : JBEAM_WHEEL2_APPROXIMATION_SEMANTICS;
+    result.jbeam_member_count = parsed.sources.size();
+    result.retained_jbeam_bytes = parsed.retained_jbeam_bytes;
+    result.code = JBeamVehicleImportCode::ADMITTED;
+    return result;
+}
+
 } // namespace
 
 struct JBeamVehicleImportAuthorityReceipt::State
 {
     TerrainBundleAuthenticatedArchiveSnapshot snapshot;
+    std::uint32_t authority_version = 0U;
     std::string resource_group;
     std::string root_part_name;
     std::string package_index_sha256;
     std::string resolved_graph_sha256;
+    std::string configuration_path;
+    std::string configuration_sha256;
+    std::string resolve_request_sha256;
     std::string wheel2_plan_sha256;
     std::size_t wheel2_plan_count = 0U;
     std::uint32_t wheel2_approximated_semantics = 0U;
@@ -466,19 +950,38 @@ JBeamVehicleImportAuthorityReceipt::JBeamVehicleImportAuthorityReceipt(
 
 bool JBeamVehicleImportAuthorityReceipt::initialized() const noexcept
 {
-    return m_state != nullptr && m_state->snapshot.initialized() &&
-        !m_state->resource_group.empty() &&
+    if (m_state == nullptr || !m_state->snapshot.initialized())
+    {
+        return false;
+    }
+    const bool base = !m_state->resource_group.empty() &&
         !m_state->root_part_name.empty() &&
         m_state->package_index_sha256.size() == 64U &&
         m_state->resolved_graph_sha256.size() == 64U &&
         m_state->wheel2_plan_sha256.size() == 64U &&
         m_state->jbeam_member_count != 0U &&
         m_state->retained_jbeam_bytes != 0U;
+    if (!base)
+    {
+        return false;
+    }
+    if (m_state->authority_version ==
+        JBEAM_VEHICLE_IMPORT_AUTHORITY_VERSION)
+    {
+        return m_state->configuration_path.empty() &&
+            m_state->configuration_sha256.empty() &&
+            m_state->resolve_request_sha256.empty();
+    }
+    return m_state->authority_version ==
+            JBEAM_CONFIGURED_VEHICLE_IMPORT_AUTHORITY_VERSION &&
+        !m_state->configuration_path.empty() &&
+        m_state->configuration_sha256.size() == 64U &&
+        m_state->resolve_request_sha256.size() == 64U;
 }
 
 std::uint32_t JBeamVehicleImportAuthorityReceipt::version() const noexcept
 {
-    return initialized() ? JBEAM_VEHICLE_IMPORT_AUTHORITY_VERSION : 0U;
+    return initialized() ? m_state->authority_version : 0U;
 }
 
 const std::string&
@@ -509,6 +1012,24 @@ const std::string&
 JBeamVehicleImportAuthorityReceipt::resolved_graph_sha256() const noexcept
 {
     return m_state ? m_state->resolved_graph_sha256 : EMPTY_STRING;
+}
+
+const std::string&
+JBeamVehicleImportAuthorityReceipt::configuration_path() const noexcept
+{
+    return m_state ? m_state->configuration_path : EMPTY_STRING;
+}
+
+const std::string&
+JBeamVehicleImportAuthorityReceipt::configuration_sha256() const noexcept
+{
+    return m_state ? m_state->configuration_sha256 : EMPTY_STRING;
+}
+
+const std::string&
+JBeamVehicleImportAuthorityReceipt::resolve_request_sha256() const noexcept
+{
+    return m_state ? m_state->resolve_request_sha256 : EMPTY_STRING;
 }
 
 const std::string&
@@ -554,8 +1075,27 @@ bool JBeamVehicleImportAuthorityReceipt::Matches(
     const std::string& expected_root_part,
     const TerrainBundleAuthenticatedArchiveSnapshot& snapshot) const noexcept
 {
-    return initialized() && expected_resource_group == resource_group() &&
+    return initialized() &&
+        version() == JBEAM_VEHICLE_IMPORT_AUTHORITY_VERSION &&
+        expected_resource_group == resource_group() &&
         expected_root_part == root_part_name() && snapshot.initialized() &&
+        m_state->snapshot.SharesImmutableStateWith(snapshot) &&
+        snapshot.archive_sha256() == archive_sha256() &&
+        snapshot.size() == m_state->snapshot.size();
+}
+
+bool JBeamVehicleImportAuthorityReceipt::MatchesConfigured(
+    const std::string& expected_resource_group,
+    const std::string& expected_root_part,
+    const std::string& expected_configuration_path,
+    const TerrainBundleAuthenticatedArchiveSnapshot& snapshot) const noexcept
+{
+    return initialized() &&
+        version() == JBEAM_CONFIGURED_VEHICLE_IMPORT_AUTHORITY_VERSION &&
+        expected_resource_group == resource_group() &&
+        expected_root_part == root_part_name() &&
+        expected_configuration_path == configuration_path() &&
+        snapshot.initialized() &&
         m_state->snapshot.SharesImmutableStateWith(snapshot) &&
         snapshot.archive_sha256() == archive_sha256() &&
         snapshot.size() == m_state->snapshot.size();
@@ -623,108 +1163,14 @@ JBeamVehicleImportResult ImportJBeamVehicleFromArchiveSnapshot(
             result.detail = "Resource group and root part must be non-empty";
             return result;
         }
-        ParsedPackage parsed = ParsePackage(snapshot, limits);
-        if (parsed.code != JBeamVehicleImportCode::ADMITTED)
-        {
-            result.code = parsed.code;
-            result.detail = parsed.detail;
-            return result;
-        }
-
-        const std::vector<JBeamVehicleCandidate> candidates =
-            MainCandidates(parsed.index);
-        if (std::find_if(
-                candidates.begin(),
-                candidates.end(),
-                [&](const JBeamVehicleCandidate& candidate)
-                {
-                    return candidate.root_part_name == root_part_name;
-                }) == candidates.end())
-        {
-            result.code = JBeamVehicleImportCode::ROOT_PART_NOT_FOUND;
-            result.detail = "Requested root is not an exact slotType main part";
-            return result;
-        }
-
         JBeamResolveRequest request;
         request.root_part_name = root_part_name;
-        const JBeamResolvedGraph graph =
-            ResolveJBeamPartGraph(parsed.index, request);
-        if (!graph.IsValid())
+        PreparedVehicleImport prepared = PrepareVehicleImport(
+            ParsePackage(snapshot, limits), root_part_name, request);
+        if (prepared.code != JBeamVehicleImportCode::ADMITTED)
         {
-            result.code =
-                JBeamVehicleImportCode::PART_RESOLUTION_REJECTED;
-            result.detail = "Selected JBeam part graph did not resolve";
-            return result;
-        }
-        if (!ValidateActiveSections(graph.root, result.detail))
-        {
-            result.code =
-                JBeamVehicleImportCode::UNSUPPORTED_ACTIVE_SECTION;
-            return result;
-        }
-
-        const JBeamStructuralIR structural = BuildJBeamStructuralIR(graph);
-        if (!structural.IsValid())
-        {
-            result.code = JBeamVehicleImportCode::STRUCTURAL_IR_REJECTED;
-            result.detail = "Resolved graph did not produce a valid structural IR";
-            return result;
-        }
-        const JBeamHydroRuntimePlanSet hydro_plans =
-            BuildJBeamHydroRuntimePlanSet(graph);
-        if (!hydro_plans.IsAdmitted())
-        {
-            result.code = JBeamVehicleImportCode::HYDRO_PLAN_REJECTED;
-            result.detail = std::string("Hydro plan set rejected: ") +
-                JBeamHydroRuntimePlanSetCodeToString(hydro_plans.code);
-            return result;
-        }
-        const JBeamWheel2ApproximationPlanSet wheel_plans =
-            BuildJBeamWheel2ApproximationPlanSet(graph);
-        if (!wheel_plans.IsAdmitted())
-        {
-            result.code = JBeamVehicleImportCode::WHEEL2_PLAN_REJECTED;
-            result.detail = std::string("Wheel2 plan set rejected: ") +
-                JBeamWheel2ApproximationCodeToString(wheel_plans.code);
-            return result;
-        }
-        const std::string canonical_wheel_plans =
-            SerializeCanonicalJBeamWheel2ApproximationPlanSet(wheel_plans);
-        const std::string wheel_plan_sha256 = Sha256(canonical_wheel_plans);
-        if (canonical_wheel_plans.empty() || wheel_plan_sha256.empty())
-        {
-            result.code = JBeamVehicleImportCode::INTERNAL_FAILURE;
-            result.detail = "Could not hash canonical Wheel2 plans";
-            return result;
-        }
-
-        std::vector<JBeamToRigDefDiagnostic> diagnostics;
-        RigDef::DocumentPtr document =
-            ConvertJBeamToRigDefWithRuntimePlans(
-                structural,
-                hydro_plans,
-                wheel_plans,
-                root_part_name,
-                diagnostics);
-        if (!document || !diagnostics.empty())
-        {
-            result.code =
-                JBeamVehicleImportCode::RIGDEF_CONVERSION_REJECTED;
-            result.detail = diagnostics.empty()
-                ? "RigDef conversion returned no document"
-                : std::string("RigDef conversion rejected: ") +
-                    ToString(diagnostics[0].code);
-            return result;
-        }
-
-        const std::string canonical_graph =
-            SerializeCanonicalJBeamResolvedGraph(graph);
-        const std::string graph_sha256 = Sha256(canonical_graph);
-        if (graph_sha256.empty())
-        {
-            result.code = JBeamVehicleImportCode::INTERNAL_FAILURE;
-            result.detail = "Could not hash canonical resolved graph";
+            result.code = prepared.code;
+            result.detail = prepared.detail;
             return result;
         }
 
@@ -732,18 +1178,18 @@ JBeamVehicleImportResult ImportJBeamVehicleFromArchiveSnapshot(
             std::make_shared<
                 JBeamVehicleImportAuthorityReceipt::State>();
         state->snapshot = snapshot;
+        state->authority_version =
+            JBEAM_VEHICLE_IMPORT_AUTHORITY_VERSION;
         state->resource_group = resource_group;
         state->root_part_name = root_part_name;
-        state->package_index_sha256 = parsed.package_index_sha256;
-        state->resolved_graph_sha256 = graph_sha256;
-        state->wheel2_plan_sha256 = wheel_plan_sha256;
-        state->wheel2_plan_count = wheel_plans.plans.size();
+        state->package_index_sha256 = prepared.package_index_sha256;
+        state->resolved_graph_sha256 = prepared.resolved_graph_sha256;
+        state->wheel2_plan_sha256 = prepared.wheel2_plan_sha256;
+        state->wheel2_plan_count = prepared.wheel2_plan_count;
         state->wheel2_approximated_semantics =
-            wheel_plans.plans.empty()
-                ? 0U
-                : JBEAM_WHEEL2_APPROXIMATION_SEMANTICS;
-        state->jbeam_member_count = parsed.sources.size();
-        state->retained_jbeam_bytes = parsed.retained_jbeam_bytes;
+            prepared.wheel2_approximated_semantics;
+        state->jbeam_member_count = prepared.jbeam_member_count;
+        state->retained_jbeam_bytes = prepared.retained_jbeam_bytes;
         const std::shared_ptr<const JBeamVehicleImportAuthorityReceipt>
             authority(new JBeamVehicleImportAuthorityReceipt(
                 std::shared_ptr<const
@@ -756,8 +1202,8 @@ JBeamVehicleImportResult ImportJBeamVehicleFromArchiveSnapshot(
             return result;
         }
 
-        document->_jbeam_import_authority = authority;
-        result.document = std::move(document);
+        prepared.document->_jbeam_import_authority = authority;
+        result.document = std::move(prepared.document);
         result.authority = authority;
         result.code = JBeamVehicleImportCode::ADMITTED;
         return result;
@@ -778,6 +1224,144 @@ JBeamVehicleImportResult ImportJBeamVehicleFromArchiveSnapshot(
     {
         result.code = JBeamVehicleImportCode::INTERNAL_FAILURE;
         result.detail = "Unexpected failure before import publication";
+        return result;
+    }
+}
+
+JBeamVehicleImportResult ImportConfiguredJBeamVehicleFromArchiveSnapshot(
+    const TerrainBundleAuthenticatedArchiveSnapshot& snapshot,
+    const std::string& resource_group,
+    const std::string& root_part_name,
+    const std::string& configuration_path,
+    const JBeamVehicleImportLimits& limits)
+{
+    JBeamVehicleImportResult result;
+    try
+    {
+        if (resource_group.empty() || root_part_name.empty())
+        {
+            result.detail = "Resource group and root part must be non-empty";
+            return result;
+        }
+        ZipArchiveIndex archive;
+        ParsedPackage parsed = ParsePackage(snapshot, limits, &archive);
+        if (parsed.code != JBeamVehicleImportCode::ADMITTED)
+        {
+            result.code = parsed.code;
+            result.detail = parsed.detail;
+            return result;
+        }
+        const std::vector<JBeamVehicleCandidate> candidates =
+            MainCandidates(parsed.index);
+        const std::vector<JBeamVehicleCandidate>::const_iterator candidate =
+            std::find_if(
+                candidates.begin(),
+                candidates.end(),
+                [&](const JBeamVehicleCandidate& value)
+                {
+                    return value.root_part_name == root_part_name;
+                });
+        if (candidate == candidates.end())
+        {
+            result.code = JBeamVehicleImportCode::ROOT_PART_NOT_FOUND;
+            result.detail =
+                "Requested root is not an exact slotType main part";
+            return result;
+        }
+        const std::string vehicle_directory_root =
+            DeriveVehicleDirectoryRoot(candidate->package_path);
+        if (vehicle_directory_root.empty())
+        {
+            result.code =
+                JBeamVehicleImportCode::CONFIGURATION_PATH_REJECTED;
+            result.detail =
+                "Selected main part must be under one exact canonical "
+                "vehicles/<vehicle>/ directory root";
+            return result;
+        }
+        const ParsedConfiguration configuration =
+            ParseExplicitConfiguration(
+                snapshot,
+                archive,
+                configuration_path,
+                vehicle_directory_root,
+                root_part_name,
+                limits);
+        if (configuration.code != JBeamVehicleImportCode::ADMITTED)
+        {
+            result.code = configuration.code;
+            result.detail = configuration.detail;
+            return result;
+        }
+
+        PreparedVehicleImport prepared = PrepareVehicleImport(
+            std::move(parsed), root_part_name, configuration.request);
+        if (prepared.code != JBeamVehicleImportCode::ADMITTED)
+        {
+            result.code = prepared.code;
+            result.detail = prepared.detail;
+            return result;
+        }
+
+        std::shared_ptr<JBeamVehicleImportAuthorityReceipt::State> state =
+            std::make_shared<
+                JBeamVehicleImportAuthorityReceipt::State>();
+        state->snapshot = snapshot;
+        state->authority_version =
+            JBEAM_CONFIGURED_VEHICLE_IMPORT_AUTHORITY_VERSION;
+        state->resource_group = resource_group;
+        state->root_part_name = root_part_name;
+        state->package_index_sha256 = prepared.package_index_sha256;
+        state->resolved_graph_sha256 = prepared.resolved_graph_sha256;
+        state->configuration_path = configuration_path;
+        state->configuration_sha256 =
+            configuration.configuration_sha256;
+        state->resolve_request_sha256 =
+            configuration.resolve_request_sha256;
+        state->wheel2_plan_sha256 = prepared.wheel2_plan_sha256;
+        state->wheel2_plan_count = prepared.wheel2_plan_count;
+        state->wheel2_approximated_semantics =
+            prepared.wheel2_approximated_semantics;
+        state->jbeam_member_count = prepared.jbeam_member_count;
+        state->retained_jbeam_bytes = prepared.retained_jbeam_bytes;
+        const std::shared_ptr<const JBeamVehicleImportAuthorityReceipt>
+            authority(new JBeamVehicleImportAuthorityReceipt(
+                std::shared_ptr<const
+                    JBeamVehicleImportAuthorityReceipt::State>(
+                        std::move(state))));
+        if (!authority->initialized())
+        {
+            result.code = JBeamVehicleImportCode::INTERNAL_FAILURE;
+            result.detail =
+                "Configured importer could not finalize source authority";
+            return result;
+        }
+
+        prepared.document->_jbeam_import_authority = authority;
+        result.document = std::move(prepared.document);
+        result.authority = authority;
+        result.code = JBeamVehicleImportCode::ADMITTED;
+        return result;
+    }
+    catch (const std::bad_alloc&)
+    {
+        result.code = JBeamVehicleImportCode::ALLOCATION_FAILURE;
+        result.detail =
+            "Allocation failed before configured import publication";
+        return result;
+    }
+    catch (const std::length_error&)
+    {
+        result.code = JBeamVehicleImportCode::ALLOCATION_FAILURE;
+        result.detail =
+            "Configured import allocation exceeded a size limit";
+        return result;
+    }
+    catch (...)
+    {
+        result.code = JBeamVehicleImportCode::INTERNAL_FAILURE;
+        result.detail =
+            "Unexpected failure before configured import publication";
         return result;
     }
 }
@@ -806,6 +1390,16 @@ const char* JBeamVehicleImportCodeToString(JBeamVehicleImportCode code)
         return "no-main-part";
     case JBeamVehicleImportCode::ROOT_PART_NOT_FOUND:
         return "root-part-not-found";
+    case JBeamVehicleImportCode::CONFIGURATION_PATH_REJECTED:
+        return "configuration-path-rejected";
+    case JBeamVehicleImportCode::CONFIGURATION_MEMBER_NOT_FOUND:
+        return "configuration-member-not-found";
+    case JBeamVehicleImportCode::CONFIGURATION_MEMBER_DECODE_REJECTED:
+        return "configuration-member-decode-rejected";
+    case JBeamVehicleImportCode::CONFIGURATION_PARSE_REJECTED:
+        return "configuration-parse-rejected";
+    case JBeamVehicleImportCode::CONFIGURATION_REQUEST_REJECTED:
+        return "configuration-request-rejected";
     case JBeamVehicleImportCode::PART_RESOLUTION_REJECTED:
         return "part-resolution-rejected";
     case JBeamVehicleImportCode::UNSUPPORTED_ACTIVE_SECTION:

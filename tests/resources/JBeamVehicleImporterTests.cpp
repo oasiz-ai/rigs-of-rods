@@ -388,6 +388,101 @@ std::string SupportedVehicle()
     })JBEAM";
 }
 
+std::string ConfigurableVehicle()
+{
+    return R"JBEAM({
+        "configured_vehicle": {
+            "slotType": "main",
+            "variables": [
+                ["name", "type", "unit", "category", "default",
+                 "min", "max", "title", "description"],
+                ["$x", "range", "m", "Geometry", 0.25,
+                 0, 2, "X", "Configured node position"]
+            ],
+            "slots": [
+                ["type", "default", "description"],
+                ["addon", "addon_a", "Add-on"]
+            ],
+            "nodes": [
+                ["id", "posX", "posY", "posZ"],
+                ["ref", 0, 0, 0],
+                ["back", 0, 1, 0],
+                ["left", 1, 0, 0],
+                ["up", 0, 0, 1],
+                ["leftCorner", 1, -1, 0],
+                ["rightCorner", -1, -1, 0],
+                ["tuned", "$x", 0, 0]
+            ],
+            "refNodes": [
+                ["ref:", "back:", "left:", "up:",
+                 "leftCorner:", "rightCorner:"],
+                ["ref", "back", "left", "up",
+                 "leftCorner", "rightCorner"]
+            ],
+            "beams": [
+                ["id1:", "id2:"],
+                ["ref", "back"],
+                ["ref", "left"],
+                ["ref", "up"],
+                ["left", "up"]
+            ]
+        },
+        "addon_a": {
+            "slotType": "addon",
+            "nodes": [
+                ["id", "posX", "posY", "posZ"],
+                ["addon_a_node", 0, 0, 0]
+            ]
+        },
+        "addon_b": {
+            "slotType": "addon",
+            "nodes": [
+                ["id", "posX", "posY", "posZ"],
+                ["addon_b_node", 0, 0, 0]
+            ]
+        },
+        "addon_unsupported": {
+            "slotType": "addon",
+            "wheels": []
+        }
+    })JBEAM";
+}
+
+std::string ConfiguredSelection()
+{
+    return R"PC({"parts":{"addon":"addon_b"},"vars":{"$x":1.5}})PC";
+}
+
+std::string FormattedConfiguredSelection()
+{
+    return R"PC({
+        "parts": {
+            "addon": "addon_b"
+        },
+        "vars": {
+            "$x": 1.5
+        }
+    })PC";
+}
+
+const RigDef::Node* FindNode(
+    const RigDef::DocumentPtr& document,
+    const std::string& id)
+{
+    if (!document || !document->root_module)
+    {
+        return nullptr;
+    }
+    for (const RigDef::Node& node : document->root_module->nodes)
+    {
+        if (node.id.Str() == id)
+        {
+            return &node;
+        }
+    }
+    return nullptr;
+}
+
 std::string PressureWheelVehicle()
 {
     return R"JBEAM({
@@ -552,6 +647,9 @@ void TestAdmissionAndAuthority()
     CHECK(imported.authority->package_index_sha256() ==
         inspection.package_index_sha256);
     CHECK(imported.authority->resolved_graph_sha256().size() == 64U);
+    CHECK(imported.authority->configuration_path().empty());
+    CHECK(imported.authority->configuration_sha256().empty());
+    CHECK(imported.authority->resolve_request_sha256().empty());
     CHECK(imported.authority->wheel2_plan_sha256().size() == 64U);
     CHECK(imported.authority->wheel2_plan_count() == 0U);
     CHECK(imported.authority->wheel2_approximated_semantics() == 0U);
@@ -564,6 +662,11 @@ void TestAdmissionAndAuthority()
         "wrong-group", "test_vehicle", snapshot));
     CHECK(!imported.authority->Matches(
         "beamng-test-group", "wrong-root", snapshot));
+    CHECK(!imported.authority->MatchesConfigured(
+        "beamng-test-group",
+        "test_vehicle",
+        "vehicles/test/default.pc",
+        snapshot));
 
     const TempArchive second_file(archive);
     const RoR::TerrainBundleAuthenticatedArchiveSnapshot second_snapshot =
@@ -581,6 +684,455 @@ void TestAdmissionAndAuthority()
         RoR::BeamNG::JBeamVehicleImportCode::ROOT_PART_NOT_FOUND);
     CHECK(wrong_root.document == nullptr);
     CHECK(wrong_root.authority == nullptr);
+}
+
+void CheckConfiguredRejection(
+    const std::vector<ZipMember>& members,
+    const std::string& configuration_path,
+    RoR::BeamNG::JBeamVehicleImportCode expected,
+    const RoR::BeamNG::JBeamVehicleImportLimits& limits =
+        RoR::BeamNG::JBeamVehicleImportLimits())
+{
+    const std::vector<std::uint8_t> archive = BuildArchive(members);
+    const TempArchive file(archive);
+    const RoR::TerrainBundleAuthenticatedArchiveSnapshot snapshot =
+        LoadSnapshot(archive, file);
+    const RoR::BeamNG::JBeamVehicleImportResult imported =
+        RoR::BeamNG::ImportConfiguredJBeamVehicleFromArchiveSnapshot(
+            snapshot,
+            "beamng-configured-group",
+            "configured_vehicle",
+            configuration_path,
+            limits);
+    if (imported.code != expected)
+    {
+        std::cerr << configuration_path << " configured rejection returned "
+                  << RoR::BeamNG::JBeamVehicleImportCodeToString(
+                         imported.code)
+                  << " instead of "
+                  << RoR::BeamNG::JBeamVehicleImportCodeToString(expected)
+                  << ": " << imported.detail << '\n';
+    }
+    CHECK(!imported.IsAdmitted());
+    CHECK(imported.code == expected);
+    CHECK(imported.document == nullptr);
+    CHECK(imported.authority == nullptr);
+}
+
+void TestConfiguredImportSelectionAndAuthority()
+{
+    constexpr char CONFIGURATION_PATH[] = "vehicles/config/sport.pc";
+    const std::vector<std::uint8_t> archive = BuildArchive({
+        {"vehicles/config/main.jbeam",
+         ConfigurableVehicle(), 8U, false},
+        {CONFIGURATION_PATH, ConfiguredSelection(), 8U, false}});
+    const TempArchive file(archive);
+    const RoR::TerrainBundleAuthenticatedArchiveSnapshot snapshot =
+        LoadSnapshot(archive, file);
+
+    // Merely placing a .pc in the authenticated archive never selects it.
+    const RoR::BeamNG::JBeamVehicleImportResult root_only =
+        RoR::BeamNG::ImportJBeamVehicleFromArchiveSnapshot(
+            snapshot, "beamng-configured-group", "configured_vehicle");
+    CHECK(root_only.IsAdmitted());
+    CHECK(root_only.authority->version() ==
+        RoR::BeamNG::JBEAM_VEHICLE_IMPORT_AUTHORITY_VERSION);
+    CHECK(root_only.authority->configuration_path().empty());
+    CHECK(FindNode(root_only.document, "addon_a_node") != nullptr);
+    CHECK(FindNode(root_only.document, "addon_b_node") == nullptr);
+    const RigDef::Node* default_tuned =
+        FindNode(root_only.document, "tuned");
+    CHECK(default_tuned != nullptr);
+    CHECK(default_tuned && default_tuned->position.z == 0.25f);
+
+    const RoR::BeamNG::JBeamVehicleImportResult configured =
+        RoR::BeamNG::ImportConfiguredJBeamVehicleFromArchiveSnapshot(
+            snapshot,
+            "beamng-configured-group",
+            "configured_vehicle",
+            CONFIGURATION_PATH);
+    if (!configured.IsAdmitted())
+    {
+        std::cerr << "configured fixture returned "
+                  << RoR::BeamNG::JBeamVehicleImportCodeToString(
+                         configured.code)
+                  << ": " << configured.detail << '\n';
+    }
+    CHECK(configured.IsAdmitted());
+    CHECK(configured.document->_jbeam_import_authority ==
+        configured.authority);
+    CHECK(configured.authority->version() ==
+        RoR::BeamNG::JBEAM_CONFIGURED_VEHICLE_IMPORT_AUTHORITY_VERSION);
+    CHECK(configured.authority->configuration_path() ==
+        CONFIGURATION_PATH);
+    CHECK(configured.authority->configuration_sha256().size() == 64U);
+    CHECK(configured.authority->resolve_request_sha256().size() == 64U);
+    CHECK(configured.authority->resolved_graph_sha256() !=
+        root_only.authority->resolved_graph_sha256());
+    CHECK(!configured.authority->Matches(
+        "beamng-configured-group", "configured_vehicle", snapshot));
+    CHECK(configured.authority->MatchesConfigured(
+        "beamng-configured-group",
+        "configured_vehicle",
+        CONFIGURATION_PATH,
+        snapshot));
+    CHECK(!configured.authority->MatchesConfigured(
+        "beamng-configured-group",
+        "configured_vehicle",
+        "vehicles/config/other.pc",
+        snapshot));
+    CHECK(FindNode(configured.document, "addon_a_node") == nullptr);
+    CHECK(FindNode(configured.document, "addon_b_node") != nullptr);
+    const RigDef::Node* configured_tuned =
+        FindNode(configured.document, "tuned");
+    CHECK(configured_tuned != nullptr);
+    CHECK(configured_tuned && configured_tuned->position.z == 1.5f);
+
+    // Nested configuration directories remain confined to the selected
+    // vehicle directory and retain their exact authenticated path identity.
+    constexpr char NESTED_CONFIGURATION_PATH[] =
+        "vehicles/config/configs/sport.pc";
+    const std::vector<std::uint8_t> nested_archive = BuildArchive({
+        {"vehicles/config/main.jbeam",
+         ConfigurableVehicle(), 8U, false},
+        {NESTED_CONFIGURATION_PATH,
+         ConfiguredSelection(), 8U, false}});
+    const TempArchive nested_file(nested_archive);
+    const RoR::TerrainBundleAuthenticatedArchiveSnapshot nested_snapshot =
+        LoadSnapshot(nested_archive, nested_file);
+    const RoR::BeamNG::JBeamVehicleImportResult nested =
+        RoR::BeamNG::ImportConfiguredJBeamVehicleFromArchiveSnapshot(
+            nested_snapshot,
+            "beamng-configured-group",
+            "configured_vehicle",
+            NESTED_CONFIGURATION_PATH);
+    CHECK(nested.IsAdmitted());
+    CHECK(nested.authority->configuration_path() ==
+        NESTED_CONFIGURATION_PATH);
+    CHECK(nested.authority->configuration_sha256() ==
+        configured.authority->configuration_sha256());
+    CHECK(nested.authority->resolve_request_sha256() ==
+        configured.authority->resolve_request_sha256());
+    CHECK(nested.authority->resolved_graph_sha256() !=
+        configured.authority->resolved_graph_sha256());
+    CHECK(nested.authority->MatchesConfigured(
+        "beamng-configured-group",
+        "configured_vehicle",
+        NESTED_CONFIGURATION_PATH,
+        nested_snapshot));
+    CHECK(FindNode(nested.document, "addon_b_node") != nullptr);
+    const RigDef::Node* nested_tuned =
+        FindNode(nested.document, "tuned");
+    CHECK(nested_tuned != nullptr);
+    CHECK(nested_tuned && nested_tuned->position.z == 1.5f);
+
+    const TempArchive same_bytes_file(archive);
+    const RoR::TerrainBundleAuthenticatedArchiveSnapshot same_bytes =
+        LoadSnapshot(archive, same_bytes_file);
+    CHECK(same_bytes.archive_sha256() == snapshot.archive_sha256());
+    CHECK(!same_bytes.SharesImmutableStateWith(snapshot));
+    CHECK(!configured.authority->MatchesConfigured(
+        "beamng-configured-group",
+        "configured_vehicle",
+        CONFIGURATION_PATH,
+        same_bytes));
+
+    // ZIP member ordering does not change package, request, graph, or exact
+    // selected-member identities, although it does change archive authority.
+    const std::vector<std::uint8_t> reordered_archive = BuildArchive({
+        {CONFIGURATION_PATH, ConfiguredSelection(), 8U, false},
+        {"vehicles/config/main.jbeam",
+         ConfigurableVehicle(), 8U, false}});
+    const TempArchive reordered_file(reordered_archive);
+    const RoR::TerrainBundleAuthenticatedArchiveSnapshot reordered_snapshot =
+        LoadSnapshot(reordered_archive, reordered_file);
+    const RoR::BeamNG::JBeamVehicleImportResult reordered =
+        RoR::BeamNG::ImportConfiguredJBeamVehicleFromArchiveSnapshot(
+            reordered_snapshot,
+            "beamng-configured-group",
+            "configured_vehicle",
+            CONFIGURATION_PATH);
+    CHECK(reordered.IsAdmitted());
+    CHECK(reordered.authority->package_index_sha256() ==
+        configured.authority->package_index_sha256());
+    CHECK(reordered.authority->configuration_sha256() ==
+        configured.authority->configuration_sha256());
+    CHECK(reordered.authority->resolve_request_sha256() ==
+        configured.authority->resolve_request_sha256());
+    CHECK(reordered.authority->resolved_graph_sha256() ==
+        configured.authority->resolved_graph_sha256());
+
+    // Exact source identity changes with formatting, while the canonical
+    // parts/vars request identity remains stable.
+    const std::vector<std::uint8_t> formatted_archive = BuildArchive({
+        {"vehicles/config/main.jbeam",
+         ConfigurableVehicle(), 8U, false},
+        {CONFIGURATION_PATH,
+         FormattedConfiguredSelection(), 0U, false}});
+    const TempArchive formatted_file(formatted_archive);
+    const RoR::TerrainBundleAuthenticatedArchiveSnapshot formatted_snapshot =
+        LoadSnapshot(formatted_archive, formatted_file);
+    const RoR::BeamNG::JBeamVehicleImportResult formatted =
+        RoR::BeamNG::ImportConfiguredJBeamVehicleFromArchiveSnapshot(
+            formatted_snapshot,
+            "beamng-configured-group",
+            "configured_vehicle",
+            CONFIGURATION_PATH);
+    CHECK(formatted.IsAdmitted());
+    CHECK(formatted.authority->configuration_sha256() !=
+        configured.authority->configuration_sha256());
+    CHECK(formatted.authority->resolve_request_sha256() ==
+        configured.authority->resolve_request_sha256());
+
+    const std::string duplicate_history_configuration =
+        R"PC({"parts":{"addon":"addon_a","addon":"addon_b"},)PC"
+        R"PC("vars":{"$x":0.5,"$x":1.5}})PC";
+    const std::vector<std::uint8_t> duplicate_history_archive =
+        BuildArchive({
+            {"vehicles/config/main.jbeam",
+             ConfigurableVehicle(), 8U, false},
+            {CONFIGURATION_PATH,
+             duplicate_history_configuration, 0U, false}});
+    const TempArchive duplicate_history_file(duplicate_history_archive);
+    const RoR::TerrainBundleAuthenticatedArchiveSnapshot
+        duplicate_history_snapshot = LoadSnapshot(
+            duplicate_history_archive, duplicate_history_file);
+    const RoR::BeamNG::JBeamVehicleImportResult duplicate_history =
+        RoR::BeamNG::ImportConfiguredJBeamVehicleFromArchiveSnapshot(
+            duplicate_history_snapshot,
+            "beamng-configured-group",
+            "configured_vehicle",
+            CONFIGURATION_PATH);
+    CHECK(duplicate_history.IsAdmitted());
+    CHECK(duplicate_history.authority->resolve_request_sha256() !=
+        configured.authority->resolve_request_sha256());
+    CHECK(FindNode(duplicate_history.document, "addon_b_node") != nullptr);
+    const RigDef::Node* duplicate_history_tuned =
+        FindNode(duplicate_history.document, "tuned");
+    CHECK(duplicate_history_tuned != nullptr);
+    CHECK(duplicate_history_tuned &&
+        duplicate_history_tuned->position.z == 1.5f);
+
+    const std::string substituted_configuration =
+        R"PC({"parts":{"addon":"addon_a"},"vars":{"$x":0.75}})PC";
+    const std::vector<std::uint8_t> substituted_archive = BuildArchive({
+        {"vehicles/config/main.jbeam",
+         ConfigurableVehicle(), 8U, false},
+        {CONFIGURATION_PATH,
+         substituted_configuration, 0U, false}});
+    const TempArchive substituted_file(substituted_archive);
+    const RoR::TerrainBundleAuthenticatedArchiveSnapshot
+        substituted_snapshot =
+            LoadSnapshot(substituted_archive, substituted_file);
+    const RoR::BeamNG::JBeamVehicleImportResult substituted =
+        RoR::BeamNG::ImportConfiguredJBeamVehicleFromArchiveSnapshot(
+            substituted_snapshot,
+            "beamng-configured-group",
+            "configured_vehicle",
+            CONFIGURATION_PATH);
+    CHECK(substituted.IsAdmitted());
+    CHECK(substituted.authority->configuration_sha256() !=
+        configured.authority->configuration_sha256());
+    CHECK(substituted.authority->resolve_request_sha256() !=
+        configured.authority->resolve_request_sha256());
+    CHECK(substituted.authority->resolved_graph_sha256() !=
+        configured.authority->resolved_graph_sha256());
+    const RigDef::Node* substituted_tuned =
+        FindNode(substituted.document, "tuned");
+    CHECK(substituted_tuned != nullptr);
+    CHECK(substituted_tuned && substituted_tuned->position.z == 0.75f);
+
+    const RoR::BeamNG::JBeamVehicleImportResult substituted_root_only =
+        RoR::BeamNG::ImportJBeamVehicleFromArchiveSnapshot(
+            substituted_snapshot,
+            "beamng-configured-group",
+            "configured_vehicle");
+    CHECK(substituted_root_only.IsAdmitted());
+    CHECK(substituted_root_only.authority->resolved_graph_sha256() ==
+        root_only.authority->resolved_graph_sha256());
+}
+
+void TestConfiguredImportFailClosed()
+{
+    const std::vector<ZipMember> valid_members = {
+        {"vehicles/config/main.jbeam",
+         ConfigurableVehicle(), 0U, false},
+        {"vehicles/config/sport.pc",
+         ConfiguredSelection(), 0U, false}};
+    CheckConfiguredRejection(
+        valid_members,
+        "",
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_PATH_REJECTED);
+    CheckConfiguredRejection(
+        valid_members,
+        "../sport.pc",
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_PATH_REJECTED);
+    CheckConfiguredRejection(
+        valid_members,
+        "/vehicles/config/sport.pc",
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_PATH_REJECTED);
+    CheckConfiguredRejection(
+        valid_members,
+        "./vehicles/config/sport.pc",
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_PATH_REJECTED);
+    CheckConfiguredRejection(
+        valid_members,
+        "vehicles//config/sport.pc",
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_PATH_REJECTED);
+    CheckConfiguredRejection(
+        valid_members,
+        "vehicles\\config\\sport.pc",
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_PATH_REJECTED);
+    CheckConfiguredRejection(
+        valid_members,
+        std::string("vehicles/config/") + '\n' + "sport.pc",
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_PATH_REJECTED);
+    CheckConfiguredRejection(
+        valid_members,
+        "vehicles/config/sport.PC",
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_PATH_REJECTED);
+    CheckConfiguredRejection(
+        valid_members,
+        "vehicles/config/SPORT.pc",
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_MEMBER_NOT_FOUND);
+
+    // An explicit configuration must remain under the exact
+    // vehicles/<vehicle>/ root derived from the selected main part.
+    CheckConfiguredRejection(
+        {{"vehicles/config/main.jbeam",
+          ConfigurableVehicle(), 0U, false},
+         {"vehicles/other/sport.pc",
+          ConfiguredSelection(), 0U, false}},
+        "vehicles/other/sport.pc",
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_PATH_REJECTED);
+    CheckConfiguredRejection(
+        {{"vehicles/config/main.jbeam",
+          ConfigurableVehicle(), 0U, false},
+         {"vehicles/config-other/sport.pc",
+          ConfiguredSelection(), 0U, false}},
+        "vehicles/config-other/sport.pc",
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_PATH_REJECTED);
+    CheckConfiguredRejection(
+        {{"vehicles/config/main.jbeam",
+          ConfigurableVehicle(), 0U, false},
+         {"vehicles/Config/sport.pc",
+          ConfiguredSelection(), 0U, false}},
+        "vehicles/Config/sport.pc",
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_PATH_REJECTED);
+    CheckConfiguredRejection(
+        {{"vehicles/config/main.jbeam",
+          ConfigurableVehicle(), 0U, false},
+         {"vehicles/sport.pc",
+          ConfiguredSelection(), 0U, false}},
+        "vehicles/sport.pc",
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_PATH_REJECTED);
+
+    CheckConfiguredRejection(
+        {{"vehicles/config/main.jbeam",
+          ConfigurableVehicle(), 0U, false},
+         {"vehicles/config/broken.pc", "{", 0U, false}},
+        "vehicles/config/broken.pc",
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_PARSE_REJECTED);
+    CheckConfiguredRejection(
+        {{"vehicles/config/main.jbeam",
+          ConfigurableVehicle(), 0U, false},
+         {"vehicles/config/invalid.pc",
+          R"PC({"parts":[]})PC", 0U, false}},
+        "vehicles/config/invalid.pc",
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_REQUEST_REJECTED);
+    CheckConfiguredRejection(
+        {{"vehicles/config/main.jbeam",
+          ConfigurableVehicle(), 0U, false},
+         {"vehicles/config/active.pc",
+          R"PC({"parts":{},"lua":"must-not-run"})PC", 0U, false}},
+        "vehicles/config/active.pc",
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_REQUEST_REJECTED);
+    CheckConfiguredRejection(
+        {{"vehicles/config/main.jbeam",
+          ConfigurableVehicle(), 0U, false},
+         {"vehicles/config/corrupt.pc",
+          ConfiguredSelection(), 0U, true}},
+        "vehicles/config/corrupt.pc",
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_MEMBER_DECODE_REJECTED);
+
+    RoR::BeamNG::JBeamVehicleImportLimits byte_limited;
+    byte_limited.max_configuration_bytes =
+        ConfiguredSelection().size() - 1U;
+    CheckConfiguredRejection(
+        valid_members,
+        "vehicles/config/sport.pc",
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_MEMBER_DECODE_REJECTED,
+        byte_limited);
+    CheckConfiguredRejection(
+        {{"vehicles/config/main.jbeam",
+          ConfigurableVehicle(), 0U, false},
+         {"vehicles/config/missing-part.pc",
+          R"PC({"parts":{"addon":"missing"},"vars":{}})PC",
+          0U, false}},
+        "vehicles/config/missing-part.pc",
+        RoR::BeamNG::JBeamVehicleImportCode::PART_RESOLUTION_REJECTED);
+    CheckConfiguredRejection(
+        {{"vehicles/config/main.jbeam",
+          ConfigurableVehicle(), 0U, false},
+         {"vehicles/config/unknown-slot.pc",
+          R"PC({"parts":{"unknown":"addon_b"},"vars":{}})PC",
+          0U, false}},
+        "vehicles/config/unknown-slot.pc",
+        RoR::BeamNG::JBeamVehicleImportCode::PART_RESOLUTION_REJECTED);
+    CheckConfiguredRejection(
+        {{"vehicles/config/main.jbeam",
+          ConfigurableVehicle(), 0U, false},
+         {"vehicles/config/unsupported.pc",
+          R"PC({"parts":{"addon":"addon_unsupported"},"vars":{}})PC",
+          0U, false}},
+        "vehicles/config/unsupported.pc",
+        RoR::BeamNG::JBeamVehicleImportCode::
+            UNSUPPORTED_ACTIVE_SECTION);
+    CheckConfiguredRejection(
+        {{"vehicles/config/main.jbeam",
+          ConfigurableVehicle(), 0U, false},
+         {"vehicles/config/out-of-range.pc",
+          R"PC({"parts":{},"vars":{"$x":3}})PC", 0U, false}},
+        "vehicles/config/out-of-range.pc",
+        RoR::BeamNG::JBeamVehicleImportCode::PART_RESOLUTION_REJECTED);
+    CheckConfiguredRejection(
+        {{"vehicles/config/main.jbeam",
+          ConfigurableVehicle(), 0U, false},
+         {"vehicles/config/invalid-var.pc",
+          R"PC({"parts":{},"vars":{"$x":[]}})PC", 0U, false}},
+        "vehicles/config/invalid-var.pc",
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_REQUEST_REJECTED);
+
+    // Duplicate exact archive paths are rejected by the authenticated ZIP
+    // index before a configuration request can be published.
+    CheckConfiguredRejection(
+        {{"vehicles/config/main.jbeam",
+          ConfigurableVehicle(), 0U, false},
+         {"vehicles/config/duplicate.pc",
+          ConfiguredSelection(), 0U, false},
+         {"vehicles/config/duplicate.pc",
+          ConfiguredSelection(), 0U, false}},
+        "vehicles/config/duplicate.pc",
+        RoR::BeamNG::JBeamVehicleImportCode::ARCHIVE_INDEX_REJECTED);
 }
 
 void TestHostileArchives()
@@ -700,6 +1252,26 @@ void TestHostileArchives()
     CHECK(std::string(RoR::BeamNG::JBeamVehicleImportCodeToString(
         RoR::BeamNG::JBeamVehicleImportCode::UNSAFE_OGRE_SCRIPT_MEMBER)) ==
         "unsafe-ogre-script-member");
+    CHECK(std::string(RoR::BeamNG::JBeamVehicleImportCodeToString(
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_PATH_REJECTED)) ==
+        "configuration-path-rejected");
+    CHECK(std::string(RoR::BeamNG::JBeamVehicleImportCodeToString(
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_MEMBER_NOT_FOUND)) ==
+        "configuration-member-not-found");
+    CHECK(std::string(RoR::BeamNG::JBeamVehicleImportCodeToString(
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_MEMBER_DECODE_REJECTED)) ==
+        "configuration-member-decode-rejected");
+    CHECK(std::string(RoR::BeamNG::JBeamVehicleImportCodeToString(
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_PARSE_REJECTED)) ==
+        "configuration-parse-rejected");
+    CHECK(std::string(RoR::BeamNG::JBeamVehicleImportCodeToString(
+        RoR::BeamNG::JBeamVehicleImportCode::
+            CONFIGURATION_REQUEST_REJECTED)) ==
+        "configuration-request-rejected");
 }
 
 } // namespace
@@ -708,6 +1280,8 @@ int main()
 {
     TestAdmissionAndAuthority();
     TestPressureWheelProductImport();
+    TestConfiguredImportSelectionAndAuthority();
+    TestConfiguredImportFailClosed();
     TestHostileArchives();
     if (g_failures != 0)
     {

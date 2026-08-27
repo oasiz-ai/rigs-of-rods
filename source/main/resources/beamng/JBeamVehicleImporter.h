@@ -27,12 +27,15 @@ namespace RoR {
 namespace BeamNG {
 
 constexpr std::uint32_t JBEAM_VEHICLE_IMPORT_AUTHORITY_VERSION = 2U;
+constexpr std::uint32_t
+    JBEAM_CONFIGURED_VEHICLE_IMPORT_AUTHORITY_VERSION = 3U;
 
 struct JBeamVehicleImportLimits
 {
     std::size_t max_jbeam_members = 512U;
     std::size_t max_member_bytes = 16U * 1024U * 1024U;
     std::size_t max_total_jbeam_bytes = 64U * 1024U * 1024U;
+    std::size_t max_configuration_bytes = 1024U * 1024U;
 };
 
 enum class JBeamVehicleImportCode
@@ -54,7 +57,12 @@ enum class JBeamVehicleImportCode
     WHEEL2_PLAN_REJECTED,
     RIGDEF_CONVERSION_REJECTED,
     ALLOCATION_FAILURE,
-    INTERNAL_FAILURE
+    INTERNAL_FAILURE,
+    CONFIGURATION_PATH_REJECTED,
+    CONFIGURATION_MEMBER_NOT_FOUND,
+    CONFIGURATION_MEMBER_DECODE_REJECTED,
+    CONFIGURATION_PARSE_REJECTED,
+    CONFIGURATION_REQUEST_REJECTED
 };
 
 struct JBeamVehicleCandidate
@@ -80,6 +88,9 @@ public:
     const std::string& archive_sha256() const noexcept;
     const std::string& package_index_sha256() const noexcept;
     const std::string& resolved_graph_sha256() const noexcept;
+    const std::string& configuration_path() const noexcept;
+    const std::string& configuration_sha256() const noexcept;
+    const std::string& resolve_request_sha256() const noexcept;
     const std::string& wheel2_plan_sha256() const noexcept;
     std::size_t wheel2_plan_count() const noexcept;
     std::uint32_t wheel2_approximated_semantics() const noexcept;
@@ -90,6 +101,12 @@ public:
     bool Matches(
         const std::string& expected_resource_group,
         const std::string& expected_root_part,
+        const TerrainBundleAuthenticatedArchiveSnapshot& snapshot) const
+        noexcept;
+    bool MatchesConfigured(
+        const std::string& expected_resource_group,
+        const std::string& expected_root_part,
+        const std::string& expected_configuration_path,
         const TerrainBundleAuthenticatedArchiveSnapshot& snapshot) const
         noexcept;
 
@@ -105,6 +122,13 @@ private:
         const std::string&,
         const std::string&,
         const JBeamVehicleImportLimits&);
+    friend JBeamVehicleImportResult
+        ImportConfiguredJBeamVehicleFromArchiveSnapshot(
+            const TerrainBundleAuthenticatedArchiveSnapshot&,
+            const std::string&,
+            const std::string&,
+            const std::string&,
+            const JBeamVehicleImportLimits&);
 };
 
 struct JBeamVehiclePackageInspection
@@ -154,6 +178,17 @@ JBeamVehicleImportResult ImportJBeamVehicleFromArchiveSnapshot(
     const TerrainBundleAuthenticatedArchiveSnapshot& snapshot,
     const std::string& resource_group,
     const std::string& root_part_name,
+    const JBeamVehicleImportLimits& limits = JBeamVehicleImportLimits());
+
+/// Resolves one explicit canonical .pc archive member as inert parts/vars data.
+/// The member is never auto-selected. Its exact decoded bytes and canonical
+/// resolve request are bound into a version-3 authority receipt; the existing
+/// root-only API continues to mint byte-compatible version-2 authority.
+JBeamVehicleImportResult ImportConfiguredJBeamVehicleFromArchiveSnapshot(
+    const TerrainBundleAuthenticatedArchiveSnapshot& snapshot,
+    const std::string& resource_group,
+    const std::string& root_part_name,
+    const std::string& configuration_path,
     const JBeamVehicleImportLimits& limits = JBeamVehicleImportLimits());
 
 const char* JBeamVehicleImportCodeToString(JBeamVehicleImportCode code);
