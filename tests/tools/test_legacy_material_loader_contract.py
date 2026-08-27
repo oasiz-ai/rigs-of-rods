@@ -18,7 +18,11 @@ def authorized_texture_loading_block() -> str:
         "    if (!resolution_archive_sha256.empty())",
         source.index("ContentManager::resourceLoading"),
     )
-    end = source.index("\n#if OGRE_VERSION_MAJOR >= 14", start)
+    end = source.index(
+        "\n#if OGRE_VERSION_MAJOR >= 14\n"
+        "    // OGRE 14 documents ZipArchive::open() as non-thread-safe",
+        start,
+    )
     return source[start:end]
 
 
@@ -31,10 +35,7 @@ class LegacyMaterialLoaderContractTests(unittest.TestCase):
             block,
             re.compile(r"return\s+Ogre::DataStreamPtr\(\s*\);"),
         )
-        self.assertIn(
-            "return Ogre::DataStreamPtr(replacement);",
-            block,
-        )
+        self.assertIn("return replacement;", block)
 
     def test_invalidated_authorization_aborts_the_load(self) -> None:
         block = authorized_texture_loading_block()

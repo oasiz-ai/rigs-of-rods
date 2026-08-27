@@ -1037,10 +1037,29 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             self.frontend.index("NativeTexture CreateTexture(") :
             self.frontend.index("void VerifyTexture(")
         ]
-        self.assertIn("if (usage.sampled_rgba)", create_texture)
-        self.assertLess(
-            create_texture.index("if (usage.sampled_rgba)"),
-            create_texture.index("UploadedTextureChannel::RGBA"),
+        color_channel_start = create_texture.index(
+            "const UploadedTextureChannel color_channel ="
+        )
+        color_channel = create_texture[
+            color_channel_start : create_texture.index(
+                ";", color_channel_start
+            )
+        ]
+        self.assertIn(
+            "block_compressed ? UploadedTextureChannel::BLOCK_COMPRESSED",
+            color_channel,
+        )
+        self.assertIn(": UploadedTextureChannel::RGBA", color_channel)
+
+        sampled_rgba_start = create_texture.index("if (usage.sampled_rgba)")
+        sampled_rgba = create_texture[
+            sampled_rgba_start : create_texture.index(
+                "if (usage.display_domain_rgba)", sampled_rgba_start
+            )
+        ]
+        self.assertIn("native.sampled = CreateUploadedTexture(", sampled_rgba)
+        self.assertIn(
+            "descriptor, native.sampled_name, color_channel", sampled_rgba
         )
 
         destroy_catalog = self.frontend[
