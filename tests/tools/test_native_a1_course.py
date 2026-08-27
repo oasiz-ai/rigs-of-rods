@@ -819,6 +819,82 @@ class NativeA1CourseTests(unittest.TestCase):
                     relative.as_posix(),
                 )
 
+    def test_v3_compiler_authority_closure_survives_autocrlf_checkout(self) -> None:
+        authorities = (
+            Path("tools/validate_cityworld_asset.py"),
+            Path("tools/validate_native_render_asset.py"),
+            Path("tools/compile_native_render_asset.py"),
+            Path("tools/compile_native_render_asset_v3.py"),
+            Path("tools/validate_native_render_asset_v3.py"),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            source = temporary_root / "source"
+            checkout = temporary_root / "checkout"
+            source.mkdir()
+            shutil.copy2(REPOSITORY_ROOT / ".gitattributes", source / ".gitattributes")
+            for relative in authorities:
+                destination = source / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(REPOSITORY_ROOT / relative, destination)
+
+            def git(cwd: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    ["git", *arguments],
+                    cwd=cwd,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+
+            initialized = git(source, "init", "--quiet")
+            self.assertEqual(initialized.returncode, 0, initialized.stderr)
+            for key, value in (
+                ("core.autocrlf", "false"),
+                ("commit.gpgsign", "false"),
+                ("user.email", "native-a1-test@invalid.example"),
+                ("user.name", "Native A1 Test"),
+            ):
+                configured = git(source, "config", key, value)
+                self.assertEqual(configured.returncode, 0, configured.stderr)
+            added = git(source, "add", ".gitattributes", "tools")
+            self.assertEqual(added.returncode, 0, added.stderr)
+            committed = git(source, "commit", "--quiet", "-m", "fixture")
+            self.assertEqual(committed.returncode, 0, committed.stderr)
+
+            cloned = subprocess.run(
+                ["git", "clone", "--quiet", "--no-checkout", str(source), str(checkout)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(cloned.returncode, 0, cloned.stderr)
+            configured = git(checkout, "config", "core.autocrlf", "true")
+            self.assertEqual(configured.returncode, 0, configured.stderr)
+            checked_out = git(checkout, "checkout", "--quiet", "--detach", "HEAD")
+            self.assertEqual(checked_out.returncode, 0, checked_out.stderr)
+
+            attributes = git(
+                checkout,
+                "check-attr",
+                "text",
+                "eol",
+                "--",
+                *(relative.as_posix() for relative in authorities),
+            )
+            self.assertEqual(attributes.returncode, 0, attributes.stderr)
+            attribute_lines = set(attributes.stdout.splitlines())
+            for relative in authorities:
+                label = relative.as_posix()
+                self.assertIn(f"{label}: text: set", attribute_lines)
+                self.assertIn(f"{label}: eol: lf", attribute_lines)
+                checked_bytes = (checkout / relative).read_bytes()
+                self.assertNotIn(b"\r\n", checked_bytes)
+                self.assertEqual(
+                    hashlib.sha256(checked_bytes).hexdigest(),
+                    sha256_file(REPOSITORY_ROOT / relative),
+                )
+
     def test_docs_ledger_and_cmake_pin_both_artifacts_and_nonclaims(self) -> None:
         ledger = LEDGER.read_text(encoding="utf-8")
         documentation = COURSE_DOC.read_text(encoding="utf-8")

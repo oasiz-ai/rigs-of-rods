@@ -1431,6 +1431,8 @@ for value in (-0.0, 1e300, 10**3999):
             "tools/blender/native_render/*.py text eol=lf",
             "tools/compile_native_render_asset.py text eol=lf",
             "tools/validate_native_render_asset.py text eol=lf",
+            "tools/compile_native_render_asset_v3.py text eol=lf",
+            "tools/validate_native_render_asset_v3.py text eol=lf",
             "content-source/native_render/**/*.json text eol=lf",
             "content-source/native_render/**/*.glb -text",
             "content-source/native_render/**/*.tga -text",
@@ -1442,6 +1444,8 @@ for value in (-0.0, 1e300, 10**3999):
         checked_paths = (
             MANIFEST_RELATIVE,
             Path("tools/compile_native_render_asset.py"),
+            Path("tools/compile_native_render_asset_v3.py"),
+            Path("tools/validate_native_render_asset_v3.py"),
             Path("content-source/native_render/a0_road_tile_12m/rorng_a0_road_tile_12m.glb"),
             PACKAGE_RELATIVE,
         )
@@ -1456,6 +1460,8 @@ for value in (-0.0, 1e300, 10**3999):
         lines = result.stdout.splitlines()
         self.assertIn(f"{MANIFEST_RELATIVE.as_posix()}: text: set", lines)
         self.assertIn(f"{MANIFEST_RELATIVE.as_posix()}: eol: lf", lines)
+        self.assertIn("tools/compile_native_render_asset_v3.py: eol: lf", lines)
+        self.assertIn("tools/validate_native_render_asset_v3.py: eol: lf", lines)
         self.assertIn(f"{PACKAGE_RELATIVE.as_posix()}: text: unset", lines)
 
 
