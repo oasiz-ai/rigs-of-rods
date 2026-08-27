@@ -1,0 +1,60 @@
+{
+  // Project-original frame with one narrowly admitted pressureWheel row.
+  "ror_jbeam_wheel2_fixture": {
+    "slotType": "main",
+
+    "nodes": [
+      ["id", "posX", "posY", "posZ", "nodeWeight"],
+      {"collision": true, "selfCollision": false,
+       "staticCollision": true},
+      ["ref",          0,      0,    1, 20],
+      ["back",         0,      1,    1, 20],
+      ["left",         1,      0,    1, 20],
+      ["up",           0,      0,    2, 20],
+      ["leftCorner",   1,     -1,    1, 20],
+      ["rightCorner", -1,     -1,    1, 20],
+      ["axle1",        0.125,  0,    1,  5],
+      ["axle2",       -0.125,  0,    1,  5],
+      ["arm",          0,      0.25, 1,  5],
+    ],
+
+    "refNodes": [
+      ["ref:", "back:", "left:", "up:",
+       "leftCorner:", "rightCorner:"],
+      ["ref", "back", "left", "up", "leftCorner", "rightCorner"],
+    ],
+
+    "beams": [
+      ["id1:", "id2:", "beamSpring", "beamDamp",
+       "beamDeform", "beamStrength"],
+      ["ref", "back",        4300000, 580, 220000, "FLT_MAX"],
+      ["ref", "left",        4300000, 580, 220000, "FLT_MAX"],
+      ["ref", "up",          4300000, 580, 220000, "FLT_MAX"],
+      ["ref", "leftCorner",  4300000, 580, 220000, "FLT_MAX"],
+      ["ref", "rightCorner", 4300000, 580, 220000, "FLT_MAX"],
+      ["ref", "axle1",       4300000, 580, 220000, "FLT_MAX"],
+      ["ref", "axle2",       4300000, 580, 220000, "FLT_MAX"],
+      ["ref", "arm",         4300000, 580, 220000, "FLT_MAX"],
+    ],
+
+    "pressureWheels": [
+      ["name", "hubGroup", "group", "node1:",
+       "node2:", "nodeS", "nodeArm:", "wheelDir"],
+      {"radius": 0.5, "hubRadius": 0.25,
+       "wheelOffset": 0, "tireWidth": 0.25,
+       "hubWidth": 0.25, "hasTire": true, "numRays": 16,
+       "nodeWeight": 0.5, "hubNodeWeight": 0.25,
+       "hubBeamSpring": 1000000, "hubBeamDamp": 100,
+       "wheelSideBeamSpring": 500000, "wheelSideBeamDamp": 50,
+       "collision": true, "selfCollision": false,
+       "triangleCollision": false, "treadTriangleCollision": false,
+       "side1TriangleCollision": false, "side2TriangleCollision": false,
+       "hubTriangleCollision": false,
+       "hubSide1TriangleCollision": false,
+       "hubSide2TriangleCollision": false,
+       "propulsed": 0, "brakeTorque": 0, "parkingTorque": 0},
+      ["wheel", "hub_wheel", "tire_wheel", "axle1",
+       "axle2", 9999, "arm", -1],
+    ],
+  },
+}

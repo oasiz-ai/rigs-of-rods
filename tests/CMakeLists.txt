@@ -110,6 +110,19 @@ add_test(
         "${ROR_REPOSITORY_ROOT}/tests/tools/test_run_jbeam_inter_actor_collision.py"
 )
 add_test(
+    NAME jbeam_wheel2_spawn_tool
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_run_jbeam_wheel2_spawn.py"
+)
+add_test(
+    NAME jbeam_wheel2_spawn_tool_optimized
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        -O
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_run_jbeam_wheel2_spawn.py"
+)
+add_test(
     NAME jbeam_multi_actor_tsan_soak_tool
     COMMAND
         "${Python3_EXECUTABLE}"
@@ -125,6 +138,8 @@ set_tests_properties(
     calibrated_beam_soak_tool
     jbeam_spawn_soak_tool
     jbeam_inter_actor_collision_tool
+    jbeam_wheel2_spawn_tool
+    jbeam_wheel2_spawn_tool_optimized
     jbeam_multi_actor_tsan_soak_tool
     agora_impact_regression_tool
     PROPERTIES
@@ -4383,6 +4398,8 @@ set(ROR_CROSS_PLATFORM_PHYSICS_CORE_TESTS
     calibrated_beam_soak_tool
     jbeam_spawn_soak_tool
     jbeam_inter_actor_collision_tool
+    jbeam_wheel2_spawn_tool
+    jbeam_wheel2_spawn_tool_optimized
     jbeam_multi_actor_tsan_soak_tool
     agora_impact_regression_tool
     beam_axial_kinematics

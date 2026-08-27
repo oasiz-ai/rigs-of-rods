@@ -18,6 +18,7 @@ on:
       - resources/scripts/example_deterministic_input_resume_checkpoint.as
       - resources/scripts/example_deterministic_input_save_checkpoint.as
       - resources/scripts/example_jbeam_inter_actor_collision.as
+      - resources/scripts/example_jbeam_wheel2_spawn.as
       - resources/nextgen/native/**
       - resources/**/*.frag
       - resources/**/*.fragment
@@ -47,6 +48,7 @@ on:
       - resources/postprocess/**
       - source/main/gfx/GfxWater.cpp
       - source/main/**
+      - tests/CMakeLists.txt
       - tests/gfx/render/OgreNextNativeRenderPassMetricsTests.cpp
       - tools/linux/RunRoR-combined
       - tools/CI/copy_libs.cmake
@@ -56,6 +58,7 @@ on:
       - tools/run_deterministic_savegame_resume.py
       - tools/run_jbeam_inter_actor_collision.py
       - tools/run_jbeam_spawn_soak.py
+      - tools/run_jbeam_wheel2_spawn.py
       - tools/run_nicemetal_shader_smoke.py
       - tools/run_playable_performance_scene.py
       - tools/stage_ogre_next_combined_resources.py
@@ -71,6 +74,7 @@ on:
       - tests/tools/test_run_calibrated_beam_soak.py
       - tests/tools/test_run_deterministic_savegame_resume.py
       - tests/tools/test_run_jbeam_inter_actor_collision.py
+      - tests/tools/test_run_jbeam_wheel2_spawn.py
       - tests/tools/test_run_playable_performance_scene.py
       - tests/tools/test_renderer_combined_game_wiring_contract.py
       - tests/tools/test_mygui_glsl_contract.py
@@ -94,6 +98,7 @@ on:
       - tests/fixtures/nicemetal_runtime/**
       - tests/fixtures/beamng/jbeam_inter_actor_collision/**
       - tests/fixtures/beamng/jbeam_spawn_soak/**
+      - tests/fixtures/beamng/jbeam_wheel2_spawn/**
   pull_request:
     paths:
       - .gitattributes
@@ -110,6 +115,7 @@ on:
       - resources/scripts/example_deterministic_input_resume_checkpoint.as
       - resources/scripts/example_deterministic_input_save_checkpoint.as
       - resources/scripts/example_jbeam_inter_actor_collision.as
+      - resources/scripts/example_jbeam_wheel2_spawn.as
       - resources/nextgen/native/**
       - resources/**/*.frag
       - resources/**/*.fragment
@@ -139,6 +145,7 @@ on:
       - resources/postprocess/**
       - source/main/gfx/GfxWater.cpp
       - source/main/**
+      - tests/CMakeLists.txt
       - tests/gfx/render/OgreNextNativeRenderPassMetricsTests.cpp
       - tools/linux/RunRoR-combined
       - tools/CI/copy_libs.cmake
@@ -148,6 +155,7 @@ on:
       - tools/run_deterministic_savegame_resume.py
       - tools/run_jbeam_inter_actor_collision.py
       - tools/run_jbeam_spawn_soak.py
+      - tools/run_jbeam_wheel2_spawn.py
       - tools/run_nicemetal_shader_smoke.py
       - tools/run_playable_performance_scene.py
       - tools/stage_ogre_next_combined_resources.py
@@ -163,6 +171,7 @@ on:
       - tests/tools/test_run_calibrated_beam_soak.py
       - tests/tools/test_run_deterministic_savegame_resume.py
       - tests/tools/test_run_jbeam_inter_actor_collision.py
+      - tests/tools/test_run_jbeam_wheel2_spawn.py
       - tests/tools/test_run_playable_performance_scene.py
       - tests/tools/test_renderer_combined_game_wiring_contract.py
       - tests/tools/test_mygui_glsl_contract.py
@@ -186,6 +195,7 @@ on:
       - tests/fixtures/nicemetal_runtime/**
       - tests/fixtures/beamng/jbeam_inter_actor_collision/**
       - tests/fixtures/beamng/jbeam_spawn_soak/**
+      - tests/fixtures/beamng/jbeam_wheel2_spawn/**
   workflow_dispatch:
 
 permissions:
@@ -385,6 +395,7 @@ jobs:
           python tests/tools/test_run_agora_impact_regression.py
           python tests/tools/test_run_deterministic_savegame_resume.py
           python tests/tools/test_run_jbeam_inter_actor_collision.py
+          python tests/tools/test_run_jbeam_wheel2_spawn.py
           python tests/tools/test_renderer_combined_game_wiring_contract.py
           python tests/tools/test_mygui_glsl_contract.py
           python tests/tools/test_skyx_glsl_contract.py
@@ -408,6 +419,7 @@ jobs:
           python -O tests/tools/test_run_agora_impact_regression.py
           python -O tests/tools/test_run_deterministic_savegame_resume.py
           python -O tests/tools/test_run_jbeam_inter_actor_collision.py
+          python -O tests/tools/test_run_jbeam_wheel2_spawn.py
           python -O tests/tools/test_renderer_combined_game_wiring_contract.py
           python -O tests/tools/test_mygui_glsl_contract.py
           python -O tests/tools/test_skyx_glsl_contract.py
@@ -1554,6 +1566,458 @@ jobs:
               raise SystemExit("inter-actor traces did not match across 1/8 workers")
           PY
 
+      - name: Prove pressureWheel spawn topology counts and node classes
+        timeout-minutes: 25
+        shell: bash
+        run: |
+          stage="$ROR_COMBINED_STAGE_DIR"
+          evidence="$stage/qualification/jbeam-wheel2-spawn"
+          test -x "$stage/RoR-Combined"
+          test ! -L "$stage/RoR-Combined"
+          test -x "$stage/qualification/bin/ror_state_trace"
+          test ! -L "$stage/qualification/bin/ror_state_trace"
+          test -f "$stage/content/simple2-terrain.zip"
+          test -f tools/run_jbeam_wheel2_spawn.py
+          test -f tests/fixtures/beamng/jbeam_wheel2_spawn/fixture-profile.json
+          test -f tests/fixtures/beamng/jbeam_wheel2_spawn/vehicles/ror_jbeam_wheel2/main.jbeam
+          test -f resources/scripts/example_jbeam_wheel2_spawn.as
+          test ! -e "$evidence"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          LD_LIBRARY_PATH="$stage/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
+          python tools/run_jbeam_wheel2_spawn.py \
+            --executable "$stage/RoR-Combined" \
+            --trace-tool "$stage/qualification/bin/ror_state_trace" \
+            --repository "$GITHUB_WORKSPACE" \
+            --runtime-content "$stage/content" \
+            --artifact-dir "$evidence" \
+            --runs 1 \
+            --workers 1 8 \
+            --timeout 600
+          test -z "$(git status --porcelain --untracked-files=all)"
+          python - "$evidence/report.json" "$GITHUB_SHA" "$evidence" "$GITHUB_WORKSPACE" <<'PY'
+          import hashlib
+          import json
+          import math
+          from pathlib import Path
+          import re
+          import sys
+          import zipfile
+
+          report_path = Path(sys.argv[1])
+          source_commit = sys.argv[2]
+          evidence = Path(sys.argv[3]).resolve(strict=True)
+          repository = Path(sys.argv[4]).resolve(strict=True)
+          if not report_path.is_file() or report_path.is_symlink():
+              raise SystemExit("Wheel2 spawn report is missing or indirect")
+
+          def unique_object(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise SystemExit(f"Wheel2 spawn JSON repeats field {key}")
+                  result[key] = value
+              return result
+
+          def reject_constant(token):
+              raise SystemExit(f"Wheel2 spawn JSON contains non-finite constant {token}")
+
+          def exact_json_equal(left, right):
+              if type(left) is not type(right):
+                  return False
+              if isinstance(left, dict):
+                  return set(left) == set(right) and all(
+                      exact_json_equal(left[key], right[key]) for key in left
+                  )
+              if isinstance(left, list):
+                  return len(left) == len(right) and all(
+                      exact_json_equal(a, b) for a, b in zip(left, right)
+                  )
+              return left == right
+
+          report_bytes = report_path.read_bytes()
+          report = json.loads(
+              report_bytes,
+              object_pairs_hook=unique_object,
+              parse_constant=reject_constant,
+          )
+          expected_report_keys = {
+              "documentation_profile",
+              "executable",
+              "executable_sha256",
+              "fixture_id",
+              "fixture_profile",
+              "fixture_profile_sha256",
+              "format",
+              "batch_boundary_state_envelope",
+              "jbeam_archive_sha256",
+              "jbeam_source_sha256",
+              "machine",
+              "platform",
+              "qualified_claims",
+              "repository_commit",
+              "results",
+              "runs_per_worker",
+              "runtime_topology",
+              "scenario_id",
+              "scope",
+              "script_sha256",
+              "source_inventory",
+              "state_comparisons",
+              "steps",
+              "workers",
+          }
+          expected_topology = {
+              "auditSamples": 201,
+              "auditStrideFixedSteps": 100,
+              "cabTriangles": 0,
+              "collisionCabTriangles": 0,
+              "contacters": 32,
+              "fixedSteps": 20000,
+              "generatedWheelBeams": 384,
+              "generatedWheelNodes": 64,
+              "groundContactNodes": 73,
+              "initialTranslationY": 0.75,
+              "initialVelocityMps": 0,
+              "physicsStepDenominator": 2000,
+              "physicsStepNumerator": 1,
+              "raysPerWheel": 16,
+              "runtimeBeams": 392,
+              "runtimeNodes": 73,
+              "runtimeRimNodes": 32,
+              "runtimeStructuralNodes": 9,
+              "runtimeTireNodes": 32,
+              "sourceStructuralBeams": 8,
+              "sourceStructuralNodes": 9,
+              "sourceWheels": 1,
+              "wheelTireNodeCount": 32,
+          }
+          expected_batch_boundary_envelope = {
+              "brokenBeams": 0,
+              "maximumSampledAbsolutePositionM": 1000000,
+              "maximumSampledAbsoluteVelocityMps": 10000,
+              "maximumSampledCenterOfMassDropM": 100,
+              "maximumFinalCenterSpeedMps": 10000,
+              "maximumFinalNodeSpeedMps": 10000,
+              "minimumSampledCenterOfMassDropM": 0,
+              "minimumFinalCenterSpeedMps": 0,
+              "minimumFinalNodeSpeedMps": 0,
+              "minimumMaximumSampledAbsolutePositionExclusiveM": 0,
+              "minimumMaximumSampledAbsoluteVelocityMps": 0,
+              "minimumNodeMassExclusiveKg": 0,
+              "minimumTotalMassExclusiveKg": 0,
+              "schema": 1,
+          }
+          expected_claims = {
+              "authenticatedProductImportSpawn": True,
+              "batchBoundaryFinitePositiveNodeState": True,
+              "boundedBatchBoundaryState": True,
+              "braking": False,
+              "contactBehavior": False,
+              "driveability": False,
+              "exactGeneratedTopologyCountsAndNodeClasses": True,
+              "exactOneEightWorkerTraceEquality": True,
+              "friction": False,
+              "gravityResponse": False,
+              "perStepNumericStateBounds": False,
+              "playability": False,
+              "pressureVolume": False,
+              "propulsion": False,
+              "rolling": False,
+              "settleBehavior": False,
+              "sourceEngineParity": False,
+              "steering": False,
+              "zeroBrokenBeams": True,
+          }
+          if (
+              not isinstance(report, dict)
+              or set(report) != expected_report_keys
+              or report.get("format")
+              != "ror-j3-authenticated-jbeam-wheel2-spawn-v1"
+              or report.get("repository_commit") != source_commit
+              or report.get("fixture_id")
+              != "ror-jbeam-authenticated-wheel2-spawn-v1"
+              or report.get("documentation_profile")
+              != "beamng-docs-0.38.5.0-2026-07-27"
+              or not isinstance(report.get("machine"), str)
+              or not report["machine"]
+              or not isinstance(report.get("platform"), str)
+              or not report["platform"]
+              or type(report.get("scenario_id")) is not int
+              or report.get("scenario_id") != 2026082701
+              or type(report.get("steps")) is not int
+              or report.get("steps") != 20000
+              or type(report.get("runs_per_worker")) is not int
+              or report.get("runs_per_worker") != 1
+              or not exact_json_equal(report.get("workers"), [1, 8])
+              or not exact_json_equal(report.get("runtime_topology"), expected_topology)
+              or not exact_json_equal(
+                  report.get("batch_boundary_state_envelope"),
+                  expected_batch_boundary_envelope,
+              )
+              or not exact_json_equal(report.get("qualified_claims"), expected_claims)
+              or report.get("scope")
+              != "clean-room-authenticated-pressurewheel-to-native-wheel2-spawn-topology-counts-node-classes-finite-batch-boundary-state-not-vehicle-parity"
+          ):
+              raise SystemExit("Wheel2 spawn report boundary changed")
+
+          digests = (
+              "executable_sha256",
+              "fixture_profile_sha256",
+              "jbeam_archive_sha256",
+              "jbeam_source_sha256",
+              "script_sha256",
+          )
+          for field in digests:
+              value = report.get(field)
+              if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+                  raise SystemExit(f"Wheel2 spawn report lacks {field}")
+          executable = Path(report["executable"])
+          if (
+              executable.resolve(strict=True) != (evidence.parent.parent / "RoR-Combined").resolve(strict=True)
+              or executable.is_symlink()
+              or hashlib.sha256(executable.read_bytes()).hexdigest()
+              != report["executable_sha256"]
+          ):
+              raise SystemExit("Wheel2 spawn executable binding changed")
+
+          expected_sources = {
+              "inputs/fixture-profile.json": repository
+              / "tests/fixtures/beamng/jbeam_wheel2_spawn/fixture-profile.json",
+              "inputs/main.jbeam": repository
+              / "tests/fixtures/beamng/jbeam_wheel2_spawn/vehicles/ror_jbeam_wheel2/main.jbeam",
+              "inputs/example_jbeam_wheel2_spawn.as": repository
+              / "resources/scripts/example_jbeam_wheel2_spawn.as",
+          }
+          inventory = report.get("source_inventory")
+          if not isinstance(inventory, list) or len(inventory) != 4:
+              raise SystemExit("Wheel2 spawn source inventory changed")
+          inventory_by_path = {}
+          for row in inventory:
+              if not isinstance(row, dict) or set(row) != {"bytes", "path", "sha256"}:
+                  raise SystemExit("Wheel2 spawn source inventory row changed")
+              relative = row.get("path")
+              if not isinstance(relative, str) or relative in inventory_by_path:
+                  raise SystemExit("Wheel2 spawn source inventory path is invalid")
+              staged = evidence / relative
+              if not staged.is_file() or staged.is_symlink():
+                  raise SystemExit(f"Wheel2 spawn staged source is missing: {relative}")
+              payload = staged.read_bytes()
+              if (
+                  type(row.get("bytes")) is not int
+                  or row["bytes"] != len(payload)
+                  or row.get("sha256") != hashlib.sha256(payload).hexdigest()
+              ):
+                  raise SystemExit(f"Wheel2 spawn staged source changed: {relative}")
+              inventory_by_path[relative] = row
+          expected_inventory_paths = set(expected_sources) | {
+              "inputs/RoRJBeamWheel2Spawn.zip"
+          }
+          if set(inventory_by_path) != expected_inventory_paths:
+              raise SystemExit("Wheel2 spawn source inventory is not closed")
+          for relative, source in expected_sources.items():
+              staged = evidence / relative
+              if not source.is_file() or source.is_symlink() or staged.read_bytes() != source.read_bytes():
+                  raise SystemExit(f"Wheel2 spawn authenticated source differs: {relative}")
+          archive = evidence / "inputs/RoRJBeamWheel2Spawn.zip"
+          with zipfile.ZipFile(archive, "r") as package:
+              if (
+                  package.namelist()
+                  != ["vehicles/ror_jbeam_wheel2/main.jbeam"]
+                  or package.testzip() is not None
+                  or package.read("vehicles/ror_jbeam_wheel2/main.jbeam")
+                  != (evidence / "inputs/main.jbeam").read_bytes()
+              ):
+                  raise SystemExit("Wheel2 spawn archive closure changed")
+          if (
+              report.get("fixture_profile") != "inputs/fixture-profile.json"
+              or report["fixture_profile_sha256"]
+              != inventory_by_path["inputs/fixture-profile.json"]["sha256"]
+              or report["jbeam_source_sha256"]
+              != inventory_by_path["inputs/main.jbeam"]["sha256"]
+              or report["script_sha256"]
+              != inventory_by_path["inputs/example_jbeam_wheel2_spawn.as"]["sha256"]
+              or report["jbeam_archive_sha256"]
+              != inventory_by_path["inputs/RoRJBeamWheel2Spawn.zip"]["sha256"]
+          ):
+              raise SystemExit("Wheel2 spawn report lost authenticated input binding")
+
+          telemetry_keys = {
+              "broken_beams",
+              "final_center_speed_mps",
+              "final_maximum_node_speed_mps",
+              "maximum_sampled_absolute_position_m",
+              "maximum_sampled_absolute_velocity_mps",
+              "minimum_node_mass_kg",
+              "sampled_center_drop_m",
+              "total_mass_kg",
+          }
+          results = report.get("results")
+          if not isinstance(results, list) or len(results) != 2:
+              raise SystemExit("Wheel2 spawn report lacks exact worker results")
+          expected_traces = [
+              "traces/worker-01-run-01.rortrace",
+              "traces/worker-08-run-01.rortrace",
+          ]
+          baseline_telemetry = None
+          final_digests = set()
+          for index, (row, workers) in enumerate(zip(results, (1, 8))):
+              if not isinstance(row, dict) or set(row) != {
+                  "contact_summary",
+                  "final_state_digest",
+                  "run",
+                  "telemetry",
+                  "trace",
+                  "trace_bytes",
+                  "trace_sha256",
+                  "workers",
+              }:
+                  raise SystemExit("Wheel2 spawn result key set changed")
+              if (
+                  type(row.get("workers")) is not int
+                  or row["workers"] != workers
+                  or type(row.get("run")) is not int
+                  or row["run"] != 1
+                  or row.get("trace") != expected_traces[index]
+              ):
+                  raise SystemExit("Wheel2 spawn result identity changed")
+              trace = evidence / row["trace"]
+              if not trace.is_file() or trace.is_symlink():
+                  raise SystemExit("Wheel2 spawn trace is missing or indirect")
+              if (
+                  type(row.get("trace_bytes")) is not int
+                  or row["trace_bytes"] != trace.stat().st_size
+                  or row.get("trace_sha256") != hashlib.sha256(trace.read_bytes()).hexdigest()
+                  or not isinstance(row.get("final_state_digest"), str)
+                  or re.fullmatch(r"[0-9a-f]{64}", row["final_state_digest"]) is None
+              ):
+                  raise SystemExit("Wheel2 spawn trace receipt changed")
+              final_digests.add(row["final_state_digest"])
+              telemetry = row.get("telemetry")
+              if not isinstance(telemetry, dict) or set(telemetry) != telemetry_keys:
+                  raise SystemExit("Wheel2 spawn telemetry schema changed")
+              if type(telemetry.get("broken_beams")) is not int or telemetry["broken_beams"] != 0:
+                  raise SystemExit("Wheel2 spawn broken-beam receipt changed")
+              for key in telemetry_keys - {"broken_beams"}:
+                  value = telemetry.get(key)
+                  if type(value) is not float or not math.isfinite(value):
+                      raise SystemExit(f"Wheel2 spawn telemetry {key} is invalid")
+              if (
+                  telemetry["total_mass_kg"] <= 0
+                  or telemetry["minimum_node_mass_kg"] <= 0
+                  or not 0 <= telemetry["sampled_center_drop_m"] <= 100
+                  or not 0 <= telemetry["final_center_speed_mps"] <= 10000
+                  or not 0 <= telemetry["final_maximum_node_speed_mps"] <= 10000
+                  or not 0 < telemetry["maximum_sampled_absolute_position_m"] <= 1000000
+                  or not 0 <= telemetry["maximum_sampled_absolute_velocity_mps"] <= 10000
+                  or telemetry["total_mass_kg"]
+                  < telemetry["minimum_node_mass_kg"] * 73
+                  or telemetry["final_maximum_node_speed_mps"]
+                  < telemetry["final_center_speed_mps"]
+                  or telemetry["maximum_sampled_absolute_velocity_mps"]
+                  < telemetry["final_maximum_node_speed_mps"]
+              ):
+                  raise SystemExit("Wheel2 spawn telemetry left the batch-boundary envelope")
+              if baseline_telemetry is None:
+                  baseline_telemetry = telemetry
+              elif not exact_json_equal(telemetry, baseline_telemetry):
+                  raise SystemExit("Wheel2 spawn telemetry changed across worker counts")
+              summary = row.get("contact_summary")
+              if not isinstance(summary, dict) or set(summary) != {
+                  "contact_step_count",
+                  "first_contact_physics_step",
+                  "last_contact_physics_step",
+                  "maximum_contact_count",
+                  "total_contact_count",
+              }:
+                  raise SystemExit("Wheel2 spawn contact summary schema changed")
+              for key in (
+                  "contact_step_count",
+                  "maximum_contact_count",
+                  "total_contact_count",
+              ):
+                  if type(summary[key]) is not int or summary[key] < 0:
+                      raise SystemExit(f"Wheel2 spawn contact summary {key} is invalid")
+              if summary["contact_step_count"] == 0:
+                  if (
+                      summary["total_contact_count"] != 0
+                      or summary["maximum_contact_count"] != 0
+                      or summary["first_contact_physics_step"] is not None
+                      or summary["last_contact_physics_step"] is not None
+                  ):
+                      raise SystemExit("Wheel2 spawn empty contact summary is inconsistent")
+              else:
+                  first_contact = summary["first_contact_physics_step"]
+                  last_contact = summary["last_contact_physics_step"]
+                  if (
+                      type(first_contact) is not int
+                      or type(last_contact) is not int
+                      or first_contact < 0
+                      or last_contact < first_contact
+                      or last_contact >= 20000
+                      or summary["maximum_contact_count"] <= 0
+                      or summary["total_contact_count"]
+                      < summary["contact_step_count"]
+                      or summary["total_contact_count"]
+                      > summary["contact_step_count"]
+                      * summary["maximum_contact_count"]
+                  ):
+                      raise SystemExit("Wheel2 spawn contact summary is inconsistent")
+              label = f"worker-{workers:02d}-run-01"
+              for suffix in ("stdout", "RoR.log", "Angelscript.log"):
+                  diagnostic = evidence / "diagnostics" / f"{label}.{suffix}"
+                  if not diagnostic.is_file() or diagnostic.is_symlink() or (
+                      suffix != "stdout" and diagnostic.stat().st_size <= 0
+                  ):
+                      raise SystemExit(f"Wheel2 spawn diagnostic is missing: {diagnostic}")
+          if len(final_digests) != 1:
+              raise SystemExit("Wheel2 spawn final state changed across worker counts")
+
+          comparisons = report.get("state_comparisons")
+          if not isinstance(comparisons, list) or len(comparisons) != 1:
+              raise SystemExit("Wheel2 spawn report lacks one cross-worker comparison")
+          comparison = comparisons[0]
+          if not isinstance(comparison, dict) or set(comparison) != {
+              "difference",
+              "first_divergent_step",
+              "format",
+              "left_metadata",
+              "left_trace",
+              "right_metadata",
+              "right_trace",
+              "status",
+              "steps_compared",
+          }:
+              raise SystemExit("Wheel2 spawn comparison schema changed")
+          left_metadata = comparison.get("left_metadata")
+          right_metadata = comparison.get("right_metadata")
+          expected_left_metadata = {
+              "digest_schema_version": 3,
+              "first_physics_step": 0,
+              "physics_flags": 1,
+              "physics_step_denominator": 2000,
+              "physics_step_numerator": 1,
+              "scenario_id": 2026082701,
+              "worker_count": 1,
+          }
+          expected_right_metadata = dict(expected_left_metadata)
+          expected_right_metadata["worker_count"] = 8
+          if (
+              comparison.get("difference") != "none"
+              or comparison.get("first_divergent_step") is not None
+              or comparison.get("format") != "ror-d0-state-trace-comparison-v2"
+              or comparison.get("status") != "match"
+              or type(comparison.get("steps_compared")) is not int
+              or comparison["steps_compared"] != 20000
+              or comparison.get("left_trace") != expected_traces[0]
+              or comparison.get("right_trace") != expected_traces[1]
+              or not exact_json_equal(left_metadata, expected_left_metadata)
+              or not exact_json_equal(right_metadata, expected_right_metadata)
+          ):
+              raise SystemExit("Wheel2 spawn traces did not match across 1/8 workers")
+          PY
+
       - name: Prove exact deterministic save and resume through packaged RoR-Combined
         shell: bash
         run: |
@@ -1640,6 +2104,7 @@ jobs:
           import json
           import os
           from pathlib import Path
+          import re
           import stat
           import sys
 
@@ -1859,6 +2324,183 @@ jobs:
               raise SystemExit(
                   "inter-actor contact report lost its accepted envelope binding"
               )
+          wheel_report_relative = Path(
+              "qualification/jbeam-wheel2-spawn/report.json"
+          )
+          wheel_report_path = root / wheel_report_relative
+          if not wheel_report_path.is_file() or wheel_report_path.is_symlink():
+              raise SystemExit(
+                  "Wheel2 spawn report is missing or indirect at inventory time"
+              )
+          wheel_report_bytes = wheel_report_path.read_bytes()
+          wheel_report_sha256 = hashlib.sha256(wheel_report_bytes).hexdigest()
+          wheel_report = json.loads(
+              wheel_report_bytes,
+              object_pairs_hook=unique_receipt_object,
+              parse_constant=lambda token: (_ for _ in ()).throw(
+                  SystemExit(
+                      f"Wheel2 spawn report contains non-finite constant {token}"
+                  )
+              ),
+          )
+          expected_wheel_report_keys = {
+              "documentation_profile",
+              "executable",
+              "executable_sha256",
+              "fixture_id",
+              "fixture_profile",
+              "fixture_profile_sha256",
+              "format",
+              "batch_boundary_state_envelope",
+              "jbeam_archive_sha256",
+              "jbeam_source_sha256",
+              "machine",
+              "platform",
+              "qualified_claims",
+              "repository_commit",
+              "results",
+              "runs_per_worker",
+              "runtime_topology",
+              "scenario_id",
+              "scope",
+              "script_sha256",
+              "source_inventory",
+              "state_comparisons",
+              "steps",
+              "workers",
+          }
+          expected_wheel_claims = {
+              "authenticatedProductImportSpawn": True,
+              "batchBoundaryFinitePositiveNodeState": True,
+              "boundedBatchBoundaryState": True,
+              "braking": False,
+              "contactBehavior": False,
+              "driveability": False,
+              "exactGeneratedTopologyCountsAndNodeClasses": True,
+              "exactOneEightWorkerTraceEquality": True,
+              "friction": False,
+              "gravityResponse": False,
+              "perStepNumericStateBounds": False,
+              "playability": False,
+              "pressureVolume": False,
+              "propulsion": False,
+              "rolling": False,
+              "settleBehavior": False,
+              "sourceEngineParity": False,
+              "steering": False,
+              "zeroBrokenBeams": True,
+          }
+          expected_wheel_topology = {
+              "auditSamples": 201,
+              "auditStrideFixedSteps": 100,
+              "cabTriangles": 0,
+              "collisionCabTriangles": 0,
+              "contacters": 32,
+              "fixedSteps": 20000,
+              "generatedWheelBeams": 384,
+              "generatedWheelNodes": 64,
+              "groundContactNodes": 73,
+              "initialTranslationY": 0.75,
+              "initialVelocityMps": 0,
+              "physicsStepDenominator": 2000,
+              "physicsStepNumerator": 1,
+              "raysPerWheel": 16,
+              "runtimeBeams": 392,
+              "runtimeNodes": 73,
+              "runtimeRimNodes": 32,
+              "runtimeStructuralNodes": 9,
+              "runtimeTireNodes": 32,
+              "sourceStructuralBeams": 8,
+              "sourceStructuralNodes": 9,
+              "sourceWheels": 1,
+              "wheelTireNodeCount": 32,
+          }
+          expected_wheel_envelope = {
+              "brokenBeams": 0,
+              "maximumSampledAbsolutePositionM": 1000000,
+              "maximumSampledAbsoluteVelocityMps": 10000,
+              "maximumSampledCenterOfMassDropM": 100,
+              "maximumFinalCenterSpeedMps": 10000,
+              "maximumFinalNodeSpeedMps": 10000,
+              "minimumSampledCenterOfMassDropM": 0,
+              "minimumFinalCenterSpeedMps": 0,
+              "minimumFinalNodeSpeedMps": 0,
+              "minimumMaximumSampledAbsolutePositionExclusiveM": 0,
+              "minimumMaximumSampledAbsoluteVelocityMps": 0,
+              "minimumNodeMassExclusiveKg": 0,
+              "minimumTotalMassExclusiveKg": 0,
+              "schema": 1,
+          }
+          if (
+              not isinstance(wheel_report, dict)
+              or set(wheel_report) != expected_wheel_report_keys
+              or wheel_report.get("format")
+              != "ror-j3-authenticated-jbeam-wheel2-spawn-v1"
+              or wheel_report.get("repository_commit") != source_commit
+              or wheel_report.get("fixture_id")
+              != "ror-jbeam-authenticated-wheel2-spawn-v1"
+              or canonical_json(wheel_report.get("workers"))
+              != canonical_json([1, 8])
+              or type(wheel_report.get("steps")) is not int
+              or wheel_report["steps"] != 20000
+              or type(wheel_report.get("runs_per_worker")) is not int
+              or wheel_report["runs_per_worker"] != 1
+              or canonical_json(wheel_report.get("qualified_claims"))
+              != canonical_json(expected_wheel_claims)
+              or canonical_json(wheel_report.get("runtime_topology"))
+              != canonical_json(expected_wheel_topology)
+              or canonical_json(wheel_report.get("batch_boundary_state_envelope"))
+              != canonical_json(expected_wheel_envelope)
+              or wheel_report.get("scope")
+              != "clean-room-authenticated-pressurewheel-to-native-wheel2-spawn-topology-counts-node-classes-finite-batch-boundary-state-not-vehicle-parity"
+              or wheel_report.get("fixture_profile")
+              != "inputs/fixture-profile.json"
+          ):
+              raise SystemExit("Wheel2 spawn report changed at inventory time")
+          wheel_source_inventory = wheel_report.get("source_inventory")
+          expected_wheel_sources = {
+              "inputs/fixture-profile.json",
+              "inputs/main.jbeam",
+              "inputs/example_jbeam_wheel2_spawn.as",
+              "inputs/RoRJBeamWheel2Spawn.zip",
+          }
+          if not isinstance(wheel_source_inventory, list) or len(wheel_source_inventory) != 4:
+              raise SystemExit("Wheel2 spawn source inventory changed at inventory time")
+          wheel_sources = {}
+          for row in wheel_source_inventory:
+              if not isinstance(row, dict) or set(row) != {"bytes", "path", "sha256"}:
+                  raise SystemExit("Wheel2 spawn source row changed at inventory time")
+              relative = row.get("path")
+              if not isinstance(relative, str) or relative in wheel_sources:
+                  raise SystemExit("Wheel2 spawn source path changed at inventory time")
+              path = wheel_report_path.parent / relative
+              if not path.is_file() or path.is_symlink():
+                  raise SystemExit(f"Wheel2 spawn source is missing at inventory time: {relative}")
+              payload = path.read_bytes()
+              if (
+                  type(row.get("bytes")) is not int
+                  or row["bytes"] != len(payload)
+                  or not isinstance(row.get("sha256"), str)
+                  or re.fullmatch(r"[0-9a-f]{64}", row["sha256"]) is None
+                  or row["sha256"] != hashlib.sha256(payload).hexdigest()
+              ):
+                  raise SystemExit(f"Wheel2 spawn source changed at inventory time: {relative}")
+              wheel_sources[relative] = row
+          if set(wheel_sources) != expected_wheel_sources:
+              raise SystemExit("Wheel2 spawn source closure changed at inventory time")
+          if (
+              wheel_report.get("fixture_profile_sha256")
+              != wheel_sources["inputs/fixture-profile.json"]["sha256"]
+              or wheel_report.get("jbeam_source_sha256")
+              != wheel_sources["inputs/main.jbeam"]["sha256"]
+              or wheel_report.get("script_sha256")
+              != wheel_sources["inputs/example_jbeam_wheel2_spawn.as"]["sha256"]
+              or wheel_report.get("jbeam_archive_sha256")
+              != wheel_sources["inputs/RoRJBeamWheel2Spawn.zip"]["sha256"]
+          ):
+              raise SystemExit(
+                  "Wheel2 spawn input digests changed at inventory time"
+              )
           expected_native_distance_lod = {
               "available": True,
               "casters": 4,
@@ -2041,7 +2683,7 @@ jobs:
                   "native A1 Linux receipt semantic qualification changed"
               )
           document = {
-              "schema": "ror.ogre_next_combined_linux_package.v7",
+              "schema": "ror.ogre_next_combined_linux_package.v8",
               "source_commit": source_commit,
               "platform_policy": "linux-x86_64-vulkan",
               "entrypoint": "RunRoR",
@@ -2115,6 +2757,39 @@ jobs:
                   "shared_node_contacts_observed": True,
                   "beamng_pc_runtime_proven": False,
                   "beamng_force_parity_proven": False,
+              },
+              "authenticated_pressurewheel_wheel2_spawn": {
+                  "qualified": True,
+                  "report": wheel_report_relative.as_posix(),
+                  "report_sha256": wheel_report_sha256,
+                  "workers": [1, 8],
+                  "steps": 20000,
+                  "fixture_input": "clean-room-jbeam-pressurewheel",
+                  "qualification_scope": (
+                      "authenticated-product-import-spawn-exact-wheel2-"
+                      "topology-counts-node-classes-finite-batch-boundary-"
+                      "state"
+                  ),
+                  "audit_stride_fixed_steps": 100,
+                  "audit_samples": 201,
+                  "generated_nodes": 64,
+                  "generated_beams": 384,
+                  "rim_nodes": 32,
+                  "tire_nodes": 32,
+                  "broken_beams": 0,
+                  "pressure_volume_proven": False,
+                  "friction_proven": False,
+                  "braking_proven": False,
+                  "propulsion_proven": False,
+                  "steering_proven": False,
+                  "rolling_proven": False,
+                  "gravity_response_proven": False,
+                  "contact_behavior_proven": False,
+                  "per_step_numeric_state_bounds_proven": False,
+                  "settle_behavior_proven": False,
+                  "driveability_proven": False,
+                  "beamng_source_engine_parity_proven": False,
+                  "playability_proven": False,
               },
               "deterministic_savegame_resume": {
                   "qualified": True,
@@ -2276,6 +2951,7 @@ jobs:
           python tests/tools/test_run_agora_impact_regression.py
           python tests/tools/test_run_deterministic_savegame_resume.py
           python tests/tools/test_run_jbeam_inter_actor_collision.py
+          python tests/tools/test_run_jbeam_wheel2_spawn.py
           python tests/tools/test_renderer_combined_game_wiring_contract.py
           python tests/tools/test_mygui_glsl_contract.py
           python tests/tools/test_skyx_glsl_contract.py
@@ -2299,6 +2975,7 @@ jobs:
           python -O tests/tools/test_run_agora_impact_regression.py
           python -O tests/tools/test_run_deterministic_savegame_resume.py
           python -O tests/tools/test_run_jbeam_inter_actor_collision.py
+          python -O tests/tools/test_run_jbeam_wheel2_spawn.py
           python -O tests/tools/test_renderer_combined_game_wiring_contract.py
           python -O tests/tools/test_mygui_glsl_contract.py
           python -O tests/tools/test_skyx_glsl_contract.py
@@ -3087,6 +3764,7 @@ jobs:
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_run_agora_impact_regression.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_run_deterministic_savegame_resume.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_run_jbeam_inter_actor_collision.py')
+          Invoke-CheckedPython -PythonArguments @('tests/tools/test_run_jbeam_wheel2_spawn.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_renderer_combined_game_wiring_contract.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_mygui_glsl_contract.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_skyx_glsl_contract.py')
@@ -3108,6 +3786,7 @@ jobs:
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_agora_impact_regression.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_deterministic_savegame_resume.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_jbeam_inter_actor_collision.py')
+          Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_jbeam_wheel2_spawn.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_renderer_combined_game_wiring_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_mygui_glsl_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_skyx_glsl_contract.py')
