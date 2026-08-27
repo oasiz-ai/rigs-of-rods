@@ -21,6 +21,7 @@ from cg_package_audit import (
     contains_forbidden_legacy_directx_token,
     find_forbidden_cg_package_entries,
     find_forbidden_legacy_directx_package_entries,
+    find_missing_windows_d3d11_package_entries,
     find_windows_d3d11_cache_contract_errors,
     is_trusted_windows_kits_include_path,
     is_trusted_windows_kits_library_path,
@@ -349,13 +350,18 @@ class OGRELegacyConan(ConanFile):
                 "DirectX artifacts: "
                 + ", ".join(details)
             )
-        if str(self.settings.os) == "Windows" and not any(
-            "rendersystem_direct3d11" in library.lower()
-            for library in packaged_libraries
-        ):
-            raise ConanInvalidConfiguration(
-                "The Ogre 1.11 Windows package has no D3D11 render system"
+        if str(self.settings.os) == "Windows":
+            missing_d3d11_entries = (
+                find_missing_windows_d3d11_package_entries(
+                    self.package_folder
+                )
             )
+            if missing_d3d11_entries:
+                raise ConanInvalidConfiguration(
+                    "The Ogre 1.11 Windows package is missing required "
+                    "D3D11 render-system artifacts: "
+                    + ", ".join(missing_d3d11_entries)
+                )
 
     def package_info(self):
         self.cpp_info.set_property("cmake_module_file_name", "OGRE")

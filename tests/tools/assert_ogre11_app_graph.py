@@ -11,12 +11,12 @@ from typing import Any
 
 OGRE_REFERENCE = (
     "ogre3d/1.11.6.1@anotherfoxguy/stable"
-    "#44875cdee59d651783849e1924b04ea6"
+    "#b4d2abe5fc33488c03374918364ccf03"
 )
 OGRE_BASE_REFERENCE = "ogre3d/1.11.6.1@anotherfoxguy/stable"
 CAELUM_REFERENCE = (
     "ogre3d-caelum/0.6.3.1@anotherfoxguy/stable"
-    "#6eaa7878150faaff32f574edbcdc2568"
+    "#7cfb577bd17e9d6514b6338dba5b1316"
 )
 MYGUI_REFERENCE = (
     "mygui/3.4.0@anotherfoxguy/stable"
@@ -24,7 +24,7 @@ MYGUI_REFERENCE = (
 )
 PAGED_GEOMETRY_REFERENCE = (
     "ogre3d-pagedgeometry/1.2.0@anotherfoxguy/stable"
-    "#fdbe7cdbfa594012cc24431e426dfe26"
+    "#f16d78294fdd53a6173cc0265eaf8db1"
 )
 OIS_REFERENCE = "ois/1.5.1#d5025190ec611a8e0851cb16a07437a2"
 ANGELSCRIPT_REFERENCE = (

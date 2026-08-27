@@ -449,6 +449,14 @@ class LegacyOgreCgFreeRecipeContractTests(unittest.TestCase):
         self.assertIn(
             "find_windows_d3d11_cache_contract_errors", self.legacy_recipe
         )
+        self.assertIn(
+            "find_missing_windows_d3d11_package_entries",
+            self.legacy_recipe,
+        )
+        self.assertNotIn(
+            '"rendersystem_direct3d11" in library.lower()',
+            self.legacy_recipe,
+        )
         self.assertNotIn(
             '"find_package(DirectX9)"',
             self.legacy_recipe,
@@ -930,11 +938,103 @@ class LegacyOgreCgFreeRecipeContractTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertTrue(validate(hostile_cache))
 
+    def test_windows_d3d11_package_contract_requires_exact_regular_files(
+        self,
+    ) -> None:
+        validate = (
+            self.legacy_audit_module
+            .find_missing_windows_d3d11_package_entries
+        )
+        required_paths = (
+            "lib/OGRE/RenderSystem_Direct3D11.lib",
+            "bin/RenderSystem_Direct3D11.dll",
+        )
+
+        with tempfile.TemporaryDirectory(
+            prefix="ror-ogre11-d3d11-package-contract-"
+        ) as tmp:
+            for relative_path in required_paths:
+                artifact = Path(tmp) / relative_path
+                artifact.parent.mkdir(parents=True, exist_ok=True)
+                artifact.write_bytes(b"exact regular file")
+            self.assertEqual(validate(tmp), [])
+
+        hostile_entries = {
+            "missing import library": (
+                "bin/RenderSystem_Direct3D11.dll",
+                "lib/OGRE/RenderSystem_Direct3D11.lib",
+            ),
+            "missing runtime library": (
+                "lib/OGRE/RenderSystem_Direct3D11.lib",
+                "bin/RenderSystem_Direct3D11.dll",
+            ),
+            "wrong import-library extension": (
+                "lib/OGRE/RenderSystem_Direct3D11.a",
+                "lib/OGRE/RenderSystem_Direct3D11.lib",
+            ),
+            "similarly named runtime library": (
+                "bin/RenderSystem_Direct3D11_debug.dll",
+                "bin/RenderSystem_Direct3D11.dll",
+            ),
+        }
+        for name, (present_path, missing_path) in hostile_entries.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory(
+                prefix="ror-ogre11-d3d11-hostile-package-"
+            ) as tmp:
+                for required_path in required_paths:
+                    if required_path == missing_path:
+                        continue
+                    required_artifact = Path(tmp) / required_path
+                    required_artifact.parent.mkdir(
+                        parents=True, exist_ok=True
+                    )
+                    required_artifact.write_bytes(b"exact regular file")
+                artifact = Path(tmp) / present_path
+                artifact.parent.mkdir(parents=True, exist_ok=True)
+                artifact.write_bytes(b"wrong or incomplete package")
+                self.assertEqual(validate(tmp), [missing_path])
+
+        for relative_path in required_paths:
+            with self.subTest(
+                kind="directory", relative_path=relative_path
+            ), tempfile.TemporaryDirectory(
+                prefix="ror-ogre11-d3d11-directory-package-"
+            ) as tmp:
+                for candidate in required_paths:
+                    artifact = Path(tmp) / candidate
+                    if candidate == relative_path:
+                        artifact.mkdir(parents=True)
+                    else:
+                        artifact.parent.mkdir(parents=True, exist_ok=True)
+                        artifact.write_bytes(b"exact regular file")
+                self.assertEqual(validate(tmp), [relative_path])
+
+        for relative_path in required_paths:
+            with self.subTest(
+                kind="symlink", relative_path=relative_path
+            ), tempfile.TemporaryDirectory(
+                prefix="ror-ogre11-d3d11-symlink-package-"
+            ) as tmp:
+                for candidate in required_paths:
+                    artifact = Path(tmp) / candidate
+                    artifact.parent.mkdir(parents=True, exist_ok=True)
+                    artifact.write_bytes(b"exact regular file")
+                symlink_path = str(Path(tmp) / relative_path)
+                original_islink = self.legacy_audit_module.os.path.islink
+                with mock.patch.object(
+                    self.legacy_audit_module.os.path,
+                    "islink",
+                    side_effect=lambda path: (
+                        str(path) == symlink_path or original_islink(path)
+                    ),
+                ):
+                    self.assertEqual(validate(tmp), [relative_path])
+
     def test_caelum_recipe_is_exactly_bound_to_the_cg_free_ogre_host(
         self,
     ) -> None:
         self.assertIn(
-            '"#44875cdee59d651783849e1924b04ea6"',
+            '"#b4d2abe5fc33488c03374918364ccf03"',
             self.legacy_caelum_recipe,
         )
         self.assertNotIn("[~14]", self.legacy_caelum_recipe)
@@ -1092,7 +1192,7 @@ class LegacyOgreCgFreeRecipeContractTests(unittest.TestCase):
         self,
     ) -> None:
         self.assertIn(
-            '"#44875cdee59d651783849e1924b04ea6"',
+            '"#b4d2abe5fc33488c03374918364ccf03"',
             self.legacy_paged_geometry_recipe,
         )
         self.assertNotIn("[~1.11]", self.legacy_paged_geometry_recipe)

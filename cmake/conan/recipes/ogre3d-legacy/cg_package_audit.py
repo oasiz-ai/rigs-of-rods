@@ -77,6 +77,10 @@ WINDOWS_D3D11_CACHE_CONTRACT = (
     "OGRE_BUILD_RENDERSYSTEM_D3D11:BOOL=ON",
     "OGRE_BUILD_RENDERSYSTEM_D3D9:INTERNAL=OFF",
 )
+WINDOWS_D3D11_PACKAGE_CONTRACT = (
+    "lib/OGRE/RenderSystem_Direct3D11.lib",
+    "bin/RenderSystem_Direct3D11.dll",
+)
 INACTIVE_DIRECT3D9_CMAKE_STANZA = re.compile(
     r"(?m)^if\((?:OFF|FALSE)\)\r?\n"
     r"    ogre_declare_plugin\(RenderSystem Direct3D9\)\r?\n"
@@ -168,6 +172,23 @@ def is_trusted_windows_kits_library_path(
 def package_relative_posix_path(entry_path: str, package_folder: str) -> str:
     """Return a stable package-relative path on every host platform."""
     return Path(os.path.relpath(entry_path, package_folder)).as_posix()
+
+
+def find_missing_windows_d3d11_package_entries(
+    package_folder: str,
+) -> list[str]:
+    """Return required D3D11 artifacts that are not exact regular files."""
+    if not os.path.isdir(package_folder):
+        raise FileNotFoundError(
+            "The Ogre 1.11 package folder does not exist for the D3D11 audit"
+        )
+
+    missing: list[str] = []
+    for relative_path in WINDOWS_D3D11_PACKAGE_CONTRACT:
+        entry_path = os.path.join(package_folder, *relative_path.split("/"))
+        if not os.path.isfile(entry_path) or os.path.islink(entry_path):
+            missing.append(relative_path)
+    return missing
 
 
 def find_forbidden_cg_package_entries(package_folder: str) -> list[str]:
