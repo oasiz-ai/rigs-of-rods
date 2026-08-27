@@ -308,7 +308,7 @@ add_test(
     NAME native_a1_course_source_validation
     COMMAND
         "${Python3_EXECUTABLE}"
-        "${ROR_REPOSITORY_ROOT}/tools/validate_native_render_asset.py"
+        "${ROR_REPOSITORY_ROOT}/tools/validate_native_render_asset_v3.py"
         "${ROR_NATIVE_A1_COURSE_SOURCE}"
         --repo-root "${ROR_REPOSITORY_ROOT}"
 )
@@ -324,7 +324,7 @@ add_test(
     NAME native_a1_course_checked_compile
     COMMAND
         "${Python3_EXECUTABLE}"
-        "${ROR_REPOSITORY_ROOT}/tools/compile_native_render_asset.py"
+        "${ROR_REPOSITORY_ROOT}/tools/compile_native_render_asset_v3.py"
         "${ROR_NATIVE_A1_COURSE_SOURCE}"
         --repo-root "${ROR_REPOSITORY_ROOT}"
         --validate-checked
@@ -1667,6 +1667,11 @@ add_executable(
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextHdrTemporalContract.cpp"
 )
 add_executable(
+    ror_ogre_next_native_render_pass_metrics_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/OgreNextNativeRenderPassMetricsTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextNativeRenderPassMetrics.cpp"
+)
+add_executable(
     ror_ogre_next_taa_contract_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/OgreNextTaaContractTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextTaaContract.cpp"
@@ -1707,6 +1712,10 @@ target_include_directories(
 )
 target_include_directories(
     ror_ogre_next_hdr_temporal_contract_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext"
+)
+target_include_directories(
+    ror_ogre_next_native_render_pass_metrics_tests
     PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext"
 )
 target_include_directories(
@@ -2092,6 +2101,7 @@ endforeach ()
 set(ROR_RENDER_CONTRACT_BUILD_TARGETS
     ror_render_contract
     ${ROR_RENDER_CONTRACT_TEST_TARGETS}
+    ror_ogre_next_native_render_pass_metrics_tests
     ror_renderer_boundary_header_isolation_tests
     ror_renderer_ogre14_input_adapter_tests
     ror_renderer_ogre14_runtime_ownership_tests
@@ -2139,6 +2149,7 @@ endforeach ()
 if (NOT MSVC)
     set(ROR_RENDER_CONTRACT_LINK_TARGETS
         ${ROR_RENDER_CONTRACT_TEST_TARGETS}
+        ror_ogre_next_native_render_pass_metrics_tests
         ror_frame_time_budget_tests
         ror_renderer_ogre14_input_adapter_tests
         ror_renderer_ogre14_runtime_ownership_tests
@@ -3895,6 +3906,15 @@ add_test(
 add_test(
     NAME ogre_next_hdr_temporal_contract
     COMMAND ror_ogre_next_hdr_temporal_contract_tests
+)
+
+add_test(
+    NAME ogre_next_native_render_pass_metrics
+    COMMAND ror_ogre_next_native_render_pass_metrics_tests
+)
+set_tests_properties(
+    ogre_next_native_render_pass_metrics
+    PROPERTIES LABELS "gfx;performance;ogre-next" TIMEOUT 30
 )
 
 add_test(

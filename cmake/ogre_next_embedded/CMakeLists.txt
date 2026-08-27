@@ -1247,6 +1247,7 @@ set(_ror_embedded_n1_sources
     "${_ror_render_root}/ogrenext/OgreNextSunVisibilityV2Interop.cpp"
     "${_ror_render_root}/ogrenext/OgreNextSunVisibilityV2InteropState.cpp"
     "${_ror_render_root}/ogrenext/OgreNextHdrTemporalContract.cpp"
+    "${_ror_render_root}/ogrenext/OgreNextNativeRenderPassMetrics.cpp"
     "${_ror_render_root}/ogrenext/OgreNextTaaContract.cpp"
     "${_ror_render_root}/ogrenext/OgreNextDisplayDomainUnlit.cpp"
     "${_ror_render_root}/ogrenext/OgreNextUvAffinePbs.cpp"

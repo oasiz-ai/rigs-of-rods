@@ -31,6 +31,8 @@
 #include "PointColDetector.h"
 #include "Triangle.h"
 
+#include <limits>
+
 using namespace Ogre;
 using namespace RoR;
 
@@ -95,6 +97,11 @@ static bool InsideTriangleTest(const CartesianToTriangleTransform::TriangleCoord
 
 
 namespace {
+
+static_assert(
+    sizeof(Ogre::Real) == sizeof(float) &&
+        std::numeric_limits<Ogre::Real>::is_iec559,
+    "contact-conservation audit requires binary32 Ogre::Real accumulators");
 
 struct CollisionForceResult
 {
@@ -166,7 +173,11 @@ CollisionForceResult ResolveCollisionForces(const float penetration_depth,
         const bool hit_actor_networked,
         const bool surface_actor_networked,
         ground_model_t &submesh_ground_model,
-        ContactConservation::Aggregate* out_conservation)
+        ContactConservation::Aggregate* out_conservation,
+        const std::array<
+            ContactConservation::NodeKey,
+            ContactConservation::NODE_COUNT>* node_keys,
+        ContactConservation::StepAccumulator* out_step_conservation)
 {
     const auto velocity = hitnode.Velocity - (na.Velocity * alpha + nb.Velocity * beta + no.Velocity * gamma);
     const float tr_mass = na.mass * alpha + nb.mass * beta + no.mass * gamma;
@@ -306,6 +317,20 @@ CollisionForceResult ResolveCollisionForces(const float penetration_depth,
             beta,
             gamma);
     }
+    else if (out_step_conservation != nullptr)
+    {
+        // Whole-step evidence is downstream of the already accepted force
+        // transaction. A quota/allocation/identity failure must stop only the
+        // trace; it must not roll back or replace collision forces that were
+        // applied successfully above.
+        result.error = node_keys != nullptr
+            ? ContactConservation::AccumulateStepContact(
+                *node_keys,
+                input,
+                applied_telemetry,
+                *out_step_conservation)
+            : ContactConservation::Error::INVALID_NODE_KEY;
+    }
     return result;
 }
 
@@ -339,9 +364,11 @@ class InterActorCollisionResolver
 public:
     explicit InterActorCollisionResolver(
             float dt,
-            ContactConservation::Aggregate* out_conservation):
+            ContactConservation::Aggregate* out_conservation,
+            ContactConservation::StepAccumulator* out_step_conservation):
         m_dt(dt),
-        m_conservation(out_conservation)
+        m_conservation(out_conservation),
+        m_step_conservation(out_step_conservation)
     {
     }
 
@@ -377,6 +404,22 @@ public:
             (m_hit_actor->ar_state == ActorState::NETWORKED_OK);
         const bool surface_actor_networked =
             (m_surface_actor->ar_state == ActorState::NETWORKED_OK);
+        const std::array<
+            ContactConservation::NodeKey,
+            ContactConservation::NODE_COUNT> node_keys = {{
+                ContactConservation::NodeKey(
+                    contact.key.hit_actor,
+                    contact.key.hit_node),
+                ContactConservation::NodeKey(
+                    contact.key.surface_actor,
+                    contact.surface_node_a),
+                ContactConservation::NodeKey(
+                    contact.key.surface_actor,
+                    contact.surface_node_b),
+                ContactConservation::NodeKey(
+                    contact.key.surface_actor,
+                    contact.surface_node_o)
+            }};
 
         CollisionForceResult force_result = ResolveCollisionForces(
             contact.penetration_depth,
@@ -392,7 +435,9 @@ public:
             hit_actor_networked,
             surface_actor_networked,
             *contact.ground_model,
-            m_conservation);
+            m_conservation,
+            &node_keys,
+            m_step_conservation);
 
         if (!force_result.forces_applied)
             return force_result.error;
@@ -412,6 +457,7 @@ private:
     Actor* m_surface_actor = nullptr;
     Actor* m_hit_actor = nullptr;
     ContactConservation::Aggregate* m_conservation = nullptr;
+    ContactConservation::StepAccumulator* m_step_conservation = nullptr;
 };
 
 template <typename ContactSink>
@@ -557,9 +603,13 @@ void RoR::CollectInterActorCollisionContacts(
 ContactConservation::Error RoR::ApplyInterActorCollisionContacts(
         const float dt,
         const std::vector<InterActorCollisionContact>& contacts,
-        ContactConservation::Aggregate* out_conservation)
+        ContactConservation::Aggregate* out_conservation,
+        ContactConservation::StepAccumulator* out_step_conservation)
 {
-    InterActorCollisionResolver resolver(dt, out_conservation);
+    InterActorCollisionResolver resolver(
+        dt,
+        out_conservation,
+        out_step_conservation);
     ContactConservation::Error first_error =
         ContactConservation::Error::NONE;
     for (const InterActorCollisionContact& contact : contacts)
@@ -588,9 +638,13 @@ bool RoR::ResolveInterActorCollisionContactsSerial(
             DeterministicContactOrder::InterActorKey>*
                 out_contact_keys,
         ContactConservation::Aggregate* out_conservation,
+        ContactConservation::StepAccumulator* out_step_conservation,
         ContactConservation::Error* out_conservation_error)
 {
-    InterActorCollisionResolver resolver(dt, out_conservation);
+    InterActorCollisionResolver resolver(
+        dt,
+        out_conservation,
+        out_step_conservation);
     bool contact_capture_succeeded = true;
     ContactConservation::Error first_conservation_error =
         ContactConservation::Error::NONE;
@@ -720,7 +774,7 @@ void RoR::ResolveIntraActorCollisions(const float dt, PointColDetector &intraPoi
                     const CollisionForceResult force_result =
                         ResolveCollisionForces(penetration_depth, hitnode, *na, *nb, *no, coord.alpha,
                             coord.beta, coord.gamma, normal, dt, false, false,
-                            submesh_ground_model, nullptr);
+                            submesh_ground_model, nullptr, nullptr, nullptr);
                     collision = collision || force_result.forces_applied;
                 }
             }

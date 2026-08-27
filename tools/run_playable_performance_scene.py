@@ -417,17 +417,32 @@ def verify_combined_native_distance_lod(text: str) -> dict[str, object]:
             "the final combined-runtime capture rejection was not recovered "
             "by a later native lighting/LOD frame"
         )
-    fields = {
-        match.group("name"): match.group("value")
-        for match in NATIVE_LIGHTING_FIELD_PATTERN.finditer(
-            final_native_receipt.group("body")
+    fields: dict[str, str] = {}
+    field_cursor = 0
+    for match in NATIVE_LIGHTING_FIELD_PATTERN.finditer(
+        final_native_receipt.group("body")
+    ):
+        if final_native_receipt.group("body")[field_cursor:match.start()].strip():
+            raise PerformanceSceneFailure(
+                "the native lighting/LOD receipt contains non-canonical text"
+            )
+        name = match.group("name")
+        if name in fields:
+            raise PerformanceSceneFailure(
+                f"the native lighting/LOD receipt repeats field {name}"
+            )
+        fields[name] = match.group("value")
+        field_cursor = match.end()
+    if final_native_receipt.group("body")[field_cursor:].strip():
+        raise PerformanceSceneFailure(
+            "the native lighting/LOD receipt contains trailing non-canonical text"
         )
-    }
     required = {
         "schema_version",
         "available",
         "pbs",
         "casters",
+        "receivers",
         "lod_items",
         "lod_reduced",
         "lod_max",
@@ -435,7 +450,9 @@ def verify_combined_native_distance_lod(text: str) -> dict[str, object]:
         "triangles_base",
         "triangles_selected",
         "lod_exact",
+        "hdr_topology",
         "pssm",
+        "pssm_populated_finalize",
         "reflection_initialized",
         "native_scene_lighting",
         "gpu_only",
@@ -470,6 +487,8 @@ def verify_combined_native_distance_lod(text: str) -> dict[str, object]:
         "schema_version",
         "pbs",
         "casters",
+        "receivers",
+        "hdr_topology",
         "lod_items",
         "lod_reduced",
         "lod_max",
@@ -492,14 +511,31 @@ def verify_combined_native_distance_lod(text: str) -> dict[str, object]:
         raise PerformanceSceneFailure(
             "the native receipt does not describe a completed PBS frame"
         )
-    if numbers["casters"] < 0:
+    if numbers["casters"] < 0 or numbers["receivers"] < 0:
         raise PerformanceSceneFailure(
-            "the native receipt contains a negative shadow-caster count"
+            "the native receipt contains a negative shadow inventory count"
+        )
+    if numbers["hdr_topology"] not in (0, 1):
+        raise PerformanceSceneFailure(
+            "the native receipt contains an unknown HDR scene topology"
         )
     if numbers["casters"] > 0 and fields["pssm"] != "true":
         raise PerformanceSceneFailure(
             "the visible Ogre-Next quality path omitted PSSM while the scene "
             "contained native shadow casters"
+        )
+    if fields["pssm"] == "true":
+        if (
+            numbers["hdr_topology"] != 1
+            or fields["pssm_populated_finalize"] != "true"
+        ):
+            raise PerformanceSceneFailure(
+                "the native PSSM receipt did not finalize the reviewed "
+                "single-evaluation HDR topology"
+            )
+    elif fields["pssm_populated_finalize"] != "false":
+        raise PerformanceSceneFailure(
+            "the native receipt finalized PSSM while PSSM was inactive"
         )
     lod_counter_names = (
         "lod_items",
@@ -547,6 +583,8 @@ def verify_combined_native_distance_lod(text: str) -> dict[str, object]:
         **numbers,
         **{name: fields[name] == "true" for name in true_fields},
         "pssm": fields["pssm"] == "true",
+        "pssm_populated_finalize":
+            fields["pssm_populated_finalize"] == "true",
         "reduced_this_frame": reduced_this_frame,
     }
 

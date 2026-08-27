@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Iterable
 import hashlib
 import json
 import math
@@ -29,17 +30,17 @@ PACKAGE_RELATIVE = Path(
     "resources/nextgen/native/a1_native_course_60m/rorng_a1_native_course_60m.rornative"
 )
 REPORT_RELATIVE = PACKAGE_RELATIVE.with_suffix(".compile.json")
-NATIVE_VALIDATOR = REPOSITORY_ROOT / "tools/validate_native_render_asset.py"
+NATIVE_VALIDATOR = REPOSITORY_ROOT / "tools/validate_native_render_asset_v3.py"
 ALIGNMENT_VALIDATOR = REPOSITORY_ROOT / "tools/validate_native_course_alignment.py"
-COMPILER = REPOSITORY_ROOT / "tools/compile_native_render_asset.py"
+COMPILER = REPOSITORY_ROOT / "tools/compile_native_render_asset_v3.py"
 LEDGER = REPOSITORY_ROOT / "doc/nextgen/FORWARD_NATIVE_ASSET_LEDGER.md"
 COURSE_DOC = REPOSITORY_ROOT / "doc/nextgen/NATIVE_A1_COURSE_V1.md"
 
-EXPECTED_MANIFEST_SHA256 = "f13af91e56670bec17aa286d3b57e1a52d343f1bc307a90dafb9142f21430556"
+EXPECTED_MANIFEST_SHA256 = "24f092f28c85aced94401491db91b302ba6fb35d7eec4c71a2aeff725709a202"
 EXPECTED_GLB_SHA256 = "7b0648cde63053385d9a7ec66f56da470cfe8bf3465ef5d6c52cc0c9702b7801"
 EXPECTED_COMPOSITION_SHA256 = "db7cbacdf1228d9e9836b32afc1c7d587151d61b4661715bd4132373f3403980"
 EXPECTED_ALIGNMENT_SHA256 = "ef6764702e6c70375b4bd8e897e83e3191bd3a52778323538f87c8a4f81a1078"
-EXPECTED_PACKAGE_SHA256 = "fe37f2bb05f15bc4954c07ff83a71c2dea24b51af473056f8257a47b4cc8cc7e"
+EXPECTED_PACKAGE_SHA256 = "e420438797a77e4e49b91e3c6c930f39d340f99a4772ef989182a62605f2d53b"
 EXPECTED_A0_PACKAGE_SHA256 = "5f91c134231d5b86cd0c291d30018aa2f8aa4958c8e9267ec1c9068a0ea9bc05"
 
 
@@ -49,6 +50,50 @@ def sha256_file(path: Path) -> str:
 
 def canonical_pretty(value: Any) -> str:
     return json.dumps(value, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+
+
+def glb_mesh_indices(path: Path) -> dict[str, list[int]]:
+    data = path.read_bytes()
+    magic, version, total_size = struct.unpack_from("<4sII", data, 0)
+    if magic != b"glTF" or version != 2 or total_size != len(data):
+        raise AssertionError("checked A1 GLB header changed")
+    json_size, json_type = struct.unpack_from("<II", data, 12)
+    if json_type != 0x4E4F534A:
+        raise AssertionError("checked A1 GLB lacks its canonical JSON chunk")
+    document = json.loads(data[20 : 20 + json_size].rstrip(b" \x00"))
+    binary_header = 20 + json_size
+    binary_size, binary_type = struct.unpack_from("<II", data, binary_header)
+    if binary_type != 0x004E4942:
+        raise AssertionError("checked A1 GLB lacks its canonical BIN chunk")
+    binary_offset = binary_header + 8
+    if binary_offset + binary_size > len(data):
+        raise AssertionError("checked A1 GLB BIN chunk is truncated")
+
+    result: dict[str, list[int]] = {}
+    for node in document["nodes"]:
+        name = node.get("name")
+        if not isinstance(name, str) or "mesh" not in node:
+            continue
+        primitive = document["meshes"][node["mesh"]]["primitives"][0]
+        accessor = document["accessors"][primitive["indices"]]
+        view = document["bufferViews"][accessor["bufferView"]]
+        format_code = {5123: "H", 5125: "I"}.get(accessor["componentType"])
+        if format_code is None or accessor.get("type") != "SCALAR":
+            raise AssertionError(f"checked A1 mesh {name} index format changed")
+        index_struct = struct.Struct("<" + format_code)
+        stride = view.get("byteStride", index_struct.size)
+        if stride != index_struct.size:
+            raise AssertionError(f"checked A1 mesh {name} index stride changed")
+        offset = (
+            binary_offset
+            + view.get("byteOffset", 0)
+            + accessor.get("byteOffset", 0)
+        )
+        result[name] = [
+            index_struct.unpack_from(data, offset + index * stride)[0]
+            for index in range(accessor["count"])
+        ]
+    return result
 
 
 class NativeA1CourseTests(unittest.TestCase):
@@ -79,6 +124,8 @@ class NativeA1CourseTests(unittest.TestCase):
                 "diagnostic_count": 0,
                 "indices": 1764,
                 "instances": 9,
+                "lod_indices": 648,
+                "lod_levels": 3,
                 "materials": 8,
                 "meshes": 9,
                 "samplers": 2,
@@ -130,7 +177,7 @@ class NativeA1CourseTests(unittest.TestCase):
 
     def test_course_material_texture_and_mip_profile(self) -> None:
         manifest = json.loads((REPOSITORY_ROOT / MANIFEST_RELATIVE).read_text(encoding="utf-8"))
-        self.assertEqual(manifest["format"], "ror-native-render-source-v2")
+        self.assertEqual(manifest["format"], "ror-native-render-source-v3")
         self.assertEqual(manifest["package"]["id"], "rorng_a1_native_course_60m")
         self.assertEqual(manifest["package"]["dimensions_m"], [13.0, 3.27, 60.0])
         self.assertEqual(
@@ -138,7 +185,7 @@ class NativeA1CourseTests(unittest.TestCase):
             {
                 "ambient_occlusion": False,
                 "collision": False,
-                "lods": False,
+                "lods": True,
                 "native_terrain": False,
                 "visual_only": True,
             },
@@ -190,6 +237,55 @@ class NativeA1CourseTests(unittest.TestCase):
         self.assertEqual(
             meshes["rorng_a0_road_shadow_gate_mesh"]["instance_flags"],
             ["casts_shadow", "receives_shadow", "visible_in_reflections"],
+        )
+        barrier_lods = meshes["rorng_a1_barrier_mesh"]["distance_lods"]
+        calibration_lods = meshes["rorng_a1_calibration_marker_mesh"]["distance_lods"]
+        self.assertEqual(
+            [(level["activation_distance_meters"], len(level["indices"])) for level in barrier_lods],
+            [(35.0, 72)],
+        )
+        self.assertEqual(
+            [(level["activation_distance_meters"], len(level["indices"])) for level in calibration_lods],
+            [(30.0, 360), (55.0, 216)],
+        )
+        base_indices = glb_mesh_indices(REPOSITORY_ROOT / GLB_RELATIVE)
+
+        def selected_box_chunks(
+            mesh_id: str, box_indices: Iterable[int]
+        ) -> list[int]:
+            indices = base_indices[mesh_id]
+            self.assertEqual(len(indices), 20 * 36)
+            return [
+                value
+                for box_index in box_indices
+                for value in indices[box_index * 36 : (box_index + 1) * 36]
+            ]
+
+        self.assertEqual(
+            barrier_lods[0]["indices"],
+            selected_box_chunks("rorng_a1_barrier_mesh", (0, 1)),
+        )
+        self.assertEqual(
+            calibration_lods[0]["indices"],
+            selected_box_chunks(
+                "rorng_a1_calibration_marker_mesh", range(0, 20, 2)
+            ),
+        )
+        self.assertEqual(
+            calibration_lods[1]["indices"],
+            selected_box_chunks(
+                "rorng_a1_calibration_marker_mesh", (0, 2, 8, 10, 16, 18)
+            ),
+        )
+        self.assertTrue(
+            all(
+                mesh["distance_lods"] == []
+                for identifier, mesh in meshes.items()
+                if identifier not in {
+                    "rorng_a1_barrier_mesh",
+                    "rorng_a1_calibration_marker_mesh",
+                }
+            )
         )
 
     def test_alignment_is_explicit_and_physics_pending(self) -> None:
@@ -562,16 +658,159 @@ class NativeA1CourseTests(unittest.TestCase):
             codes = {entry["code"] for entry in json.loads(result.stdout)["diagnostics"]}
             self.assertIn("NATIVE_MESH_BINDING", codes)
 
+    def test_native_v3_validator_rejects_unhashable_mesh_node(self) -> None:
+        manifest = json.loads(
+            (REPOSITORY_ROOT / MANIFEST_RELATIVE).read_text(encoding="utf-8")
+        )
+        manifest["meshes"][0]["node"] = []
+        with tempfile.TemporaryDirectory(dir=REPOSITORY_ROOT) as temporary:
+            manifest_path = Path(temporary) / "hostile.native.json"
+            manifest_path.write_bytes(canonical_pretty(manifest).encode("ascii"))
+            result = self.run_tool(
+                NATIVE_VALIDATOR,
+                manifest_path,
+                "--repo-root",
+                REPOSITORY_ROOT,
+            )
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stderr, "")
+        diagnostics = json.loads(result.stdout)["diagnostics"]
+        self.assertTrue(
+            any(
+                entry["path"].endswith(".node")
+                and entry["code"] in {"FIELD_TYPE", "IDENTIFIER_INVALID"}
+                for entry in diagnostics
+            ),
+            diagnostics,
+        )
+
+    def test_native_v3_lod_semantics_fail_closed(self) -> None:
+        original = json.loads(
+            (REPOSITORY_ROOT / MANIFEST_RELATIVE).read_text(encoding="utf-8")
+        )
+
+        def mesh(value: dict[str, Any], identifier: str) -> dict[str, Any]:
+            return next(
+                entry for entry in value["meshes"] if entry["id"] == identifier
+            )
+
+        def no_levels(value: dict[str, Any]) -> None:
+            for entry in value["meshes"]:
+                entry["distance_lods"] = []
+
+        def too_many_levels(value: dict[str, Any]) -> None:
+            barrier = mesh(value, "rorng_a1_barrier_mesh")
+            barrier["distance_lods"] = [
+                copy.deepcopy(barrier["distance_lods"][0]) for _ in range(16)
+            ]
+
+        def nonfinite_distance(value: dict[str, Any]) -> None:
+            mesh(value, "rorng_a1_barrier_mesh")["distance_lods"][0][
+                "activation_distance_meters"
+            ] = math.nan
+
+        def negative_distance(value: dict[str, Any]) -> None:
+            mesh(value, "rorng_a1_barrier_mesh")["distance_lods"][0][
+                "activation_distance_meters"
+            ] = -1.0
+
+        def nonincreasing_distance(value: dict[str, Any]) -> None:
+            mesh(value, "rorng_a1_calibration_marker_mesh")["distance_lods"][1][
+                "activation_distance_meters"
+            ] = 30.0
+
+        def nontriangle_indices(value: dict[str, Any]) -> None:
+            mesh(value, "rorng_a1_barrier_mesh")["distance_lods"][0][
+                "indices"
+            ].pop()
+
+        def out_of_range_index(value: dict[str, Any]) -> None:
+            mesh(value, "rorng_a1_barrier_mesh")["distance_lods"][0][
+                "indices"
+            ][0] = 0xFFFFFFFF
+
+        def non_subsequence(value: dict[str, Any]) -> None:
+            indices = mesh(value, "rorng_a1_barrier_mesh")["distance_lods"][0][
+                "indices"
+            ]
+            indices[0:3] = [indices[1], indices[2], indices[0]]
+
+        cases = (
+            (no_levels, "LOD_REQUIRED"),
+            (too_many_levels, "LIMIT_EXCEEDED"),
+            (nonfinite_distance, "MANIFEST_INVALID"),
+            (negative_distance, "NUMBER_RANGE"),
+            (nonincreasing_distance, "LOD_DISTANCE_ORDER"),
+            (nontriangle_indices, "LOD_INDICES_INVALID"),
+            (out_of_range_index, "LOD_INDEX_RANGE"),
+            (non_subsequence, "LOD_TRIANGLE_SUBSEQUENCE"),
+        )
+        for mutate, expected_code in cases:
+            with self.subTest(expected_code=expected_code), tempfile.TemporaryDirectory(
+                dir=REPOSITORY_ROOT
+            ) as temporary:
+                root = Path(temporary)
+                manifest = copy.deepcopy(original)
+                mutate(manifest)
+                manifest_path = root / "hostile.native.json"
+                manifest_path.write_bytes(canonical_pretty(manifest).encode("ascii"))
+                result = self.run_tool(
+                    NATIVE_VALIDATOR,
+                    manifest_path,
+                    "--repo-root",
+                    REPOSITORY_ROOT,
+                )
+                self.assertNotEqual(
+                    result.returncode, 0, result.stdout + result.stderr
+                )
+                diagnostics = json.loads(result.stdout)["diagnostics"]
+                self.assertIn(
+                    expected_code,
+                    {entry["code"] for entry in diagnostics},
+                    diagnostics,
+                )
+                if expected_code == "LOD_TRIANGLE_SUBSEQUENCE":
+                    compiled = self.run_tool(
+                        COMPILER,
+                        manifest_path,
+                        "--repo-root",
+                        REPOSITORY_ROOT,
+                        "--output",
+                        root / "hostile.rornative",
+                        "--report",
+                        root / "hostile.compile.json",
+                    )
+                    self.assertNotEqual(
+                        compiled.returncode, 0, compiled.stdout + compiled.stderr
+                    )
+                    self.assertFalse((root / "hostile.rornative").exists())
+                    self.assertFalse((root / "hostile.compile.json").exists())
+
     def test_generator_and_compiler_are_byte_deterministic(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            for relative in (GENERATOR_RELATIVE, UTILITY_RELATIVE):
+            compiler_relative = Path("tools/compile_native_render_asset_v3.py")
+            for relative in (
+                GENERATOR_RELATIVE,
+                UTILITY_RELATIVE,
+                Path("tools/validate_cityworld_asset.py"),
+                Path("tools/validate_native_render_asset.py"),
+                Path("tools/validate_native_render_asset_v3.py"),
+                Path("tools/compile_native_render_asset.py"),
+                compiler_relative,
+            ):
                 destination = root / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(REPOSITORY_ROOT / relative, destination)
             generated = self.run_tool(root / GENERATOR_RELATIVE, "--repo-root", root, cwd=root)
             self.assertEqual(generated.returncode, 0, generated.stdout + generated.stderr)
-            compiled = self.run_tool(COMPILER, root / MANIFEST_RELATIVE, "--repo-root", root, cwd=root)
+            compiled = self.run_tool(
+                root / compiler_relative,
+                root / MANIFEST_RELATIVE,
+                "--repo-root",
+                root,
+                cwd=root,
+            )
             self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
             for relative in (MANIFEST_RELATIVE, GLB_RELATIVE, ALIGNMENT_RELATIVE, PACKAGE_RELATIVE, REPORT_RELATIVE):
                 self.assertEqual(

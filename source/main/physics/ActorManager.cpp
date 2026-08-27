@@ -148,6 +148,7 @@ struct DeterministicStateTraceRuntime
     std::vector<DeterministicContactOrder::InterActorKey> contact_keys;
     std::vector<const Actor*> actors;
     ContactConservation::Aggregate contact_conservation;
+    ContactConservation::StepAccumulator contact_step_conservation;
     ContactConservation::Error contact_conservation_error =
         ContactConservation::Error::NONE;
     std::uint64_t scenario_id = 0;
@@ -162,6 +163,15 @@ static_assert(
             DeterministicContactOrder::INTER_ACTOR_CONTACT_BUDGET) *
         DeterministicStateTrace::MAX_TRACE_STEPS,
     "contact-conservation aggregate must cover the complete trace ceiling");
+static_assert(
+    ContactConservation::MAX_STEP_CONTACTS ==
+        static_cast<std::size_t>(
+            DeterministicContactOrder::INTER_ACTOR_CONTACT_BUDGET),
+    "contact-conservation step storage must match the contact-order budget");
+static_assert(
+    ContactConservation::MAX_AGGREGATE_FIXED_STEPS ==
+        DeterministicStateTrace::MAX_TRACE_STEPS,
+    "contact-conservation step aggregate must cover the trace ceiling");
 
 struct DeterministicActorInputRuntime:
     DeterministicVehicleInput::SnapshotProvider,
@@ -1070,17 +1080,26 @@ void ActorManager::FinishDeterministicStateTrace(
                 runtime.contact_conservation;
             if (runtime.contact_conservation_error !=
                     ContactConservation::Error::NONE ||
+                    conservation.audited_fixed_step_count != step_count ||
+                    conservation.whole_step_contact_count !=
+                        conservation.contact_count ||
                     conservation.maximum_normalized_linear_impulse_residual >
                         1.0e-6)
             {
                 RoR::LogFormat(
                     "[RoR|Determinism|ContactConservation] FAIL "
-                    "schema=%u contacts=%llu fixed_steps=%llu error=%s "
+                    "schema=%u contacts=%llu fixed_steps=%llu "
+                    "audited_fixed_steps=%llu "
+                    "whole_step_contact_count=%llu error=%s "
                     "maximum_normalized_linear_impulse_residual=%.17g",
                     ContactConservation::SCHEMA_VERSION,
                     static_cast<unsigned long long>(
                         conservation.contact_count),
                     static_cast<unsigned long long>(step_count),
+                    static_cast<unsigned long long>(
+                        conservation.audited_fixed_step_count),
+                    static_cast<unsigned long long>(
+                        conservation.whole_step_contact_count),
                     ContactConservation::ErrorToString(
                         runtime.contact_conservation_error),
                     conservation.
@@ -1099,7 +1118,16 @@ void ActorManager::FinishDeterministicStateTrace(
                     "summed_isolated_contact_work_j=%.17g "
                     "summed_isolated_contact_kinetic_energy_delta_j=%.17g "
                     "summed_isolated_contact_integration_energy_delta_j=%.17g "
-                    "whole_step_shared_node_energy=not_audited",
+                    "whole_step_shared_node_energy=audited "
+                    "audited_fixed_steps=%llu "
+                    "whole_step_contact_count=%llu "
+                    "summed_unique_node_count=%llu "
+                    "summed_shared_node_count=%llu "
+                    "maximum_node_contact_multiplicity=%llu "
+                    "summed_whole_step_contact_work_j=%.17g "
+                    "summed_whole_step_contact_kinetic_energy_delta_j=%.17g "
+                    "summed_whole_step_contact_integration_energy_delta_j=%.17g "
+                    "summed_shared_node_cross_term_j=%.17g",
                     ContactConservation::SCHEMA_VERSION,
                     static_cast<unsigned long long>(
                         conservation.contact_count),
@@ -1115,7 +1143,23 @@ void ActorManager::FinishDeterministicStateTrace(
                     conservation.
                         summed_isolated_contact_kinetic_energy_delta_j,
                     conservation.
-                        summed_isolated_contact_integration_energy_delta_j);
+                        summed_isolated_contact_integration_energy_delta_j,
+                    static_cast<unsigned long long>(
+                        conservation.audited_fixed_step_count),
+                    static_cast<unsigned long long>(
+                        conservation.whole_step_contact_count),
+                    static_cast<unsigned long long>(
+                        conservation.summed_unique_node_count),
+                    static_cast<unsigned long long>(
+                        conservation.summed_shared_node_count),
+                    static_cast<unsigned long long>(
+                        conservation.maximum_node_contact_multiplicity),
+                    conservation.summed_whole_step_contact_work_j,
+                    conservation.
+                        summed_whole_step_contact_kinetic_energy_delta_j,
+                    conservation.
+                        summed_whole_step_contact_integration_energy_delta_j,
+                    conservation.summed_shared_node_cross_term_j);
             }
         }
     }
@@ -2101,6 +2145,8 @@ bool ActorManager::PrepareDeterministicStateTraceStep()
             return false;
         }
         m_deterministic_state_trace->contact_keys.clear();
+        ContactConservation::ResetStepAccumulator(
+            m_deterministic_state_trace->contact_step_conservation);
         return true;
     }
 
@@ -2182,12 +2228,14 @@ bool ActorManager::PrepareDeterministicStateTraceStep()
             return false;
         }
 
-        m_deterministic_state_trace = std::move(runtime);
-        m_deterministic_state_trace->contact_keys.reserve(
+        runtime->contact_keys.reserve(
             DeterministicContactOrder::
                 INTER_ACTOR_CONTACT_BUDGET);
-        m_deterministic_state_trace->actors.reserve(
-            m_actors.size());
+        runtime->contact_step_conservation.
+            node_contributions.reserve(
+                ContactConservation::MAX_STEP_NODE_CONTRIBUTIONS);
+        runtime->actors.reserve(m_actors.size());
+        m_deterministic_state_trace = std::move(runtime);
         RoR::LogFormat(
             "[RoR|Determinism] Recording state trace '%s' "
             "(scenario=%llu, workers=%llu, step=1/2000 s, "
@@ -3997,6 +4045,12 @@ void ActorManager::UpdatePhysicsSimulation(
             capture_deterministic_state
                 ? &m_deterministic_state_trace->contact_conservation
                 : nullptr;
+        ContactConservation::StepAccumulator*
+            trace_contact_step_conservation =
+                capture_deterministic_state
+                    ? &m_deterministic_state_trace->
+                        contact_step_conservation
+                    : nullptr;
         ContactConservation::Error trace_contact_conservation_error =
             ContactConservation::Error::NONE;
 
@@ -4088,6 +4142,7 @@ void ActorManager::UpdatePhysicsSimulation(
                  trace_contact_keys,
                  &trace_contact_capture_succeeded,
                  trace_contact_conservation,
+                 trace_contact_step_conservation,
                  &trace_contact_conservation_error](
                     bool update_rate_state)
                 {
@@ -4122,6 +4177,7 @@ void ActorManager::UpdatePhysicsSimulation(
                                 ? trace_contact_keys
                                 : nullptr,
                             trace_contact_conservation,
+                            trace_contact_step_conservation,
                             &actor_conservation_error);
                         trace_contact_capture_succeeded =
                             trace_contact_capture_succeeded &&
@@ -4211,6 +4267,7 @@ void ActorManager::UpdatePhysicsSimulation(
                     [trace_contact_keys,
                      &trace_contact_capture_succeeded,
                      trace_contact_conservation,
+                     trace_contact_step_conservation,
                      &trace_contact_conservation_error](
                         const std::vector<ContactTaskBuffer>& buffers)
                     {
@@ -4220,7 +4277,8 @@ void ActorManager::UpdatePhysicsSimulation(
                                 ApplyInterActorCollisionContacts(
                                 PHYSICS_DT,
                                 buffer.GetItems(),
-                                trace_contact_conservation);
+                                trace_contact_conservation,
+                                trace_contact_step_conservation);
                             if (trace_contact_conservation_error ==
                                     ContactConservation::Error::NONE &&
                                     error !=
@@ -4257,6 +4315,25 @@ void ActorManager::UpdatePhysicsSimulation(
                 // Schedule transitions were prepared, but discovery has not
                 // run yet, so the serial path must finalize rate state.
                 resolve_contacts_serially(true);
+            }
+        }
+
+        if (capture_deterministic_state &&
+            trace_contact_conservation_error ==
+                ContactConservation::Error::NONE)
+        {
+            ContactConservation::StepTelemetry step_telemetry;
+            trace_contact_conservation_error =
+                ContactConservation::FinalizeStep(
+                    *trace_contact_step_conservation,
+                    step_telemetry);
+            if (trace_contact_conservation_error ==
+                    ContactConservation::Error::NONE)
+            {
+                trace_contact_conservation_error =
+                    ContactConservation::AccumulateStep(
+                        step_telemetry,
+                        *trace_contact_conservation);
             }
         }
 

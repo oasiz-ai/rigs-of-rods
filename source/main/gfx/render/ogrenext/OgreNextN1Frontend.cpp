@@ -14,6 +14,7 @@
 #include "OgreNextN1NativeInterop.h"
 #include "OgreNextN1Policy.h"
 #include "OgreNextN1SceneWorkerPolicy.h"
+#include "OgreNextNativeRenderPassMetrics.h"
 #include "OgreNextReflectionProbeRuntime.h"
 #include "OgreNextSunVisibilityV2Interop.h"
 #include "OgreNextTaaContract.h"
@@ -4350,13 +4351,9 @@ private:
   std::string last_reason_;
 };
 #endif // ROR_OGRE_NEXT_N1_METAL
-struct NativeRenderMetricsValue final {
-  std::size_t batches = 0U;
-  std::size_t draws = 0U;
-  std::size_t instances = 0U;
-  std::size_t faces = 0U;
-  std::size_t vertices = 0U;
-};
+using NativeRenderMetricsValue = OgreNextNativeRenderMetrics;
+using NativeRenderPassMetricsReceipt =
+    OgreNextNativeRenderPassMetricsReceipt;
 
 NativeRenderMetricsValue
 ObserveNativeRenderMetrics(const Ogre::RenderSystem &renderer) noexcept {
@@ -4365,29 +4362,6 @@ ObserveNativeRenderMetrics(const Ogre::RenderSystem &renderer) noexcept {
           metrics.mFaceCount, metrics.mVertexCount};
 }
 
-bool TrySubtractNativeRenderMetrics(
-    const NativeRenderMetricsValue &after,
-    const NativeRenderMetricsValue &before,
-    NativeRenderMetricsValue &output) noexcept {
-  if (after.batches < before.batches || after.draws < before.draws ||
-      after.instances < before.instances || after.faces < before.faces ||
-      after.vertices < before.vertices) {
-    return false;
-  }
-  output = {after.batches - before.batches, after.draws - before.draws,
-            after.instances - before.instances, after.faces - before.faces,
-            after.vertices - before.vertices};
-  return true;
-}
-
-struct NativeRenderPassMetricsReceipt final {
-  NativeRenderMetricsValue before_hdr_scene;
-  NativeRenderMetricsValue shadow_maps;
-  NativeRenderMetricsValue hdr_scene;
-  NativeRenderMetricsValue hdr_post;
-  NativeRenderMetricsValue after_hdr_workspace;
-};
-
 /// Records the native renderer counters at Ogre's exact scene-pass seams.
 /// This listener never changes compositor, scene, or render state. Its sole
 /// purpose is to distinguish shadow-map, main-scene, HDR-post, and final-copy
@@ -4395,108 +4369,98 @@ struct NativeRenderPassMetricsReceipt final {
 class NativeRenderPassMetricsListener final
     : public Ogre::CompositorWorkspaceListener {
 public:
-  void BeginFrame(Ogre::RenderSystem &renderer, bool sample) noexcept {
+  void BeginFrame(Ogre::RenderSystem &renderer, bool sample,
+                  bool directional_split) noexcept {
     renderer_ = &renderer;
-    sample_ = sample;
-    active_scene_pass_ = nullptr;
-    scene_pre_count_ = 0U;
-    shadow_post_count_ = 0U;
-    scene_post_count_ = 0U;
-    workspace_post_count_ = 0U;
-    scene_pre_ = {};
-    shadow_post_ = {};
-    scene_post_ = {};
-    workspace_post_ = {};
+    state_.BeginFrame(
+        directional_split
+            ? OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2
+            : OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1,
+        sample);
   }
 
   [[nodiscard]] bool
   EndFrame(const NativeRenderMetricsValue &total,
            NativeRenderPassMetricsReceipt &output) noexcept {
-    if (!sample_) {
-      renderer_ = nullptr;
-      return false;
-    }
-    NativeRenderPassMetricsReceipt candidate;
-    bool exact = renderer_ != nullptr && active_scene_pass_ == nullptr &&
-                 scene_pre_count_ == 1U && shadow_post_count_ == 1U &&
-                 scene_post_count_ == 1U && workspace_post_count_ == 1U;
-    exact = TrySubtractNativeRenderMetrics(shadow_post_, scene_pre_,
-                                           candidate.shadow_maps) &&
-            exact;
-    exact = TrySubtractNativeRenderMetrics(scene_post_, shadow_post_,
-                                           candidate.hdr_scene) &&
-            exact;
-    exact = TrySubtractNativeRenderMetrics(workspace_post_, scene_post_,
-                                           candidate.hdr_post) &&
-            exact;
-    exact = TrySubtractNativeRenderMetrics(total, workspace_post_,
-                                           candidate.after_hdr_workspace) &&
-            exact;
-    candidate.before_hdr_scene = scene_pre_;
+    const bool exact = renderer_ != nullptr && state_.EndFrame(total, output);
     renderer_ = nullptr;
-    if (exact) {
-      output = candidate;
-    }
     return exact;
   }
 
   void passPreExecute(Ogre::CompositorPass *pass) override {
-    if (!sample_ || renderer_ == nullptr || pass == nullptr ||
-        pass->getDefinition() == nullptr || active_scene_pass_ != nullptr ||
-        !IsTrackedScenePass(pass->getDefinition()->mIdentifier)) {
+    if (renderer_ == nullptr || pass == nullptr ||
+        pass->getDefinition() == nullptr) {
       return;
     }
-    active_scene_pass_ = pass;
-    scene_pre_ = ObserveNativeRenderMetrics(*renderer_);
-    ++scene_pre_count_;
+    const OgreNextNativeScenePass scene_pass =
+        ScenePass(pass->getDefinition()->mIdentifier);
+    if (scene_pass == OgreNextNativeScenePass::UNTRACKED) {
+      return;
+    }
+    state_.ScenePre(scene_pass, reinterpret_cast<std::uintptr_t>(pass),
+                    ObserveNativeRenderMetrics(*renderer_));
   }
 
   void passSceneAfterShadowMaps(Ogre::CompositorPassScene *pass) override {
-    if (!sample_ || renderer_ == nullptr || pass == nullptr ||
-        static_cast<Ogre::CompositorPass *>(pass) != active_scene_pass_) {
+    if (renderer_ == nullptr || pass == nullptr) {
       return;
     }
-    shadow_post_ = ObserveNativeRenderMetrics(*renderer_);
-    ++shadow_post_count_;
+    Ogre::CompositorPass *const base_pass =
+        static_cast<Ogre::CompositorPass *>(pass);
+    if (base_pass->getDefinition() == nullptr) {
+      return;
+    }
+    const OgreNextNativeScenePass scene_pass =
+        ScenePass(base_pass->getDefinition()->mIdentifier);
+    if (scene_pass == OgreNextNativeScenePass::UNTRACKED) {
+      return;
+    }
+    state_.SceneAfterShadowMaps(
+        scene_pass, reinterpret_cast<std::uintptr_t>(base_pass),
+        ObserveNativeRenderMetrics(*renderer_));
   }
 
   void passPosExecute(Ogre::CompositorPass *pass) override {
-    if (!sample_ || renderer_ == nullptr || pass != active_scene_pass_) {
+    if (renderer_ == nullptr || pass == nullptr ||
+        pass->getDefinition() == nullptr) {
       return;
     }
-    scene_post_ = ObserveNativeRenderMetrics(*renderer_);
-    active_scene_pass_ = nullptr;
-    ++scene_post_count_;
+    const OgreNextNativeScenePass scene_pass =
+        ScenePass(pass->getDefinition()->mIdentifier);
+    if (scene_pass == OgreNextNativeScenePass::UNTRACKED) {
+      return;
+    }
+    state_.ScenePost(scene_pass, reinterpret_cast<std::uintptr_t>(pass),
+                     ObserveNativeRenderMetrics(*renderer_));
   }
 
   void workspacePosUpdate(Ogre::CompositorWorkspace *) override {
-    if (!sample_ || renderer_ == nullptr) {
+    if (renderer_ == nullptr) {
       return;
     }
-    workspace_post_ = ObserveNativeRenderMetrics(*renderer_);
-    ++workspace_post_count_;
+    state_.WorkspacePost(ObserveNativeRenderMetrics(*renderer_));
   }
 
 private:
-  [[nodiscard]] static bool
-  IsTrackedScenePass(std::uint32_t identifier) noexcept {
-    return identifier == kOgreNextHdrBaseScenePassIdentifier ||
-           identifier == kOgreNextHdrSunFullScenePassIdentifier ||
-           identifier == kOgreNextHdrRasterLitScenePassIdentifier ||
-           identifier == kOgreNextHdrSingleScenePassIdentifier;
+  [[nodiscard]] static OgreNextNativeScenePass
+  ScenePass(std::uint32_t identifier) noexcept {
+    if (identifier == kOgreNextHdrBaseScenePassIdentifier) {
+      return OgreNextNativeScenePass::HDR_BASE;
+    }
+    if (identifier == kOgreNextHdrSunFullScenePassIdentifier) {
+      return OgreNextNativeScenePass::HDR_SUN_FULL;
+    }
+    if (identifier == kOgreNextHdrRasterLitScenePassIdentifier) {
+      return OgreNextNativeScenePass::HDR_RASTER_LIT;
+    }
+    if (identifier == kOgreNextHdrSingleScenePassIdentifier) {
+      return OgreNextNativeScenePass::HDR_SINGLE;
+    }
+    return OgreNextNativeScenePass::UNTRACKED;
   }
 
   Ogre::RenderSystem *renderer_ = nullptr;
-  Ogre::CompositorPass *active_scene_pass_ = nullptr;
-  NativeRenderMetricsValue scene_pre_;
-  NativeRenderMetricsValue shadow_post_;
-  NativeRenderMetricsValue scene_post_;
-  NativeRenderMetricsValue workspace_post_;
-  std::uint32_t scene_pre_count_ = 0U;
-  std::uint32_t shadow_post_count_ = 0U;
-  std::uint32_t scene_post_count_ = 0U;
-  std::uint32_t workspace_post_count_ = 0U;
-  bool sample_ = false;
+  OgreNextNativeRenderPassMetricsState state_;
 };
 
 } // namespace
@@ -18189,7 +18153,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
     // sampled, but the playable gate ranks the exact main-scene draw count over
     // every retained frame and therefore cannot accept a sparse heartbeat.
     impl_->native_render_pass_metrics_listener.BeginFrame(
-        *impl_->renderer, persistent_hdr);
+        *impl_->renderer, persistent_hdr,
+        persistent_hdr && !impl_->SingleSceneHdrPssmEnabled());
     const auto native_render_phase_start = std::chrono::steady_clock::now();
     for (std::size_t warmup = 0U; warmup < render_iterations; ++warmup) {
       // Raised only after the native frame COMPLETED. A frame that threw a

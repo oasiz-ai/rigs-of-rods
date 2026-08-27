@@ -103,6 +103,359 @@ class CombinedProviderContractTests(unittest.TestCase):
             with self.subTest(trigger=trigger):
                 self.assertEqual(COMBINED_WORKFLOW.count(f"- {trigger}"), 2)
 
+    def test_combined_workflow_tracks_and_runs_native_a1_receipt_contract(
+        self,
+    ) -> None:
+        for trigger in (
+            "tools/verify_native_a1_lod_runtime.py",
+            "tests/tools/test_verify_native_a1_lod_runtime.py",
+            "tests/gfx/render/OgreNextNativeRenderPassMetricsTests.cpp",
+        ):
+            with self.subTest(trigger=trigger):
+                self.assertEqual(COMBINED_WORKFLOW.count(f"- {trigger}"), 2)
+
+        linux_job = block(
+            COMBINED_WORKFLOW,
+            "  linux-x86_64-vulkan:\n",
+            "  macos-arm64-metal:\n",
+        )
+        macos_job = block(
+            COMBINED_WORKFLOW,
+            "  macos-arm64-metal:\n",
+            "  windows-x64-d3d11:\n",
+        )
+        windows_job = COMBINED_WORKFLOW[
+            COMBINED_WORKFLOW.index("  windows-x64-d3d11:\n") :
+        ]
+        for job in (linux_job, macos_job, windows_job):
+            with self.subTest(job=job.splitlines()[0].strip()):
+                self.assertEqual(
+                    job.count("tests/tools/test_verify_native_a1_lod_runtime.py"),
+                    2,
+                )
+        for job in (linux_job, windows_job):
+            with self.subTest(receipt_job=job.splitlines()[0].strip()):
+                self.assertEqual(
+                    job.count("tools/verify_native_a1_lod_runtime.py"), 1
+                )
+                self.assertIn("native-a1-distance-lod-runtime.json", job)
+                self.assertIn(
+                    "e420438797a77e4e49b91e3c6c930f39"
+                    "d340f99a4772ef989182a62605f2d53b",
+                    job,
+                )
+                self.assertIn('"native_a1_distance_lod_runtime"', job)
+                self.assertIn(
+                    '"receipt_sha256": native_a1_receipt_sha256', job
+                )
+                self.assertIn('"runtime_playability_proven": False', job)
+                self.assertNotIn("--expected-pipeline", job)
+                self.assertNotIn("--expected-native-rt", job)
+        self.assertEqual(
+            macos_job.count("tools/verify_native_a1_lod_runtime.py"), 0
+        )
+        self.assertNotIn("native-a1-distance-lod-runtime.json", macos_job)
+        self.assertNotIn('"native_a1_distance_lod_runtime"', macos_job)
+        self.assertNotIn("metal-rt-sun-visibility-v2", macos_job)
+
+        for token in (
+            "--accepted-frames 12",
+            "--expected-lod-items 2",
+            "--expected-lod-reduced 2",
+            "--expected-lod-max 1",
+            "--expected-lod-level-sum 2",
+            "--expected-triangles-base 588",
+            "--expected-triangles-selected 252",
+            "--expected-completed-frames 1",
+        ):
+            with self.subTest(platform="linux", token=token):
+                self.assertIn(token, linux_job)
+        for token in (
+            "'--accepted-frames', '12'",
+            "'--expected-lod-items', '2'",
+            "'--expected-lod-reduced', '2'",
+            "'--expected-lod-max', '1'",
+            "'--expected-lod-level-sum', '2'",
+            "'--expected-triangles-base', '588'",
+            "'--expected-triangles-selected', '252'",
+            "'--expected-completed-frames', '1'",
+        ):
+            with self.subTest(platform="windows", token=token):
+                self.assertIn(token, windows_job)
+        self.assertEqual(
+            linux_job.count("--expected-lighting-mode raster-hdr-pssm"), 1
+        )
+        self.assertEqual(
+            windows_job.count(
+                "'--expected-lighting-mode', 'raster-hdr-pssm'"
+            ),
+            1,
+        )
+        for token in (
+            '--log "$smoke_log"',
+            '--stderr-log "$stage/qualification/renderer-smoke.stderr.log"',
+            '--frame-budget-receipt "$receipt"',
+            '--package "$native_package"',
+            '--executable "$stage/RoR-Combined"',
+            '--output "$native_lod_receipt"',
+            "--platform linux",
+            '--repository-commit "$GITHUB_SHA"',
+            "--scenario-id ci.ogre-next-combined.renderer-smoke",
+        ):
+            with self.subTest(platform="linux", token=token):
+                self.assertIn(token, linux_job)
+        for token in (
+            "'--log', $qualifiedStdout",
+            "'--stderr-log', $qualifiedStderr",
+            "'--frame-budget-receipt', $receipt",
+            "'--package', $nativePackage",
+            "'--executable', (Join-Path $stage 'RoR-Combined.exe')",
+            "'--output', $nativeLodReceipt",
+            "'--platform', 'win32'",
+            "'--repository-commit', $env:GITHUB_SHA",
+            "'--scenario-id', 'ci.ogre-next-combined.windows-renderer-smoke'",
+        ):
+            with self.subTest(platform="windows", token=token):
+                self.assertIn(token, windows_job)
+        for token in (
+            "$qualifiedStdout = Join-Path $stage "
+            "'qualification/renderer-smoke.stdout.log'",
+            "$qualifiedStderr = Join-Path $stage "
+            "'qualification/renderer-smoke.stderr.log'",
+            "@{ Source = $stdout; Destination = $qualifiedStdout }",
+            "@{ Source = $stderr; Destination = $qualifiedStderr }",
+            "Copy-Item -LiteralPath $copy.Source "
+            "-Destination $copy.Destination -ErrorAction Stop",
+        ):
+            with self.subTest(platform="windows-staged-raw-log", token=token):
+                self.assertIn(token, windows_job)
+        self.assertLess(
+            windows_job.index("Copy-Item -LiteralPath $copy.Source"),
+            windows_job.index("'tools/verify_native_a1_lod_runtime.py'"),
+        )
+        for job, platform, executable in (
+            (linux_job, "Linux", 'root / "RoR-Combined"'),
+            (windows_job, "Windows", 'root / "RoR-Combined.exe"'),
+        ):
+            with self.subTest(platform=platform):
+                self.assertIn(
+                    f"native_a1_executable_path = {executable}", job
+                )
+                self.assertIn(
+                    'native_a1_receipt.get("executable_sha256")\n'
+                    "              != native_a1_executable_sha256",
+                    job,
+                )
+                self.assertIn(
+                    'native_a1_receipt.get("package", {}).get("sha256")\n'
+                    "              != native_a1_package_sha256",
+                    job,
+                )
+                self.assertIn(
+                    'native_a1_receipt.get("log_sha256")\n'
+                    "              != native_a1_stdout_sha256",
+                    job,
+                )
+                self.assertIn(
+                    'native_a1_receipt.get("stderr_log_sha256")\n'
+                    "              != native_a1_stderr_sha256",
+                    job,
+                )
+                self.assertIn(
+                    'native_a1_receipt.get("frame_budget", {}).get("sha256")\n'
+                    "              != native_a1_frame_receipt_sha256",
+                    job,
+                )
+                for final_evidence in (
+                    'root / "qualification/renderer-smoke.stdout.log"',
+                    'root / "qualification/renderer-smoke.stderr.log"',
+                    'root / "qualification/renderer-smoke.json"',
+                ):
+                    self.assertIn(final_evidence, job)
+                self.assertIn(
+                    f"native A1 {platform} receipt no longer binds the final "
+                    "staged inputs",
+                    job,
+                )
+                for semantic_token in (
+                    "object_pairs_hook=unique_receipt_object",
+                    "native A1 receipt repeats field {name}",
+                    "set(native_a1_receipt) != expected_top_level_fields",
+                    '"bytes": len(native_a1_package_bytes)',
+                    'canonical_json(native_a1_receipt.get("package"))',
+                    "canonical_json(expected_package)",
+                    "len(selected_lines) != 1",
+                    "not selected_lines[0].startswith(selected_prefix)",
+                    "not selected_lines[0].endswith(selected_suffix)",
+                    "selected_path != native_a1_package_path.resolve(strict=True)",
+                    "selected_showcase_line_sha256 = hashlib.sha256(",
+                    'native_a1_receipt.get("selected_showcase_line_sha256")',
+                    "!= selected_showcase_line_sha256",
+                    '"evidence_class")\n'
+                    '              != "runtime-input-and-receipt-verification"',
+                    'canonical_json(native_a1_receipt.get("native_distance_lod"))',
+                    "canonical_json(expected_native_distance_lod)",
+                    'canonical_json(native_a1_receipt.get("frame_budget"))',
+                    "canonical_json(expected_frame_budget)",
+                    'canonical_json(native_a1_receipt.get("presentation_ownership"))',
+                    "canonical_json(expected_presentation_ownership)",
+                    '"completed_frames": 1',
+                    '"native_scene_draw_p99": 30',
+                    '"native_scene_draw_maximum": 30',
+                    '"native_scene_draw_p99_limit": 2500',
+                ):
+                    self.assertIn(semantic_token, job)
+                for top_level_field in (
+                    "evidence_class",
+                    "executable_sha256",
+                    "frame_budget",
+                    "lighting_mode",
+                    "log_sha256",
+                    "metal_rt_sun_visibility_v2",
+                    "native_distance_lod",
+                    "package",
+                    "platform",
+                    "presentation_ownership",
+                    "repository_commit",
+                    "schema",
+                    "selected_showcase_line_sha256",
+                    "stderr_log_sha256",
+                ):
+                    self.assertIn(f'"{top_level_field}",', job)
+                scenario = (
+                    "ci.ogre-next-combined.renderer-smoke"
+                    if platform == "Linux"
+                    else "ci.ogre-next-combined.windows-renderer-smoke"
+                )
+                render_system = (
+                    "ogre-next-vulkan"
+                    if platform == "Linux"
+                    else "ogre-next-d3d11"
+                )
+                self.assertIn(f'"scenario_id": "{scenario}"', job)
+                self.assertIn(
+                    f'"visible_render_system": "{render_system}"', job
+                )
+                semantic_failure = (
+                    f"native A1 {platform} receipt semantic qualification changed"
+                )
+                self.assertIn(semantic_failure, job)
+                semantic_index = job.index(semantic_failure)
+                qualification_index = job.index(
+                    '"native_a1_distance_lod_runtime": {', semantic_index
+                )
+                self.assertLess(
+                    semantic_index,
+                    job.index('"qualified": True', qualification_index),
+                )
+
+    def test_combined_workflow_runs_native_pass_metrics_behavior_on_all_hosts(
+        self,
+    ) -> None:
+        linux_job = block(
+            COMBINED_WORKFLOW,
+            "  linux-x86_64-vulkan:\n",
+            "  macos-arm64-metal:\n",
+        )
+        macos_job = block(
+            COMBINED_WORKFLOW,
+            "  macos-arm64-metal:\n",
+            "  windows-x64-d3d11:\n",
+        )
+        windows_job = COMBINED_WORKFLOW[
+            COMBINED_WORKFLOW.index("  windows-x64-d3d11:\n") :
+        ]
+        common_paths = (
+            "tests/gfx/render/OgreNextNativeRenderPassMetricsTests.cpp",
+            "source/main/gfx/render/ogrenext/OgreNextNativeRenderPassMetrics.cpp",
+            "source/main/gfx/render/ogrenext",
+        )
+        for job in (linux_job, macos_job, windows_job):
+            with self.subTest(job=job.splitlines()[0].strip()):
+                self.assertEqual(
+                    job.count(
+                        "Compile and run native render-pass metrics behavioral gate"
+                    ),
+                    1,
+                )
+                self.assertIn(
+                    "ror-ogre-next-native-render-pass-metrics-gate", job
+                )
+                for path in common_paths:
+                    self.assertIn(path, job)
+                self.assertLess(
+                    job.index(
+                        "Compile and run native render-pass metrics behavioral gate"
+                    ),
+                    job.index("Configure clean"),
+                )
+                self.assertIn("-DROR_BUILD_TESTS=OFF", job)
+
+        for token in (
+            'gate="$RUNNER_TEMP/ror-ogre-next-native-render-pass-metrics-gate"',
+            'binary="$gate/ror_ogre_next_native_render_pass_metrics_tests"',
+            'TMPDIR="$gate" g++-11',
+            "-std=c++17",
+            "-Wall -Wextra -Werror -pedantic -fno-fast-math -ffp-contract=off",
+            "-Isource/main/gfx/render/ogrenext",
+            '"$binary"',
+        ):
+            with self.subTest(platform="linux", token=token):
+                self.assertIn(token, linux_job)
+        self.assertIn(
+            'TMPDIR="$gate" g++-11 \\\n'
+            "            -std=c++17 \\\n"
+            "            -Wall -Wextra -Werror -pedantic -fno-fast-math -ffp-contract=off \\\n"
+            "            -Isource/main/gfx/render/ogrenext \\\n"
+            "            tests/gfx/render/OgreNextNativeRenderPassMetricsTests.cpp \\\n"
+            "            source/main/gfx/render/ogrenext/OgreNextNativeRenderPassMetrics.cpp \\\n"
+            '            -o "$binary"',
+            linux_job,
+        )
+        for token in (
+            'gate="$RUNNER_TEMP/ror-ogre-next-native-render-pass-metrics-gate"',
+            'binary="$gate/ror_ogre_next_native_render_pass_metrics_tests"',
+            'TMPDIR="$gate" clang++',
+            "-std=c++17",
+            "-Wall -Wextra -Werror -pedantic -fno-fast-math -ffp-contract=off",
+            "-Isource/main/gfx/render/ogrenext",
+            '"$binary"',
+        ):
+            with self.subTest(platform="macos", token=token):
+                self.assertIn(token, macos_job)
+        self.assertIn(
+            'TMPDIR="$gate" clang++ \\\n'
+            "            -std=c++17 \\\n"
+            "            -Wall -Wextra -Werror -pedantic -fno-fast-math -ffp-contract=off \\\n"
+            "            -Isource/main/gfx/render/ogrenext \\\n"
+            "            tests/gfx/render/OgreNextNativeRenderPassMetricsTests.cpp \\\n"
+            "            source/main/gfx/render/ogrenext/OgreNextNativeRenderPassMetrics.cpp \\\n"
+            '            -o "$binary"',
+            macos_job,
+        )
+        for token in (
+            "$gate = Join-Path $env:RUNNER_TEMP "
+            "'ror-ogre-next-native-render-pass-metrics-gate'",
+            "$binary = Join-Path $gate "
+            "'ror_ogre_next_native_render_pass_metrics_tests.exe'",
+            "Push-Location $gate",
+            "$testSource = (Resolve-Path -LiteralPath "
+            "'tests/gfx/render/OgreNextNativeRenderPassMetricsTests.cpp' "
+            "-ErrorAction Stop).Path",
+            "$productionSource = (Resolve-Path -LiteralPath "
+            "'source/main/gfx/render/ogrenext/"
+            "OgreNextNativeRenderPassMetrics.cpp' -ErrorAction Stop).Path",
+            "$includeDirectory = (Resolve-Path -LiteralPath "
+            "'source/main/gfx/render/ogrenext' -ErrorAction Stop).Path",
+            "& cl.exe /nologo /std:c++17 /EHsc /W4 /WX /permissive- "
+            "/fp:strict /Zc:__cplusplus",
+            '"/I$includeDirectory" $testSource $productionSource',
+            '"/Fe$binary"',
+            "& $binary",
+            "Pop-Location",
+        ):
+            with self.subTest(platform="windows", token=token):
+                self.assertIn(token, windows_job)
     def test_namespace_audit_contract_tracks_the_complete_base_patch_set(self) -> None:
         for token in (
             '"path": "@ROR_OGRE_NEXT_VULKAN_SKY_PATCH_PATH@"',
@@ -844,7 +1197,7 @@ class CombinedProviderContractTests(unittest.TestCase):
             'mv "$build/bin/resources/ogrenext" "$quarantine"',
             'test ! -e "$build/bin/resources/ogrenext"',
             "ror.ogre_next_combined_elf_closure.v1",
-            "ror.ogre_next_combined_linux_package.v5",
+            "ror.ogre_next_combined_linux_package.v6",
             '"transport_dereferences_file_symlinks": True',
             '"all_transport_files_inventoried": True',
             '"staged_symlink_count": staged_symlink_count',
@@ -853,6 +1206,14 @@ class CombinedProviderContractTests(unittest.TestCase):
             '"legacy_visible_presentation": False',
             '"renderer_smoke_only": False',
             '"packaged_scene_smoke": True',
+            "tools/verify_native_a1_lod_runtime.py",
+            "--expected-lighting-mode raster-hdr-pssm",
+            "--expected-completed-frames 1",
+            "native-a1-distance-lod-runtime.json",
+            "e420438797a77e4e49b91e3c6c930f39d340f99a4772ef989182a62605f2d53b",
+            '"native_a1_distance_lod_runtime"',
+            '"receipt_sha256": native_a1_receipt_sha256',
+            '"runtime_playability_proven": False',
             '"actor_control_qualified": True',
             '"playability_qualified": False',
             "--native-visual-showcase",
@@ -895,7 +1256,7 @@ class CombinedProviderContractTests(unittest.TestCase):
             "numerical-impact-fixture-not-physical-calibration",
             "Prove authenticated native inter-actor contact conservation",
             "tools/run_jbeam_inter_actor_collision.py",
-            "ror-j2-authenticated-inter-actor-collision-v2",
+            "ror-j2-authenticated-inter-actor-collision-v3",
             "ror-jbeam-authenticated-inter-actor-collision-v1",
             "beamng-docs-0.38.5.0-2026-07-27",
             "24d4d21a1a171f11f6bc970fc3dd4d3b885b5ddb7ebf2f145b90a642da416fea",
@@ -909,8 +1270,11 @@ class CombinedProviderContractTests(unittest.TestCase):
             '"beamng_force_parity_proven": False',
             '"fixture_profile": "inputs/fixture-profile.json"',
             '"fixture_profile_sha256"',
-            '"whole_step_shared_node_energy": "not_audited"',
-            "exact-force-accumulator-deltas-and-isolated-contact-",
+            '"contact_conservation_schema": 3',
+            '"audited_fixed_steps": 2000',
+            '"whole_step_shared_node_energy": "audited"',
+            '"shared_node_contacts_observed": True',
+            "exact-force-accumulator-deltas-and-whole-step-shared-",
             '"digest_schema_version": 3',
             "--workers 1 8",
             "clean-room-normaltype-native-inter-actor-contact-",
@@ -993,11 +1357,19 @@ class CombinedProviderContractTests(unittest.TestCase):
             '"requested_frames": 12',
             '"accepted_frames": 12',
             '"rejected_frames": 0',
-            "ror.ogre_next_combined_windows_package.v3",
+            "ror.ogre_next_combined_windows_package.v4",
             '"renderer": "ogre-next"',
             '"legacy_visible_presentation": False',
             '"renderer_smoke_only": False',
             '"packaged_scene_smoke": True',
+            "tools/verify_native_a1_lod_runtime.py",
+            "'--expected-lighting-mode', 'raster-hdr-pssm'",
+            "'--expected-completed-frames', '1'",
+            "native-a1-distance-lod-runtime.json",
+            "e420438797a77e4e49b91e3c6c930f39d340f99a4772ef989182a62605f2d53b",
+            '"native_a1_distance_lod_runtime"',
+            '"receipt_sha256": native_a1_receipt_sha256',
+            '"runtime_playability_proven": False',
             '"actor_control_qualified": True',
             '"playability_qualified": False',
             "ci.ogre-next-combined.windows-packaged-simple2-semi",

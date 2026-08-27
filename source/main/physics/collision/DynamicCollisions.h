@@ -74,7 +74,9 @@ void CollectInterActorCollisionContacts(
 ContactConservation::Error ApplyInterActorCollisionContacts(
         const float dt,
         const std::vector<InterActorCollisionContact>& contacts,
-        ContactConservation::Aggregate* out_conservation = nullptr);
+        ContactConservation::Aggregate* out_conservation = nullptr,
+        ContactConservation::StepAccumulator*
+            out_step_conservation = nullptr);
 
 /// Resolves every discovered contact in canonical order. When
 /// `out_contact_keys` is non-null, it also captures the exact resolved key
@@ -96,6 +98,8 @@ bool ResolveInterActorCollisionContactsSerial(
             DeterministicContactOrder::InterActorKey>*
                 out_contact_keys = nullptr,
         ContactConservation::Aggregate* out_conservation = nullptr,
+        ContactConservation::StepAccumulator*
+            out_step_conservation = nullptr,
         ContactConservation::Error* out_conservation_error = nullptr);
 
 void ResolveIntraActorCollisions(const float dt, PointColDetector &intraPointCD,

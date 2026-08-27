@@ -71,7 +71,7 @@ def conservation_receipt(
     residual: str = "3.985739861966006e-08",
 ) -> str:
     return (
-        "[RoR|Determinism|ContactConservation] PASS schema=2 "
+        "[RoR|Determinism|ContactConservation] PASS schema=3 "
         f"contacts={contacts} fixed_steps=2000 "
         f"maximum_normalized_linear_impulse_residual={residual} "
         "maximum_angular_impulse_delta_magnitude_nms=0.0075 "
@@ -81,7 +81,14 @@ def conservation_receipt(
         "summed_isolated_contact_work_j=-12.5 "
         "summed_isolated_contact_kinetic_energy_delta_j=-11.25 "
         "summed_isolated_contact_integration_energy_delta_j=1.25 "
-        "whole_step_shared_node_energy=not_audited"
+        "whole_step_shared_node_energy=audited "
+        f"audited_fixed_steps=2000 whole_step_contact_count={contacts} "
+        "summed_unique_node_count=1000 summed_shared_node_count=300 "
+        "maximum_node_contact_multiplicity=4 "
+        "summed_whole_step_contact_work_j=-12.5 "
+        "summed_whole_step_contact_kinetic_energy_delta_j=-10.5 "
+        "summed_whole_step_contact_integration_energy_delta_j=2 "
+        "summed_shared_node_cross_term_j=0.75"
     )
 
 
@@ -159,7 +166,17 @@ class JBeamInterActorCollisionTests(unittest.TestCase):
             telemetry["contact_conservation"][
                 "whole_step_shared_node_energy"
             ],
-            "not_audited",
+            "audited",
+        )
+        self.assertEqual(
+            telemetry["contact_conservation"]["audited_fixed_steps"],
+            GATE.EXPECTED_STEPS,
+        )
+        self.assertEqual(
+            telemetry["contact_conservation"][
+                "summed_shared_node_cross_term_j"
+            ],
+            0.75,
         )
 
         for bad in (
@@ -176,6 +193,7 @@ class JBeamInterActorCollisionTests(unittest.TestCase):
         for bad_engine in (
             engine_log.replace(conservation_receipt(), ""),
             engine_log + "\n" + conservation_receipt(),
+            engine_log.replace("PASS schema=3", "PASS schema=2"),
             engine_log.replace(
                 conservation_receipt(),
                 conservation_receipt(residual="1.000001e-6"),
@@ -189,8 +207,33 @@ class JBeamInterActorCollisionTests(unittest.TestCase):
                 "summed_isolated_contact_kinetic_energy_delta_j=999",
             ),
             engine_log.replace(
-                "whole_step_shared_node_energy=not_audited",
                 "whole_step_shared_node_energy=audited",
+                "whole_step_shared_node_energy=not_audited",
+            ),
+            engine_log.replace("audited_fixed_steps=2000", "audited_fixed_steps=1999"),
+            engine_log.replace(
+                "whole_step_contact_count=343",
+                "whole_step_contact_count=342",
+            ),
+            engine_log.replace(
+                "summed_unique_node_count=1000",
+                "summed_unique_node_count=0",
+            ),
+            engine_log.replace(
+                "summed_shared_node_count=300",
+                "summed_shared_node_count=1001",
+            ),
+            engine_log.replace(
+                "maximum_node_contact_multiplicity=4",
+                "maximum_node_contact_multiplicity=1",
+            ),
+            engine_log.replace(
+                "summed_whole_step_contact_kinetic_energy_delta_j=-10.5",
+                "summed_whole_step_contact_kinetic_energy_delta_j=-10",
+            ),
+            engine_log.replace(
+                "summed_shared_node_cross_term_j=0.75",
+                "summed_shared_node_cross_term_j=0.5",
             ),
         ):
             with self.subTest(bad_engine=bad_engine[-120:]):
@@ -281,6 +324,7 @@ class JBeamInterActorCollisionTests(unittest.TestCase):
         )
         self.assertIn("not-beamng-force-parity", source)
         self.assertIn("CONTACT_CONSERVATION_PASS_PATTERN", source)
+        self.assertIn("ror-j2-authenticated-inter-actor-collision-v3", source)
         self.assertIn("bind_conservation_to_trace", source)
         self.assertIn("contact_summary", source)
         self.assertIn("--allow-worker-count-difference", source)

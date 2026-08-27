@@ -130,11 +130,16 @@ struct OgreNextRetainedSceneAudit final {
   std::uint64_t last_post_render_phase_microseconds = 0U;
   std::uint64_t last_cleanup_phase_microseconds = 0U;
   std::uint64_t last_publication_phase_microseconds = 0U;
-  /// Exact counters reset immediately before the most recent completed native
-  /// present. `last_native_pass_metrics_exact` additionally proves the HDR
-  /// scene, PSSM shadow, and post-process seams were each observed exactly
-  /// once. A false value is missing evidence, never permission to substitute
-  /// OGRE 14 draw counts.
+  /// Exact counters reset immediately before the most recent native HDR scene
+  /// submission. `last_native_pass_metrics_exact` additionally proves every
+  /// scene/shadow seam required by the selected HDR topology was observed in
+  /// its reviewed order (one scene for single-evaluation PSSM; base,
+  /// sun-full, and raster-lit scenes for directional split V2), with no
+  /// intervening render-counter work and exactly one final workspace seam.
+  /// Metal RT dispatch and its deferred presentation continuation have their
+  /// own completion audit; they are not folded into this raster-scene split.
+  /// A false value is missing evidence, never permission to substitute OGRE 14
+  /// draw counts.
   std::uint64_t last_native_renderer_frame_id = 0U;
   std::uint64_t last_native_frame_batches = 0U;
   std::uint64_t last_native_frame_draws = 0U;

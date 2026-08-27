@@ -47,6 +47,7 @@ on:
       - resources/postprocess/**
       - source/main/gfx/GfxWater.cpp
       - source/main/**
+      - tests/gfx/render/OgreNextNativeRenderPassMetricsTests.cpp
       - tools/linux/RunRoR-combined
       - tools/CI/copy_libs.cmake
       - tools/ogre_next_probe/**
@@ -63,6 +64,7 @@ on:
       - tools/verify_ogre_next_combined_binary_closure.py
       - tools/verify_ogre_next_combined_elf_closure.py
       - tools/verify_ogre_next_combined_pe_closure.py
+      - tools/verify_native_a1_lod_runtime.py
       - tests/tools/test_ogre_next_combined_provider_contract.py
       - tests/tools/test_ogre_next_embedded_namespace_contract.py
       - tests/tools/test_run_agora_impact_regression.py
@@ -88,6 +90,7 @@ on:
       - tests/tools/test_general_shader_contract.py
       - tests/tools/test_nicemetal_shader_contract.py
       - tests/tools/test_run_nicemetal_shader_smoke.py
+      - tests/tools/test_verify_native_a1_lod_runtime.py
       - tests/fixtures/nicemetal_runtime/**
       - tests/fixtures/beamng/jbeam_inter_actor_collision/**
       - tests/fixtures/beamng/jbeam_spawn_soak/**
@@ -136,6 +139,7 @@ on:
       - resources/postprocess/**
       - source/main/gfx/GfxWater.cpp
       - source/main/**
+      - tests/gfx/render/OgreNextNativeRenderPassMetricsTests.cpp
       - tools/linux/RunRoR-combined
       - tools/CI/copy_libs.cmake
       - tools/ogre_next_probe/**
@@ -152,6 +156,7 @@ on:
       - tools/verify_ogre_next_combined_binary_closure.py
       - tools/verify_ogre_next_combined_elf_closure.py
       - tools/verify_ogre_next_combined_pe_closure.py
+      - tools/verify_native_a1_lod_runtime.py
       - tests/tools/test_ogre_next_combined_provider_contract.py
       - tests/tools/test_ogre_next_embedded_namespace_contract.py
       - tests/tools/test_run_agora_impact_regression.py
@@ -177,6 +182,7 @@ on:
       - tests/tools/test_general_shader_contract.py
       - tests/tools/test_nicemetal_shader_contract.py
       - tests/tools/test_run_nicemetal_shader_smoke.py
+      - tests/tools/test_verify_native_a1_lod_runtime.py
       - tests/fixtures/nicemetal_runtime/**
       - tests/fixtures/beamng/jbeam_inter_actor_collision/**
       - tests/fixtures/beamng/jbeam_spawn_soak/**
@@ -306,6 +312,23 @@ jobs:
           nm --version
           vulkaninfo --summary
 
+      - name: Compile and run native render-pass metrics behavioral gate
+        shell: bash
+        run: |
+          gate="$RUNNER_TEMP/ror-ogre-next-native-render-pass-metrics-gate"
+          binary="$gate/ror_ogre_next_native_render_pass_metrics_tests"
+          test ! -e "$gate"
+          cmake -E make_directory "$gate"
+          TMPDIR="$gate" g++-11 \
+            -std=c++17 \
+            -Wall -Wextra -Werror -pedantic -fno-fast-math -ffp-contract=off \
+            -Isource/main/gfx/render/ogrenext \
+            tests/gfx/render/OgreNextNativeRenderPassMetricsTests.cpp \
+            source/main/gfx/render/ogrenext/OgreNextNativeRenderPassMetrics.cpp \
+            -o "$binary"
+          test -x "$binary"
+          "$binary"
+
       - name: Compile the complete modern GLSL source closure
         shell: bash
         run: |
@@ -358,6 +381,7 @@ jobs:
           python tests/tools/test_ogre_next_combined_provider_contract.py
           python tests/tools/test_ogre_next_embedded_namespace_contract.py
           python tests/tools/test_run_playable_performance_scene.py
+          python tests/tools/test_verify_native_a1_lod_runtime.py
           python tests/tools/test_run_agora_impact_regression.py
           python tests/tools/test_run_deterministic_savegame_resume.py
           python tests/tools/test_run_jbeam_inter_actor_collision.py
@@ -380,6 +404,7 @@ jobs:
           python -O tests/tools/test_ogre_next_combined_provider_contract.py
           python -O tests/tools/test_ogre_next_embedded_namespace_contract.py
           python -O tests/tools/test_run_playable_performance_scene.py
+          python -O tests/tools/test_verify_native_a1_lod_runtime.py
           python -O tests/tools/test_run_agora_impact_regression.py
           python -O tests/tools/test_run_deterministic_savegame_resume.py
           python -O tests/tools/test_run_jbeam_inter_actor_collision.py
@@ -670,6 +695,35 @@ jobs:
                       f"combined renderer smoke receipt changed: {field}={document.get(field)!r}"
                   )
           PY
+          native_package="$stage/resources/nextgen/native/a1_native_course_60m/rorng_a1_native_course_60m.rornative"
+          native_lod_receipt="$stage/qualification/native-a1-distance-lod-runtime.json"
+          test -f "$native_package"
+          test ! -L "$native_package"
+          test -x "$stage/RoR-Combined"
+          test ! -e "$native_lod_receipt"
+          test "$(sha256sum "$native_package" | awk '{print $1}')" = \
+            "e420438797a77e4e49b91e3c6c930f39d340f99a4772ef989182a62605f2d53b"
+          python tools/verify_native_a1_lod_runtime.py \
+            --log "$smoke_log" \
+            --stderr-log "$stage/qualification/renderer-smoke.stderr.log" \
+            --frame-budget-receipt "$receipt" \
+            --package "$native_package" \
+            --executable "$stage/RoR-Combined" \
+            --output "$native_lod_receipt" \
+            --platform linux \
+            --expected-lighting-mode raster-hdr-pssm \
+            --package-sha256 e420438797a77e4e49b91e3c6c930f39d340f99a4772ef989182a62605f2d53b \
+            --repository-commit "$GITHUB_SHA" \
+            --scenario-id ci.ogre-next-combined.renderer-smoke \
+            --accepted-frames 12 \
+            --expected-lod-items 2 \
+            --expected-lod-reduced 2 \
+            --expected-lod-max 1 \
+            --expected-lod-level-sum 2 \
+            --expected-triangles-base 588 \
+            --expected-triangles-selected 252 \
+            --expected-completed-frames 1
+          test -s "$native_lod_receipt"
 
       - name: Prove NiceMetal templates in the hidden GL3Plus resource host
         timeout-minutes: 6
@@ -979,7 +1033,7 @@ jobs:
           if not isinstance(report, dict) or set(report) != expected_report_keys:
               raise SystemExit("inter-actor collision report key set changed")
           expected = {
-              "format": "ror-j2-authenticated-inter-actor-collision-v2",
+              "format": "ror-j2-authenticated-inter-actor-collision-v3",
               "fixture_id": "ror-jbeam-authenticated-inter-actor-collision-v1",
               "fixture_profile": "inputs/fixture-profile.json",
               "fixture_profile_sha256": (
@@ -1116,9 +1170,11 @@ jobs:
                   else None
               )
               conservation_keys = {
+                  "audited_fixed_steps",
                   "contact_count",
                   "fixed_steps",
                   "maximum_angular_impulse_delta_magnitude_nms",
+                  "maximum_node_contact_multiplicity",
                   "maximum_normalized_linear_impulse_residual",
                   "schema",
                   "summed_angular_impulse_delta_x_nms",
@@ -1127,6 +1183,13 @@ jobs:
                   "summed_isolated_contact_integration_energy_delta_j",
                   "summed_isolated_contact_kinetic_energy_delta_j",
                   "summed_isolated_contact_work_j",
+                  "summed_shared_node_count",
+                  "summed_shared_node_cross_term_j",
+                  "summed_unique_node_count",
+                  "summed_whole_step_contact_integration_energy_delta_j",
+                  "summed_whole_step_contact_kinetic_energy_delta_j",
+                  "summed_whole_step_contact_work_j",
+                  "whole_step_contact_count",
                   "whole_step_shared_node_energy",
               }
               if (
@@ -1156,12 +1219,27 @@ jobs:
                   }
                   or not isinstance(conservation, dict)
                   or set(conservation) != conservation_keys
-                  or conservation.get("schema") != 2
+                  or conservation.get("schema") != 3
                   or conservation.get("fixed_steps") != 2000
+                  or conservation.get("audited_fixed_steps") != 2000
                   or conservation.get("contact_count")
                   != summary["total_contact_count"]
+                  or conservation.get("whole_step_contact_count")
+                  != summary["total_contact_count"]
                   or conservation.get("whole_step_shared_node_energy")
-                  != "not_audited"
+                  != "audited"
+                  or type(conservation.get("summed_unique_node_count")) is not int
+                  or not 0 < conservation["summed_unique_node_count"]
+                  <= conservation["whole_step_contact_count"] * 4
+                  or type(conservation.get("summed_shared_node_count")) is not int
+                  or not 0 < conservation["summed_shared_node_count"]
+                  <= conservation["summed_unique_node_count"]
+                  or type(
+                      conservation.get("maximum_node_contact_multiplicity")
+                  ) is not int
+                  or not 2
+                  <= conservation["maximum_node_contact_multiplicity"]
+                  <= conservation["whole_step_contact_count"]
                   or not isinstance(
                       conservation.get("maximum_normalized_linear_impulse_residual"),
                       (int, float),
@@ -1179,7 +1257,12 @@ jobs:
                       - {
                           "contact_count",
                           "fixed_steps",
+                          "audited_fixed_steps",
+                          "maximum_node_contact_multiplicity",
                           "schema",
+                          "summed_shared_node_count",
+                          "summed_unique_node_count",
+                          "whole_step_contact_count",
                           "whole_step_shared_node_energy",
                       }
                   )
@@ -1194,6 +1277,26 @@ jobs:
                   ]
                   != conservation["summed_isolated_contact_work_j"]
                   + conservation[
+                      "summed_isolated_contact_integration_energy_delta_j"
+                  ]
+                  or conservation[
+                      "summed_whole_step_contact_integration_energy_delta_j"
+                  ]
+                  < 0.0
+                  or conservation["summed_whole_step_contact_work_j"]
+                  != conservation["summed_isolated_contact_work_j"]
+                  or conservation[
+                      "summed_whole_step_contact_kinetic_energy_delta_j"
+                  ]
+                  != conservation["summed_whole_step_contact_work_j"]
+                  + conservation[
+                      "summed_whole_step_contact_integration_energy_delta_j"
+                  ]
+                  or conservation["summed_shared_node_cross_term_j"]
+                  != conservation[
+                      "summed_whole_step_contact_integration_energy_delta_j"
+                  ]
+                  - conservation[
                       "summed_isolated_contact_integration_energy_delta_j"
                   ]
                   or telemetry.get("broken_beams") != 0
@@ -1365,6 +1468,220 @@ jobs:
 
           root = Path(sys.argv[1]).resolve(strict=True)
           source_commit = sys.argv[2]
+          native_a1_receipt_relative = Path(
+              "qualification/native-a1-distance-lod-runtime.json"
+          )
+          native_a1_receipt_path = root / native_a1_receipt_relative
+          if (
+              not native_a1_receipt_path.is_file()
+              or native_a1_receipt_path.is_symlink()
+          ):
+              raise SystemExit("native A1 distance-LOD receipt is missing or indirect")
+          native_a1_receipt_bytes = native_a1_receipt_path.read_bytes()
+          def unique_receipt_object(pairs):
+              value = {}
+              for name, member in pairs:
+                  if name in value:
+                      raise SystemExit(f"native A1 receipt repeats field {name}")
+                  value[name] = member
+              return value
+          native_a1_receipt = json.loads(
+              native_a1_receipt_bytes,
+              object_pairs_hook=unique_receipt_object,
+          )
+          if (
+              native_a1_receipt.get("schema")
+              != "ror.native_a1_distance_lod_runtime.v1"
+              or native_a1_receipt.get("repository_commit") != source_commit
+              or native_a1_receipt.get("platform") != "linux"
+              or native_a1_receipt.get("lighting_mode")
+              != {
+                  "id": "raster-hdr-pssm",
+                  "native_rt": False,
+                  "pipeline": "rt4_pbr_pssm_hdr_preview",
+              }
+              or native_a1_receipt.get("package", {}).get("id")
+              != "rorng_a1_native_course_60m"
+              or native_a1_receipt.get("package", {}).get("sha256")
+              != "e420438797a77e4e49b91e3c6c930f39d340f99a4772ef989182a62605f2d53b"
+              or native_a1_receipt.get("metal_rt_sun_visibility_v2") is not None
+          ):
+              raise SystemExit("native A1 Linux distance-LOD receipt changed")
+          native_a1_executable_path = root / "RoR-Combined"
+          native_a1_package_path = (
+              root
+              / "resources/nextgen/native/a1_native_course_60m/"
+              "rorng_a1_native_course_60m.rornative"
+          )
+          native_a1_stdout_path = root / "qualification/renderer-smoke.stdout.log"
+          native_a1_stderr_path = root / "qualification/renderer-smoke.stderr.log"
+          native_a1_frame_receipt_path = root / "qualification/renderer-smoke.json"
+          for label, path in (
+              ("native A1 executable", native_a1_executable_path),
+              ("native A1 package", native_a1_package_path),
+              ("native A1 stdout log", native_a1_stdout_path),
+              ("native A1 stderr log", native_a1_stderr_path),
+              ("native A1 frame receipt", native_a1_frame_receipt_path),
+          ):
+              if not path.is_file() or path.is_symlink():
+                  raise SystemExit(f"{label} is missing or indirect at inventory time")
+          native_a1_executable_sha256 = hashlib.sha256(
+              native_a1_executable_path.read_bytes()
+          ).hexdigest()
+          native_a1_package_bytes = native_a1_package_path.read_bytes()
+          native_a1_package_sha256 = hashlib.sha256(
+              native_a1_package_bytes
+          ).hexdigest()
+          native_a1_stdout_bytes = native_a1_stdout_path.read_bytes()
+          native_a1_stdout_sha256 = hashlib.sha256(
+              native_a1_stdout_bytes
+          ).hexdigest()
+          native_a1_stderr_sha256 = hashlib.sha256(
+              native_a1_stderr_path.read_bytes()
+          ).hexdigest()
+          native_a1_frame_receipt_sha256 = hashlib.sha256(
+              native_a1_frame_receipt_path.read_bytes()
+          ).hexdigest()
+          if (
+              native_a1_receipt.get("executable_sha256")
+              != native_a1_executable_sha256
+              or native_a1_receipt.get("package", {}).get("sha256")
+              != native_a1_package_sha256
+              or native_a1_receipt.get("log_sha256")
+              != native_a1_stdout_sha256
+              or native_a1_receipt.get("stderr_log_sha256")
+              != native_a1_stderr_sha256
+              or native_a1_receipt.get("frame_budget", {}).get("sha256")
+              != native_a1_frame_receipt_sha256
+          ):
+              raise SystemExit(
+                  "native A1 Linux receipt no longer binds the final staged inputs"
+              )
+          canonical_json = lambda value: json.dumps(
+              value, sort_keys=True, separators=(",", ":")
+          )
+          expected_native_distance_lod = {
+              "available": True,
+              "casters": 4,
+              "completed_frames": 1,
+              "gpu_only": True,
+              "hdr_topology": 1,
+              "lod_exact": True,
+              "lod_items": 2,
+              "lod_level_sum": 2,
+              "lod_max": 1,
+              "lod_reduced": 2,
+              "native_scene_lighting": True,
+              "no_ogre14_lighting": True,
+              "pbs": 9,
+              "pssm": True,
+              "pssm_populated_finalize": True,
+              "receivers": 7,
+              "reduced_this_frame": True,
+              "reflection_initialized": True,
+              "schema_version": 6,
+              "triangles_base": 588,
+              "triangles_selected": 252,
+          }
+          expected_frame_budget = {
+              "accepted_frames": 12,
+              "format": "ror-frame-time-budget-v1",
+              "minimum_frames": 8,
+              "mode": "measure",
+              "native_scene_draw_exact_samples": 12,
+              "native_scene_draw_maximum": 30,
+              "native_scene_draw_p99": 30,
+              "native_scene_draw_p99_limit": 2500,
+              "native_scene_draw_rejected_samples": 0,
+              "observed_frames": 14,
+              "passed": False,
+              "presents_frames": True,
+              "rejected_frames": 0,
+              "renderer": "ogre-next-combined",
+              "requested_frames": 12,
+              "requires_native_scene_draw_metrics": True,
+              "scenario_id": "ci.ogre-next-combined.renderer-smoke",
+              "sha256": native_a1_frame_receipt_sha256,
+              "verdict": "advisory",
+              "warmup_frames": 2,
+              "warmup_frames_requested": 2,
+          }
+          expected_presentation_ownership = {
+              "legacy_visible_fallback": False,
+              "presentation_owner": "ogre-next",
+              "resource_host": "ogre14",
+              "resource_host_protected": True,
+              "resource_host_visible": False,
+              "visible_render_system": "ogre-next-vulkan",
+              "visible_window": True,
+          }
+          expected_top_level_fields = {
+              "evidence_class",
+              "executable_sha256",
+              "frame_budget",
+              "lighting_mode",
+              "log_sha256",
+              "metal_rt_sun_visibility_v2",
+              "native_distance_lod",
+              "package",
+              "platform",
+              "presentation_ownership",
+              "repository_commit",
+              "schema",
+              "selected_showcase_line_sha256",
+              "stderr_log_sha256",
+          }
+          expected_package = {
+              "bytes": len(native_a1_package_bytes),
+              "id": "rorng_a1_native_course_60m",
+              "sha256": native_a1_package_sha256,
+          }
+          selected_marker = (
+              "[RoR|RendererCombined|NativeShowcase] Selected exact "
+              "forward-native scene:"
+          )
+          try:
+              native_a1_stdout_text = native_a1_stdout_bytes.decode("utf-8")
+          except UnicodeDecodeError as error:
+              raise SystemExit("native A1 stdout is not UTF-8") from error
+          selected_lines = [
+              line
+              for line in native_a1_stdout_text.splitlines()
+              if selected_marker in line
+          ]
+          selected_prefix = selected_marker + " path='"
+          selected_suffix = (
+              "', package='rorng_a1_native_course_60m', sha256='"
+              + native_a1_package_sha256
+              + "', assets=38, instances=9, source_version=1, "
+              "pipeline='rt4_pbr_pssm_hdr_preview', hdr=true, "
+              "native_rt=false, profile=a1_native_course, "
+              "motion='turntable_thin_glass_slab', fixed_hz=60, "
+              "revolution_ticks=360, "
+              "refraction=thin_parallel_slab_screen_space, "
+              "motion_vectors=false"
+          )
+          if (
+              len(selected_lines) != 1
+              or not selected_lines[0].startswith(selected_prefix)
+              or not selected_lines[0].endswith(selected_suffix)
+          ):
+              raise SystemExit("native A1 selected-showcase line is not canonical")
+          selected_path_text = selected_lines[0][
+              len(selected_prefix):-len(selected_suffix)
+          ]
+          try:
+              selected_path = Path(selected_path_text).resolve(strict=True)
+          except OSError as error:
+              raise SystemExit("native A1 selected package path cannot be resolved") from error
+          if selected_path != native_a1_package_path.resolve(strict=True):
+              raise SystemExit("native A1 selected line does not bind the final package")
+          selected_showcase_line_sha256 = hashlib.sha256(
+              selected_lines[0].encode("utf-8")
+          ).hexdigest()
+          native_a1_receipt_sha256 = hashlib.sha256(
+              native_a1_receipt_bytes
+          ).hexdigest()
           files = []
           staged_symlink_count = 0
           for path in sorted(root.rglob("*")):
@@ -1406,8 +1723,26 @@ jobs:
               if link_target is not None:
                   entry["stage_link_target"] = link_target
               files.append(entry)
+          if (
+              set(native_a1_receipt) != expected_top_level_fields
+              or native_a1_receipt.get("evidence_class")
+              != "runtime-input-and-receipt-verification"
+              or canonical_json(native_a1_receipt.get("package"))
+              != canonical_json(expected_package)
+              or native_a1_receipt.get("selected_showcase_line_sha256")
+              != selected_showcase_line_sha256
+              or canonical_json(native_a1_receipt.get("native_distance_lod"))
+              != canonical_json(expected_native_distance_lod)
+              or canonical_json(native_a1_receipt.get("frame_budget"))
+              != canonical_json(expected_frame_budget)
+              or canonical_json(native_a1_receipt.get("presentation_ownership"))
+              != canonical_json(expected_presentation_ownership)
+          ):
+              raise SystemExit(
+                  "native A1 Linux receipt semantic qualification changed"
+              )
           document = {
-              "schema": "ror.ogre_next_combined_linux_package.v5",
+              "schema": "ror.ogre_next_combined_linux_package.v6",
               "source_commit": source_commit,
               "platform_policy": "linux-x86_64-vulkan",
               "entrypoint": "RunRoR",
@@ -1416,6 +1751,20 @@ jobs:
               "legacy_visible_presentation": False,
               "renderer_smoke_only": False,
               "packaged_scene_smoke": True,
+              "native_a1_distance_lod_runtime": {
+                  "qualified": True,
+                  "qualification_scope": (
+                      "renderer-only-forward-native-a1-distance-lod"
+                  ),
+                  "receipt": native_a1_receipt_relative.as_posix(),
+                  "receipt_sha256": native_a1_receipt_sha256,
+                  "package_sha256": (
+                      "e420438797a77e4e49b91e3c6c930f39"
+                      "d340f99a4772ef989182a62605f2d53b"
+                  ),
+                  "lighting_mode": "raster-hdr-pssm",
+                  "runtime_playability_proven": False,
+              },
               "nicemetal_resource_host_shader_smoke": {
                   "qualified": True,
                   "scope": "ogre14-hidden-resource-host-managed-template-shader-compile-load",
@@ -1454,10 +1803,13 @@ jobs:
                   "steps": 2000,
                   "fixture_input": "clean-room-jbeam",
                   "qualification_scope": (
-                      "exact-force-accumulator-deltas-and-isolated-contact-"
-                      "energy-attribution"
+                      "exact-force-accumulator-deltas-and-whole-step-shared-"
+                      "node-energy-attribution"
                   ),
-                  "whole_step_shared_node_energy": "not_audited",
+                  "contact_conservation_schema": 3,
+                  "audited_fixed_steps": 2000,
+                  "whole_step_shared_node_energy": "audited",
+                  "shared_node_contacts_observed": True,
                   "beamng_pc_runtime_proven": False,
                   "beamng_force_parity_proven": False,
               },
@@ -1594,12 +1946,30 @@ jobs:
           otool --version
           command -v codesign
 
+      - name: Compile and run native render-pass metrics behavioral gate
+        shell: bash
+        run: |
+          gate="$RUNNER_TEMP/ror-ogre-next-native-render-pass-metrics-gate"
+          binary="$gate/ror_ogre_next_native_render_pass_metrics_tests"
+          test ! -e "$gate"
+          cmake -E make_directory "$gate"
+          TMPDIR="$gate" clang++ \
+            -std=c++17 \
+            -Wall -Wextra -Werror -pedantic -fno-fast-math -ffp-contract=off \
+            -Isource/main/gfx/render/ogrenext \
+            tests/gfx/render/OgreNextNativeRenderPassMetricsTests.cpp \
+            source/main/gfx/render/ogrenext/OgreNextNativeRenderPassMetrics.cpp \
+            -o "$binary"
+          test -x "$binary"
+          "$binary"
+
       - name: Run combined-runtime fail-closed contracts
         shell: bash
         run: |
           python tests/tools/test_ogre_next_combined_provider_contract.py
           python tests/tools/test_ogre_next_embedded_namespace_contract.py
           python tests/tools/test_run_playable_performance_scene.py
+          python tests/tools/test_verify_native_a1_lod_runtime.py
           python tests/tools/test_run_agora_impact_regression.py
           python tests/tools/test_run_deterministic_savegame_resume.py
           python tests/tools/test_run_jbeam_inter_actor_collision.py
@@ -1622,6 +1992,7 @@ jobs:
           python -O tests/tools/test_ogre_next_combined_provider_contract.py
           python -O tests/tools/test_ogre_next_embedded_namespace_contract.py
           python -O tests/tools/test_run_playable_performance_scene.py
+          python -O tests/tools/test_verify_native_a1_lod_runtime.py
           python -O tests/tools/test_run_agora_impact_regression.py
           python -O tests/tools/test_run_deterministic_savegame_resume.py
           python -O tests/tools/test_run_jbeam_inter_actor_collision.py
@@ -2303,6 +2674,36 @@ jobs:
           cmake --version
           ninja --version
 
+      - name: Compile and run native render-pass metrics behavioral gate
+        shell: pwsh
+        run: |
+          $gate = Join-Path $env:RUNNER_TEMP 'ror-ogre-next-native-render-pass-metrics-gate'
+          if (Test-Path -LiteralPath $gate) {
+            throw "Native render-pass metrics gate directory already exists: $gate"
+          }
+          New-Item -ItemType Directory -Path $gate -ErrorAction Stop | Out-Null
+          $testSource = (Resolve-Path -LiteralPath 'tests/gfx/render/OgreNextNativeRenderPassMetricsTests.cpp' -ErrorAction Stop).Path
+          $productionSource = (Resolve-Path -LiteralPath 'source/main/gfx/render/ogrenext/OgreNextNativeRenderPassMetrics.cpp' -ErrorAction Stop).Path
+          $includeDirectory = (Resolve-Path -LiteralPath 'source/main/gfx/render/ogrenext' -ErrorAction Stop).Path
+          $binary = Join-Path $gate 'ror_ogre_next_native_render_pass_metrics_tests.exe'
+          Push-Location $gate
+          try {
+            & cl.exe /nologo /std:c++17 /EHsc /W4 /WX /permissive- /fp:strict /Zc:__cplusplus `
+              "/I$includeDirectory" $testSource $productionSource "/Fe$binary"
+            if ($LASTEXITCODE -ne 0) {
+              throw "Native render-pass metrics gate compilation failed with exit code $LASTEXITCODE"
+            }
+            if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
+              throw "Native render-pass metrics gate binary is missing: $binary"
+            }
+            & $binary
+            if ($LASTEXITCODE -ne 0) {
+              throw "Native render-pass metrics behavioral gate failed with exit code $LASTEXITCODE"
+            }
+          } finally {
+            Pop-Location
+          }
+
       - name: Compile the complete Shader Model 4 HLSL source closure
         shell: pwsh
         run: |
@@ -2379,6 +2780,7 @@ jobs:
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_ogre_next_combined_provider_contract.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_ogre_next_embedded_namespace_contract.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_run_playable_performance_scene.py')
+          Invoke-CheckedPython -PythonArguments @('tests/tools/test_verify_native_a1_lod_runtime.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_run_agora_impact_regression.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_run_deterministic_savegame_resume.py')
           Invoke-CheckedPython -PythonArguments @('tests/tools/test_run_jbeam_inter_actor_collision.py')
@@ -2399,6 +2801,7 @@ jobs:
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_ogre_next_combined_provider_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_ogre_next_embedded_namespace_contract.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_playable_performance_scene.py')
+          Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_verify_native_a1_lod_runtime.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_agora_impact_regression.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_deterministic_savegame_resume.py')
           Invoke-CheckedPython -PythonArguments @('-O', 'tests/tools/test_run_jbeam_inter_actor_collision.py')
@@ -2709,6 +3112,68 @@ jobs:
           if document.get("native_scene_draw_p99", 0) <= 0:
               raise SystemExit("Windows renderer smoke submitted no native scene draws")
           '@ | python -
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows renderer smoke receipt validation failed with exit code $LASTEXITCODE"
+          }
+          $nativePackage = Join-Path $stage 'resources/nextgen/native/a1_native_course_60m/rorng_a1_native_course_60m.rornative'
+          $nativeLodReceipt = Join-Path $stage 'qualification/native-a1-distance-lod-runtime.json'
+          foreach ($path in @($nativePackage, (Join-Path $stage 'RoR-Combined.exe'))) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Windows native A1 receipt input is missing: $path"
+            }
+          }
+          if (Test-Path -LiteralPath $nativeLodReceipt) {
+            throw "Windows native A1 receipt already exists: $nativeLodReceipt"
+          }
+          $nativePackageSha256 = (
+            Get-FileHash -LiteralPath $nativePackage -Algorithm SHA256
+          ).Hash.ToLowerInvariant()
+          if ($nativePackageSha256 -cne 'e420438797a77e4e49b91e3c6c930f39d340f99a4772ef989182a62605f2d53b') {
+            throw "Windows staged native A1 package digest changed: $nativePackageSha256"
+          }
+          $qualifiedStdout = Join-Path $stage 'qualification/renderer-smoke.stdout.log'
+          $qualifiedStderr = Join-Path $stage 'qualification/renderer-smoke.stderr.log'
+          foreach ($copy in @(
+            @{ Source = $stdout; Destination = $qualifiedStdout },
+            @{ Source = $stderr; Destination = $qualifiedStderr }
+          )) {
+            if (Test-Path -LiteralPath $copy.Destination) {
+              throw "Windows native A1 raw log already exists: $($copy.Destination)"
+            }
+            Copy-Item -LiteralPath $copy.Source -Destination $copy.Destination -ErrorAction Stop
+            if (-not (Test-Path -LiteralPath $copy.Destination -PathType Leaf)) {
+              throw "Windows native A1 raw log was not staged: $($copy.Destination)"
+            }
+          }
+          $nativeLodArguments = @(
+            'tools/verify_native_a1_lod_runtime.py',
+            '--log', $qualifiedStdout,
+            '--stderr-log', $qualifiedStderr,
+            '--frame-budget-receipt', $receipt,
+            '--package', $nativePackage,
+            '--executable', (Join-Path $stage 'RoR-Combined.exe'),
+            '--output', $nativeLodReceipt,
+            '--platform', 'win32',
+            '--expected-lighting-mode', 'raster-hdr-pssm',
+            '--package-sha256', 'e420438797a77e4e49b91e3c6c930f39d340f99a4772ef989182a62605f2d53b',
+            '--repository-commit', $env:GITHUB_SHA,
+            '--scenario-id', 'ci.ogre-next-combined.windows-renderer-smoke',
+            '--accepted-frames', '12',
+            '--expected-lod-items', '2',
+            '--expected-lod-reduced', '2',
+            '--expected-lod-max', '1',
+            '--expected-lod-level-sum', '2',
+            '--expected-triangles-base', '588',
+            '--expected-triangles-selected', '252',
+            '--expected-completed-frames', '1'
+          )
+          & python @nativeLodArguments
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows native A1 LOD receipt failed with exit code $LASTEXITCODE"
+          }
+          if (-not (Test-Path -LiteralPath $nativeLodReceipt -PathType Leaf)) {
+            throw "Windows native A1 LOD receipt was not retained"
+          }
 
       - name: Prove NiceMetal templates in the hidden D3D11 resource host
         timeout-minutes: 6
@@ -3125,6 +3590,221 @@ jobs:
           import stat
 
           root = Path(os.environ["ROR_COMBINED_STAGE_DIR"]).resolve(strict=True)
+          source_commit = os.environ["GITHUB_SHA"]
+          native_a1_receipt_relative = Path(
+              "qualification/native-a1-distance-lod-runtime.json"
+          )
+          native_a1_receipt_path = root / native_a1_receipt_relative
+          if (
+              not native_a1_receipt_path.is_file()
+              or native_a1_receipt_path.is_symlink()
+          ):
+              raise SystemExit("native A1 distance-LOD receipt is missing or indirect")
+          native_a1_receipt_bytes = native_a1_receipt_path.read_bytes()
+          def unique_receipt_object(pairs):
+              value = {}
+              for name, member in pairs:
+                  if name in value:
+                      raise SystemExit(f"native A1 receipt repeats field {name}")
+                  value[name] = member
+              return value
+          native_a1_receipt = json.loads(
+              native_a1_receipt_bytes,
+              object_pairs_hook=unique_receipt_object,
+          )
+          if (
+              native_a1_receipt.get("schema")
+              != "ror.native_a1_distance_lod_runtime.v1"
+              or native_a1_receipt.get("repository_commit") != source_commit
+              or native_a1_receipt.get("platform") != "win32"
+              or native_a1_receipt.get("lighting_mode")
+              != {
+                  "id": "raster-hdr-pssm",
+                  "native_rt": False,
+                  "pipeline": "rt4_pbr_pssm_hdr_preview",
+              }
+              or native_a1_receipt.get("package", {}).get("id")
+              != "rorng_a1_native_course_60m"
+              or native_a1_receipt.get("package", {}).get("sha256")
+              != "e420438797a77e4e49b91e3c6c930f39d340f99a4772ef989182a62605f2d53b"
+              or native_a1_receipt.get("metal_rt_sun_visibility_v2") is not None
+          ):
+              raise SystemExit("native A1 Windows distance-LOD receipt changed")
+          native_a1_executable_path = root / "RoR-Combined.exe"
+          native_a1_package_path = (
+              root
+              / "resources/nextgen/native/a1_native_course_60m/"
+              "rorng_a1_native_course_60m.rornative"
+          )
+          native_a1_stdout_path = root / "qualification/renderer-smoke.stdout.log"
+          native_a1_stderr_path = root / "qualification/renderer-smoke.stderr.log"
+          native_a1_frame_receipt_path = root / "qualification/renderer-smoke.json"
+          for label, path in (
+              ("native A1 executable", native_a1_executable_path),
+              ("native A1 package", native_a1_package_path),
+              ("native A1 stdout log", native_a1_stdout_path),
+              ("native A1 stderr log", native_a1_stderr_path),
+              ("native A1 frame receipt", native_a1_frame_receipt_path),
+          ):
+              if not path.is_file() or path.is_symlink():
+                  raise SystemExit(f"{label} is missing or indirect at inventory time")
+          native_a1_executable_sha256 = hashlib.sha256(
+              native_a1_executable_path.read_bytes()
+          ).hexdigest()
+          native_a1_package_bytes = native_a1_package_path.read_bytes()
+          native_a1_package_sha256 = hashlib.sha256(
+              native_a1_package_bytes
+          ).hexdigest()
+          native_a1_stdout_bytes = native_a1_stdout_path.read_bytes()
+          native_a1_stdout_sha256 = hashlib.sha256(
+              native_a1_stdout_bytes
+          ).hexdigest()
+          native_a1_stderr_sha256 = hashlib.sha256(
+              native_a1_stderr_path.read_bytes()
+          ).hexdigest()
+          native_a1_frame_receipt_sha256 = hashlib.sha256(
+              native_a1_frame_receipt_path.read_bytes()
+          ).hexdigest()
+          if (
+              native_a1_receipt.get("executable_sha256")
+              != native_a1_executable_sha256
+              or native_a1_receipt.get("package", {}).get("sha256")
+              != native_a1_package_sha256
+              or native_a1_receipt.get("log_sha256")
+              != native_a1_stdout_sha256
+              or native_a1_receipt.get("stderr_log_sha256")
+              != native_a1_stderr_sha256
+              or native_a1_receipt.get("frame_budget", {}).get("sha256")
+              != native_a1_frame_receipt_sha256
+          ):
+              raise SystemExit(
+                  "native A1 Windows receipt no longer binds the final staged inputs"
+              )
+          canonical_json = lambda value: json.dumps(
+              value, sort_keys=True, separators=(",", ":")
+          )
+          expected_native_distance_lod = {
+              "available": True,
+              "casters": 4,
+              "completed_frames": 1,
+              "gpu_only": True,
+              "hdr_topology": 1,
+              "lod_exact": True,
+              "lod_items": 2,
+              "lod_level_sum": 2,
+              "lod_max": 1,
+              "lod_reduced": 2,
+              "native_scene_lighting": True,
+              "no_ogre14_lighting": True,
+              "pbs": 9,
+              "pssm": True,
+              "pssm_populated_finalize": True,
+              "receivers": 7,
+              "reduced_this_frame": True,
+              "reflection_initialized": True,
+              "schema_version": 6,
+              "triangles_base": 588,
+              "triangles_selected": 252,
+          }
+          expected_frame_budget = {
+              "accepted_frames": 12,
+              "format": "ror-frame-time-budget-v1",
+              "minimum_frames": 8,
+              "mode": "measure",
+              "native_scene_draw_exact_samples": 12,
+              "native_scene_draw_maximum": 30,
+              "native_scene_draw_p99": 30,
+              "native_scene_draw_p99_limit": 2500,
+              "native_scene_draw_rejected_samples": 0,
+              "observed_frames": 14,
+              "passed": False,
+              "presents_frames": True,
+              "rejected_frames": 0,
+              "renderer": "ogre-next-combined",
+              "requested_frames": 12,
+              "requires_native_scene_draw_metrics": True,
+              "scenario_id": "ci.ogre-next-combined.windows-renderer-smoke",
+              "sha256": native_a1_frame_receipt_sha256,
+              "verdict": "advisory",
+              "warmup_frames": 2,
+              "warmup_frames_requested": 2,
+          }
+          expected_presentation_ownership = {
+              "legacy_visible_fallback": False,
+              "presentation_owner": "ogre-next",
+              "resource_host": "ogre14",
+              "resource_host_protected": True,
+              "resource_host_visible": False,
+              "visible_render_system": "ogre-next-d3d11",
+              "visible_window": True,
+          }
+          expected_top_level_fields = {
+              "evidence_class",
+              "executable_sha256",
+              "frame_budget",
+              "lighting_mode",
+              "log_sha256",
+              "metal_rt_sun_visibility_v2",
+              "native_distance_lod",
+              "package",
+              "platform",
+              "presentation_ownership",
+              "repository_commit",
+              "schema",
+              "selected_showcase_line_sha256",
+              "stderr_log_sha256",
+          }
+          expected_package = {
+              "bytes": len(native_a1_package_bytes),
+              "id": "rorng_a1_native_course_60m",
+              "sha256": native_a1_package_sha256,
+          }
+          selected_marker = (
+              "[RoR|RendererCombined|NativeShowcase] Selected exact "
+              "forward-native scene:"
+          )
+          try:
+              native_a1_stdout_text = native_a1_stdout_bytes.decode("utf-8")
+          except UnicodeDecodeError as error:
+              raise SystemExit("native A1 stdout is not UTF-8") from error
+          selected_lines = [
+              line
+              for line in native_a1_stdout_text.splitlines()
+              if selected_marker in line
+          ]
+          selected_prefix = selected_marker + " path='"
+          selected_suffix = (
+              "', package='rorng_a1_native_course_60m', sha256='"
+              + native_a1_package_sha256
+              + "', assets=38, instances=9, source_version=1, "
+              "pipeline='rt4_pbr_pssm_hdr_preview', hdr=true, "
+              "native_rt=false, profile=a1_native_course, "
+              "motion='turntable_thin_glass_slab', fixed_hz=60, "
+              "revolution_ticks=360, "
+              "refraction=thin_parallel_slab_screen_space, "
+              "motion_vectors=false"
+          )
+          if (
+              len(selected_lines) != 1
+              or not selected_lines[0].startswith(selected_prefix)
+              or not selected_lines[0].endswith(selected_suffix)
+          ):
+              raise SystemExit("native A1 selected-showcase line is not canonical")
+          selected_path_text = selected_lines[0][
+              len(selected_prefix):-len(selected_suffix)
+          ]
+          try:
+              selected_path = Path(selected_path_text).resolve(strict=True)
+          except OSError as error:
+              raise SystemExit("native A1 selected package path cannot be resolved") from error
+          if selected_path != native_a1_package_path.resolve(strict=True):
+              raise SystemExit("native A1 selected line does not bind the final package")
+          selected_showcase_line_sha256 = hashlib.sha256(
+              selected_lines[0].encode("utf-8")
+          ).hexdigest()
+          native_a1_receipt_sha256 = hashlib.sha256(
+              native_a1_receipt_bytes
+          ).hexdigest()
           files = []
           for path in sorted(root.rglob("*")):
               if path.is_symlink():
@@ -3143,9 +3823,27 @@ jobs:
                       "stage_kind": "regular",
                   }
               )
+          if (
+              set(native_a1_receipt) != expected_top_level_fields
+              or native_a1_receipt.get("evidence_class")
+              != "runtime-input-and-receipt-verification"
+              or canonical_json(native_a1_receipt.get("package"))
+              != canonical_json(expected_package)
+              or native_a1_receipt.get("selected_showcase_line_sha256")
+              != selected_showcase_line_sha256
+              or canonical_json(native_a1_receipt.get("native_distance_lod"))
+              != canonical_json(expected_native_distance_lod)
+              or canonical_json(native_a1_receipt.get("frame_budget"))
+              != canonical_json(expected_frame_budget)
+              or canonical_json(native_a1_receipt.get("presentation_ownership"))
+              != canonical_json(expected_presentation_ownership)
+          ):
+              raise SystemExit(
+                  "native A1 Windows receipt semantic qualification changed"
+              )
           document = {
-              "schema": "ror.ogre_next_combined_windows_package.v3",
-              "source_commit": os.environ["GITHUB_SHA"],
+              "schema": "ror.ogre_next_combined_windows_package.v4",
+              "source_commit": source_commit,
               "platform_policy": "windows-x64-d3d11",
               "entrypoint": "RoR-Combined.exe",
               "executable": "RoR-Combined.exe",
@@ -3153,6 +3851,20 @@ jobs:
               "legacy_visible_presentation": False,
               "renderer_smoke_only": False,
               "packaged_scene_smoke": True,
+              "native_a1_distance_lod_runtime": {
+                  "qualified": True,
+                  "qualification_scope": (
+                      "renderer-only-forward-native-a1-distance-lod"
+                  ),
+                  "receipt": native_a1_receipt_relative.as_posix(),
+                  "receipt_sha256": native_a1_receipt_sha256,
+                  "package_sha256": (
+                      "e420438797a77e4e49b91e3c6c930f39"
+                      "d340f99a4772ef989182a62605f2d53b"
+                  ),
+                  "lighting_mode": "raster-hdr-pssm",
+                  "runtime_playability_proven": False,
+              },
               "nicemetal_resource_host_shader_smoke": {
                   "qualified": True,
                   "scope": "ogre14-hidden-resource-host-managed-template-shader-compile-load",

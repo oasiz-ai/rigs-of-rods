@@ -37,6 +37,9 @@ constexpr std::array<std::uint8_t, 8U> kMagic{{
 constexpr std::array<std::uint8_t, 8U> kTransmissionMagic{{
     'R', 'O', 'R', 'N', 'A', 'T', '2', 0U,
 }};
+constexpr std::array<std::uint8_t, 8U> kDistanceLodMagic{{
+    'R', 'O', 'R', 'N', 'A', 'T', '3', 0U,
+}};
 constexpr std::uint32_t kRecordManifest = 1U;
 constexpr std::uint32_t kRecordMesh = 2U;
 constexpr std::uint32_t kRecordTexture = 3U;
@@ -53,7 +56,7 @@ constexpr std::uint32_t kMaximumMeshIndices = 12000000U;
 constexpr std::uint32_t kMaximumTextureDimension = 16384U;
 constexpr std::uint32_t kMaximumTextureMips = 15U;
 constexpr std::size_t kMaximumJsonDepth = 64U;
-// .rornative v1/v2 material records predate the native-only v6 terrain detail
+// .rornative v1/v2/v3 material records predate the native-only v6 terrain detail
 // profile.  Their binary layout is fixed to the original six core bindings;
 // growing the live GraphicsScene array must not make those immutable packages
 // appear truncated.  A package carrying detail bindings needs a new package
@@ -759,6 +762,8 @@ struct ManifestCounts {
   std::uint64_t assets = 0U;
   std::uint64_t indices = 0U;
   std::uint64_t instances = 0U;
+  std::uint64_t lod_indices = 0U;
+  std::uint64_t lod_levels = 0U;
   std::uint64_t materials = 0U;
   std::uint64_t meshes = 0U;
   std::uint64_t samplers = 0U;
@@ -776,6 +781,7 @@ struct ParsedManifest {
   RenderPayloadDigest glb_sha256{};
   RenderPayloadDigest composition_sha256{};
   RenderPayloadDigest source_manifest_sha256{};
+  bool includes_distance_lods = false;
   ManifestCounts counts;
   std::vector<ManifestAsset> assets;
   std::vector<ManifestInstance> instances;
@@ -794,6 +800,14 @@ bool ParseFileRecord(const JsonValue *value, const char *suffix,
 
 bool ParseManifest(const std::uint8_t *bytes, std::size_t size,
                    std::uint32_t package_version, ParsedManifest &parsed) {
+  const bool includes_distance_lods =
+      package_version == kNativeRenderAssetPackageDistanceLodVersion;
+  const char *expected_manifest_format =
+      includes_distance_lods
+          ? "ror-native-render-package-manifest-v3"
+          : (package_version == kNativeRenderAssetPackageTransmissionVersion
+                 ? "ror-native-render-package-manifest-v2"
+                 : "ror-native-render-package-manifest-v1");
   JsonValue root;
   CanonicalJsonReader reader(bytes, size);
   if (bytes == nullptr || size < 2U ||
@@ -802,13 +816,10 @@ bool ParseManifest(const std::uint8_t *bytes, std::size_t size,
       !reader.Parse(root) ||
       !ExactObject(root, {"assets", "claims", "compiler", "counts", "format",
                           "instances", "package", "source"}) ||
-      !StringValue(Member(root, "format"),
-                   package_version ==
-                           kNativeRenderAssetPackageTransmissionVersion
-                       ? "ror-native-render-package-manifest-v2"
-                       : "ror-native-render-package-manifest-v1")) {
+      !StringValue(Member(root, "format"), expected_manifest_format)) {
     return false;
   }
+  parsed.includes_distance_lods = includes_distance_lods;
 
   const JsonValue *claims = Member(root, "claims");
   if (claims == nullptr ||
@@ -816,7 +827,7 @@ bool ParseManifest(const std::uint8_t *bytes, std::size_t size,
                              "native_terrain", "visual_only"}) ||
       !BooleanValue(Member(*claims, "ambient_occlusion"), false) ||
       !BooleanValue(Member(*claims, "collision"), false) ||
-      !BooleanValue(Member(*claims, "lods"), false) ||
+      !BooleanValue(Member(*claims, "lods"), includes_distance_lods) ||
       !BooleanValue(Member(*claims, "native_terrain"), false) ||
       !BooleanValue(Member(*claims, "visual_only"), true)) {
     return false;
@@ -851,29 +862,45 @@ bool ParseManifest(const std::uint8_t *bytes, std::size_t size,
   parsed.origin_class = origin->string;
 
   const JsonValue *compiler = Member(root, "compiler");
+  const char *expected_compiler_format =
+      includes_distance_lods ? "ror-native-render-compiler-v3"
+                             : "ror-native-render-compiler-v1";
+  const char *expected_compiler_path =
+      includes_distance_lods ? "tools/compile_native_render_asset_v3.py"
+                             : "tools/compile_native_render_asset.py";
   if (compiler == nullptr ||
       !ExactObject(*compiler, {"dependencies", "format", "path", "sha256"}) ||
-      !StringValue(Member(*compiler, "format"),
-                   "ror-native-render-compiler-v1") ||
-      !StringValue(Member(*compiler, "path"),
-                   "tools/compile_native_render_asset.py") ||
+      !StringValue(Member(*compiler, "format"), expected_compiler_format) ||
+      !StringValue(Member(*compiler, "path"), expected_compiler_path) ||
       !ParseDigest(Member(*compiler, "sha256"), parsed.compiler_sha256)) {
     return false;
   }
   const JsonValue *dependencies = Member(*compiler, "dependencies");
-  constexpr std::array<const char *, 2U> kDependencyPaths{{
+  constexpr std::array<const char *, 2U> kLegacyDependencyPaths{{
       "tools/validate_cityworld_asset.py",
       "tools/validate_native_render_asset.py",
   }};
+  constexpr std::array<const char *, 4U> kDistanceLodDependencyPaths{{
+      "tools/validate_cityworld_asset.py",
+      "tools/validate_native_render_asset.py",
+      "tools/validate_native_render_asset_v3.py",
+      "tools/compile_native_render_asset.py",
+  }};
+  const std::size_t expected_dependency_count =
+      includes_distance_lods ? kDistanceLodDependencyPaths.size()
+                             : kLegacyDependencyPaths.size();
   if (dependencies == nullptr || dependencies->type != JsonType::ARRAY ||
-      dependencies->array.size() != kDependencyPaths.size()) {
+      dependencies->array.size() != expected_dependency_count) {
     return false;
   }
   for (std::size_t index = 0U; index < dependencies->array.size(); ++index) {
     const JsonValue &dependency = dependencies->array[index];
     RenderPayloadDigest dependency_digest{};
+    const char *expected_dependency_path =
+        includes_distance_lods ? kDistanceLodDependencyPaths[index]
+                               : kLegacyDependencyPaths[index];
     if (!ExactObject(dependency, {"path", "sha256"}) ||
-        !StringValue(Member(dependency, "path"), kDependencyPaths[index]) ||
+        !StringValue(Member(dependency, "path"), expected_dependency_path) ||
         !ParseDigest(Member(dependency, "sha256"), dependency_digest)) {
       return false;
     }
@@ -899,10 +926,18 @@ bool ParseManifest(const std::uint8_t *bytes, std::size_t size,
   }
 
   const JsonValue *counts = Member(root, "counts");
-  if (counts == nullptr ||
-      !ExactObject(*counts, {"assets", "indices", "instances", "materials",
-                             "meshes", "samplers", "texture_bytes", "textures",
-                             "triangles", "vertices"})) {
+  const bool counts_are_exact =
+      counts != nullptr &&
+      (includes_distance_lods
+           ? ExactObject(*counts,
+                         {"assets", "indices", "instances", "lod_indices",
+                          "lod_levels", "materials", "meshes", "samplers",
+                          "texture_bytes", "textures", "triangles", "vertices"})
+           : ExactObject(*counts,
+                         {"assets", "indices", "instances", "materials",
+                          "meshes", "samplers", "texture_bytes", "textures",
+                          "triangles", "vertices"}));
+  if (!counts_are_exact) {
     return false;
   }
   const auto read_count = [counts](const char *name,
@@ -917,6 +952,9 @@ bool ParseManifest(const std::uint8_t *bytes, std::size_t size,
   if (!read_count("assets", parsed.counts.assets) ||
       !read_count("indices", parsed.counts.indices) ||
       !read_count("instances", parsed.counts.instances) ||
+      (includes_distance_lods &&
+       (!read_count("lod_indices", parsed.counts.lod_indices) ||
+        !read_count("lod_levels", parsed.counts.lod_levels))) ||
       !read_count("materials", parsed.counts.materials) ||
       !read_count("meshes", parsed.counts.meshes) ||
       !read_count("samplers", parsed.counts.samplers) ||
@@ -927,6 +965,13 @@ bool ParseManifest(const std::uint8_t *bytes, std::size_t size,
       parsed.counts.assets == 0U ||
       parsed.counts.assets > kMaximumAssetCount ||
       parsed.counts.instances > kMaximumInstanceCount ||
+      (includes_distance_lods &&
+       (parsed.counts.lod_levels == 0U || parsed.counts.lod_indices == 0U)) ||
+      parsed.counts.lod_levels >
+          static_cast<std::uint64_t>(kMaximumAssetCount) *
+              static_cast<std::uint64_t>(kMaximumMeshDistanceLodLevels) ||
+      parsed.counts.lod_indices >
+          kMaximumNativeRenderAssetPackageBytes / sizeof(std::uint32_t) ||
       parsed.counts.vertices > kMaximumMeshVertices ||
       parsed.counts.indices > kMaximumMeshIndices ||
       parsed.counts.texture_bytes > kMaximumNativeRenderAssetPackageBytes) {
@@ -1039,20 +1084,49 @@ bool ReadRecordHeader(Reader &reader, std::uint32_t &type,
          payload_size <= reader.remaining();
 }
 
-ValidationResult DecodeMesh(Reader &reader, RenderAssetPayload &payload) {
+bool IsOrderedTriangleSubsequence(
+    const std::vector<std::uint32_t> &parent,
+    const std::vector<std::uint32_t> &candidate) noexcept {
+  if (parent.size() % 3U != 0U || candidate.size() % 3U != 0U ||
+      candidate.empty() || candidate.size() >= parent.size()) {
+    return false;
+  }
+  std::size_t parent_offset = 0U;
+  for (std::size_t candidate_offset = 0U;
+       candidate_offset < candidate.size(); candidate_offset += 3U) {
+    while (parent_offset < parent.size() &&
+           (parent[parent_offset] != candidate[candidate_offset] ||
+            parent[parent_offset + 1U] != candidate[candidate_offset + 1U] ||
+            parent[parent_offset + 2U] != candidate[candidate_offset + 2U])) {
+      parent_offset += 3U;
+    }
+    if (parent_offset == parent.size()) {
+      return false;
+    }
+    parent_offset += 3U;
+  }
+  return true;
+}
+
+ValidationResult DecodeMesh(Reader &reader, RenderAssetPayload &payload,
+                            std::uint32_t package_version) {
   MeshResourceDescriptor mesh;
-  // Native package v1/v2 predates the optional portable distance-LOD ladder
-  // and serializes mesh-record version 1. Decode that wire format into the
-  // current descriptor with an empty ladder; a future package version must
-  // introduce explicit LOD bytes rather than silently changing this record.
-  constexpr std::uint32_t kNativePackageMeshRecordVersion = 1U;
+  // Package v1/v2 mesh record 1 has no portable LOD bytes. Package v3 record 2
+  // adds one explicit distance/index ladder after the immutable base streams.
+  constexpr std::uint32_t kBaseMeshRecordVersion = 1U;
+  constexpr std::uint32_t kDistanceLodMeshRecordVersion = 2U;
+  const bool includes_distance_lods =
+      package_version == kNativeRenderAssetPackageDistanceLodVersion;
+  const std::uint32_t expected_mesh_record_version =
+      includes_distance_lods ? kDistanceLodMeshRecordVersion
+                             : kBaseMeshRecordVersion;
   std::uint32_t version = 0U;
   std::uint8_t topology = 0U;
   std::uint8_t index_format = 0U;
   std::uint8_t dynamic = 0U;
   std::uint8_t reserved = 0U;
   if (!reader.ReadU32(version) ||
-      version != kNativePackageMeshRecordVersion ||
+      version != expected_mesh_record_version ||
       !reader.ReadString(mesh.debug_name) || !reader.ReadU8(topology) ||
       !reader.ReadU8(index_format) || !reader.ReadU8(dynamic) ||
       !reader.ReadU8(reserved) || reserved != 0U || dynamic != 0U ||
@@ -1139,6 +1213,56 @@ ValidationResult DecodeMesh(Reader &reader, RenderAssetPayload &payload) {
     if (!reader.ReadU32(index)) {
       return Failure(ValidationCode::SIZE_MISMATCH, "native.mesh.indices",
                      "mesh index payload is truncated");
+    }
+  }
+  if (includes_distance_lods) {
+    std::uint32_t level_count = 0U;
+    if (!reader.ReadU32(level_count) ||
+        level_count > kMaximumMeshDistanceLodLevels) {
+      return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                     "native.mesh.distance_lod_levels",
+                     "mesh LOD level count is truncated or exceeds the portable limit");
+    }
+    mesh.distance_lod_levels.reserve(level_count);
+    const std::vector<std::uint32_t> *previous_indices = &mesh.indices;
+    float previous_distance = 0.0F;
+    for (std::uint32_t level_index = 0U; level_index < level_count;
+         ++level_index) {
+      MeshDistanceLodLevelDescriptor level;
+      std::uint32_t index_count = 0U;
+      if (!ReadCanonicalFloat(reader, level.activation_distance_meters) ||
+          !reader.ReadU32(index_count)) {
+        return Failure(ValidationCode::SIZE_MISMATCH,
+                       "native.mesh.distance_lod_levels",
+                       "mesh LOD header is truncated", level_index);
+      }
+      if (level.activation_distance_meters <= previous_distance ||
+          index_count == 0U || index_count % 3U != 0U ||
+          index_count >= previous_indices->size() ||
+          index_count > kMaximumMeshIndices ||
+          index_count > reader.remaining() / sizeof(std::uint32_t)) {
+        return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                       "native.mesh.distance_lod_levels",
+                       "mesh LOD distance/count is not strictly ordered and reduced",
+                       level_index);
+      }
+      level.indices.resize(index_count);
+      for (std::uint32_t &index : level.indices) {
+        if (!reader.ReadU32(index)) {
+          return Failure(ValidationCode::SIZE_MISMATCH,
+                         "native.mesh.distance_lod_levels.indices",
+                         "mesh LOD index payload is truncated", level_index);
+        }
+      }
+      if (!IsOrderedTriangleSubsequence(*previous_indices, level.indices)) {
+        return Failure(ValidationCode::NON_DETERMINISTIC_ORDER,
+                       "native.mesh.distance_lod_levels.indices",
+                       "mesh LOD triangles are not an ordered subset of the preceding level",
+                       level_index);
+      }
+      previous_distance = level.activation_distance_meters;
+      mesh.distance_lod_levels.push_back(std::move(level));
+      previous_indices = &mesh.distance_lod_levels.back().indices;
     }
   }
   if (!reader.empty()) {
@@ -1392,12 +1516,14 @@ ValidationResult DecodeMaterial(
                kGraphicsSceneMaterialTextureSlotCount> &source_bindings,
     std::uint32_t package_version) {
   MaterialDescriptor material;
+  const bool package_has_transmission =
+      package_version == kNativeRenderAssetPackageTransmissionVersion ||
+      package_version == kNativeRenderAssetPackageDistanceLodVersion;
   std::uint32_t version = 0U;
   std::array<std::uint8_t, 8U> state{};
   const std::uint32_t expected_material_version =
-      package_version == kNativeRenderAssetPackageTransmissionVersion
-          ? kMaterialDescriptorTransmissionVersion
-          : kMaterialDescriptorVersion;
+      package_has_transmission ? kMaterialDescriptorTransmissionVersion
+                               : kMaterialDescriptorVersion;
   if (!reader.ReadU32(version) || version != expected_material_version ||
       !reader.ReadString(material.debug_name)) {
     return Failure(ValidationCode::SIZE_MISMATCH, "native.material",
@@ -1412,7 +1538,7 @@ ValidationResult DecodeMaterial(
   if (state[5U] > 1U || state[6U] > 1U ||
       (package_version == kNativeRenderAssetPackageVersion &&
        state[7U] != 0U) ||
-      (package_version == kNativeRenderAssetPackageTransmissionVersion &&
+      (package_has_transmission &&
        state[7U] > static_cast<std::uint8_t>(
                         MaterialTransmissionMode::THIN_PARALLEL_SLAB))) {
     return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
@@ -1443,7 +1569,7 @@ ValidationResult DecodeMaterial(
                    "native.material.factors",
                    "material factor payload is truncated or non-canonical");
   }
-  if (package_version == kNativeRenderAssetPackageTransmissionVersion &&
+  if (package_has_transmission &&
       (!ReadCanonicalFloat(reader, material.transmission_factor) ||
        !ReadFloat3(reader, material.attenuation_color) ||
        !ReadCanonicalFloat(reader, material.attenuation_distance_m) ||
@@ -1763,6 +1889,11 @@ ValidationResult ValidateManifestBinding(
       ++actual.meshes;
       actual.vertices += mesh->positions.size();
       actual.indices += mesh->indices.size();
+      actual.lod_levels += mesh->distance_lod_levels.size();
+      for (const MeshDistanceLodLevelDescriptor &level :
+           mesh->distance_lod_levels) {
+        actual.lod_indices += level.indices.size();
+      }
     } else if (const auto *texture =
                    std::get_if<TextureResourceDescriptor>(input.payload.get())) {
       ++actual.textures;
@@ -1791,6 +1922,9 @@ ValidationResult ValidateManifestBinding(
   if (actual.assets != manifest.counts.assets ||
       actual.indices != manifest.counts.indices ||
       actual.instances != manifest.counts.instances ||
+      (manifest.includes_distance_lods &&
+       (actual.lod_indices != manifest.counts.lod_indices ||
+        actual.lod_levels != manifest.counts.lod_levels)) ||
       actual.materials != manifest.counts.materials ||
       actual.meshes != manifest.counts.meshes ||
       actual.samplers != manifest.counts.samplers ||
@@ -1846,7 +1980,9 @@ NativeRenderAssetPackageDecodeResult DecodeNativeRenderAssetPackage(
         !header.ReadU32(version) ||
         !((version == kNativeRenderAssetPackageVersion && magic == kMagic) ||
           (version == kNativeRenderAssetPackageTransmissionVersion &&
-           magic == kTransmissionMagic)) ||
+           magic == kTransmissionMagic) ||
+          (version == kNativeRenderAssetPackageDistanceLodVersion &&
+           magic == kDistanceLodMagic)) ||
         !header.ReadU32(header_bytes) ||
         header_bytes != kNativeRenderAssetPackageHeaderBytes ||
         !header.ReadU32(flags) || flags != 0U ||
@@ -1974,7 +2110,7 @@ NativeRenderAssetPackageDecodeResult DecodeNativeRenderAssetPackage(
       ValidationResult validation;
       switch (record_type) {
       case kRecordMesh:
-        validation = DecodeMesh(payload_reader, payload);
+        validation = DecodeMesh(payload_reader, payload, version);
         break;
       case kRecordTexture:
         validation = DecodeTexture(payload_reader, payload);

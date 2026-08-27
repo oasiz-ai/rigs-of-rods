@@ -103,10 +103,10 @@ jobs:
       - name: Verify checked forward-native A1 package
         shell: bash
         run: |
-          python tools/validate_native_render_asset.py \
+          python tools/validate_native_render_asset_v3.py \
             content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.native.json \
             --repo-root .
-          python tools/compile_native_render_asset.py \
+          python tools/compile_native_render_asset_v3.py \
             content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.native.json \
             --repo-root . \
             --validate-checked

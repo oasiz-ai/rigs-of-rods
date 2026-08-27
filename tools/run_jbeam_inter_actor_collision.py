@@ -79,7 +79,18 @@ CONTACT_CONSERVATION_PASS_PATTERN = re.compile(
     r"(?P<kinetic>[-+0-9.eE]+) "
     r"summed_isolated_contact_integration_energy_delta_j="
     r"(?P<integration>[-+0-9.eE]+) "
-    r"whole_step_shared_node_energy=not_audited"
+    r"whole_step_shared_node_energy=audited "
+    r"audited_fixed_steps=(?P<audited_steps>[0-9]+) "
+    r"whole_step_contact_count=(?P<whole_contacts>[0-9]+) "
+    r"summed_unique_node_count=(?P<unique_nodes>[0-9]+) "
+    r"summed_shared_node_count=(?P<shared_nodes>[0-9]+) "
+    r"maximum_node_contact_multiplicity=(?P<max_multiplicity>[0-9]+) "
+    r"summed_whole_step_contact_work_j=(?P<whole_work>[-+0-9.eE]+) "
+    r"summed_whole_step_contact_kinetic_energy_delta_j="
+    r"(?P<whole_kinetic>[-+0-9.eE]+) "
+    r"summed_whole_step_contact_integration_energy_delta_j="
+    r"(?P<whole_integration>[-+0-9.eE]+) "
+    r"summed_shared_node_cross_term_j=(?P<shared_cross>[-+0-9.eE]+)"
 )
 FATAL_MARKERS = (
     "[RoR|J2|InterActorCollision] FAIL",
@@ -296,21 +307,63 @@ def validate_logs(
         "summed_isolated_contact_integration_energy_delta_j": float(
             conservation_match.group("integration")
         ),
-        "whole_step_shared_node_energy": "not_audited",
+        "whole_step_shared_node_energy": "audited",
+        "audited_fixed_steps": int(
+            conservation_match.group("audited_steps")
+        ),
+        "whole_step_contact_count": int(
+            conservation_match.group("whole_contacts")
+        ),
+        "summed_unique_node_count": int(
+            conservation_match.group("unique_nodes")
+        ),
+        "summed_shared_node_count": int(
+            conservation_match.group("shared_nodes")
+        ),
+        "maximum_node_contact_multiplicity": int(
+            conservation_match.group("max_multiplicity")
+        ),
+        "summed_whole_step_contact_work_j": float(
+            conservation_match.group("whole_work")
+        ),
+        "summed_whole_step_contact_kinetic_energy_delta_j": float(
+            conservation_match.group("whole_kinetic")
+        ),
+        "summed_whole_step_contact_integration_energy_delta_j": float(
+            conservation_match.group("whole_integration")
+        ),
+        "summed_shared_node_cross_term_j": float(
+            conservation_match.group("shared_cross")
+        ),
     }
     scalar_values = (
         value for value in conservation.values() if isinstance(value, float)
     )
     if (
-        conservation["schema"] != 2
+        conservation["schema"] != 3
         or conservation["contact_count"] <= 0
         or conservation["fixed_steps"] != EXPECTED_STEPS
+        or conservation["audited_fixed_steps"] != EXPECTED_STEPS
+        or conservation["whole_step_contact_count"]
+        != conservation["contact_count"]
+        or conservation["summed_unique_node_count"] <= 0
+        or conservation["summed_unique_node_count"]
+        > conservation["whole_step_contact_count"] * 4
+        or conservation["summed_shared_node_count"] <= 0
+        or conservation["summed_shared_node_count"]
+        > conservation["summed_unique_node_count"]
+        or conservation["maximum_node_contact_multiplicity"] < 2
+        or conservation["maximum_node_contact_multiplicity"]
+        > conservation["whole_step_contact_count"]
         or any(not math.isfinite(value) for value in scalar_values)
         or conservation["maximum_normalized_linear_impulse_residual"] < 0.0
         or conservation["maximum_normalized_linear_impulse_residual"] > 1.0e-6
         or conservation["maximum_angular_impulse_delta_magnitude_nms"] < 0.0
         or conservation[
             "summed_isolated_contact_integration_energy_delta_j"
+        ] < 0.0
+        or conservation[
+            "summed_whole_step_contact_integration_energy_delta_j"
         ] < 0.0
     ):
         raise CollisionGateFailure(
@@ -326,6 +379,22 @@ def validate_logs(
     if isolated_kinetic != isolated_work + isolated_integration:
         raise CollisionGateFailure(
             "native isolated-contact energy identity is inconsistent"
+        )
+    whole_work = float(conservation["summed_whole_step_contact_work_j"])
+    whole_kinetic = float(
+        conservation["summed_whole_step_contact_kinetic_energy_delta_j"]
+    )
+    whole_integration = float(
+        conservation["summed_whole_step_contact_integration_energy_delta_j"]
+    )
+    shared_cross = float(conservation["summed_shared_node_cross_term_j"])
+    if (
+        whole_work != isolated_work
+        or whole_kinetic != whole_work + whole_integration
+        or shared_cross != whole_integration - isolated_integration
+    ):
+        raise CollisionGateFailure(
+            "native whole-step shared-node energy identity is inconsistent"
         )
     return {
         "broken_beams": broken,
@@ -642,7 +711,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "fixture_id": profile["fixtureId"],
         "fixture_profile": str(staged_profile.relative_to(artifact_dir)),
         "fixture_profile_sha256": profile_sha256,
-        "format": "ror-j2-authenticated-inter-actor-collision-v2",
+        "format": "ror-j2-authenticated-inter-actor-collision-v3",
         "jbeam_archive_sha256": archive_sha256,
         "jbeam_source_sha256": sha256_bytes(jbeam),
         "machine": platform.machine(),

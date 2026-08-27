@@ -445,10 +445,10 @@ class LogScanTests(unittest.TestCase):
     def test_capture_rejections_are_diagnostic_not_lod_lineage(self) -> None:
         native = (
             "[RoR|RendererCombined|NativeLighting] "
-            "schema_version=6 available=true pbs=7398 casters=200 "
+            "schema_version=6 available=true pbs=7398 casters=200 receivers=200 "
             "lod_items=120 lod_reduced=96 lod_max=3 lod_level_sum=211 "
             "triangles_base=7130751 triangles_selected=2419000 "
-            "lod_exact=true pssm=true reflection_initialized=true "
+            "lod_exact=true hdr_topology=1 pssm=true pssm_populated_finalize=true reflection_initialized=true "
             "native_scene_lighting=true gpu_only=true "
             "no_ogre14_lighting=true completed_frames=1\n"
         )
@@ -557,10 +557,10 @@ class ConfigurationTests(unittest.TestCase):
     def test_native_combined_lod_receipt_proves_visible_reduction(self) -> None:
         statement = (
             "[RoR|RendererCombined|NativeLighting] "
-            "schema_version=6 available=true pbs=7406 casters=200 "
+            "schema_version=6 available=true pbs=7406 casters=200 receivers=200 "
             "lod_items=1378 lod_reduced=1005 lod_max=4 lod_level_sum=2494 "
             "triangles_base=7135111 triangles_selected=5773448 "
-            "lod_exact=true pssm=true reflection_initialized=true "
+            "lod_exact=true hdr_topology=1 pssm=true pssm_populated_finalize=true reflection_initialized=true "
             "native_scene_lighting=true gpu_only=true "
             "no_ogre14_lighting=true completed_frames=3067\n"
         )
@@ -571,6 +571,34 @@ class ConfigurationTests(unittest.TestCase):
         self.assertLess(
             receipt["triangles_selected"], receipt["triangles_base"]
         )
+
+    def test_native_combined_lod_receipt_rejects_duplicate_fields(self) -> None:
+        statement = (
+            "[RoR|RendererCombined|NativeLighting] "
+            "schema_version=6 available=true pbs=9 casters=5 receivers=5 "
+            "lod_items=0 lod_items=2 lod_reduced=2 lod_max=1 "
+            "lod_level_sum=2 triangles_base=588 triangles_selected=252 "
+            "lod_exact=true hdr_topology=1 pssm=true pssm_populated_finalize=true reflection_initialized=true "
+            "native_scene_lighting=true gpu_only=true "
+            "no_ogre14_lighting=true completed_frames=12\n"
+        )
+        with self.assertRaises(runner.PerformanceSceneFailure) as failure:
+            runner.verify_combined_native_distance_lod(statement)
+        self.assertIn("repeats field lod_items", str(failure.exception))
+
+    def test_native_combined_lod_receipt_rejects_unparsed_field_text(self) -> None:
+        statement = (
+            "[RoR|RendererCombined|NativeLighting] "
+            "schema_version=6 available=true pbs=9 casters=5 receivers=5 "
+            "LOD_ITEMS=0 lod_items=2 lod_reduced=2 lod_max=1 "
+            "lod_level_sum=2 triangles_base=588 triangles_selected=252 "
+            "lod_exact=true hdr_topology=1 pssm=true pssm_populated_finalize=true reflection_initialized=true "
+            "native_scene_lighting=true gpu_only=true "
+            "no_ogre14_lighting=true completed_frames=12\n"
+        )
+        with self.assertRaises(runner.PerformanceSceneFailure) as failure:
+            runner.verify_combined_native_distance_lod(statement)
+        self.assertIn("non-canonical text", str(failure.exception))
 
     def test_scene_worker_receipt_binds_native_runtime_count(self) -> None:
         default = (
@@ -626,10 +654,10 @@ class ConfigurationTests(unittest.TestCase):
     def test_native_combined_lod_requires_recovery_after_rejection(self) -> None:
         native = (
             "[RoR|RendererCombined|NativeLighting] "
-            "schema_version=6 available=true pbs=7406 casters=200 "
+            "schema_version=6 available=true pbs=7406 casters=200 receivers=200 "
             "lod_items=1378 lod_reduced=1005 lod_max=4 "
             "lod_level_sum=2494 triangles_base=7135111 "
-            "triangles_selected=5773448 lod_exact=true pssm=true "
+            "triangles_selected=5773448 lod_exact=true hdr_topology=1 pssm=true pssm_populated_finalize=true "
             "reflection_initialized=true native_scene_lighting=true "
             "gpu_only=true no_ogre14_lighting=true completed_frames=1\n"
         )
@@ -647,10 +675,10 @@ class ConfigurationTests(unittest.TestCase):
     ) -> None:
         statement = (
             "[RoR|RendererCombined|NativeLighting] "
-            "schema_version=6 available=true pbs=7398 casters=200 "
+            "schema_version=6 available=true pbs=7398 casters=200 receivers=200 "
             "lod_items=1378 lod_reduced=0 lod_max=0 lod_level_sum=0 "
             "triangles_base=7130751 triangles_selected=7130751 "
-            "lod_exact=true pssm=true reflection_initialized=true "
+            "lod_exact=true hdr_topology=1 pssm=true pssm_populated_finalize=true reflection_initialized=true "
             "native_scene_lighting=true gpu_only=true "
             "no_ogre14_lighting=true completed_frames=1800\n"
         )
@@ -663,10 +691,10 @@ class ConfigurationTests(unittest.TestCase):
     def test_native_combined_lod_receipt_rejects_missing_ladder(self) -> None:
         statement = (
             "[RoR|RendererCombined|NativeLighting] "
-            "schema_version=6 available=true pbs=7398 casters=200 "
+            "schema_version=6 available=true pbs=7398 casters=200 receivers=200 "
             "lod_items=0 lod_reduced=0 lod_max=0 lod_level_sum=0 "
             "triangles_base=7130751 triangles_selected=7130751 "
-            "lod_exact=true pssm=true reflection_initialized=true "
+            "lod_exact=true hdr_topology=1 pssm=true pssm_populated_finalize=true reflection_initialized=true "
             "native_scene_lighting=true gpu_only=true "
             "no_ogre14_lighting=true completed_frames=1800\n"
         )
@@ -679,9 +707,9 @@ class ConfigurationTests(unittest.TestCase):
     ) -> None:
         common = (
             "[RoR|RendererCombined|NativeLighting] "
-            "schema_version=6 available=true pbs=7398 casters=200 "
+            "schema_version=6 available=true pbs=7398 casters=200 receivers=200 "
             "lod_items=1378 "
-            "lod_exact=true pssm=true reflection_initialized=true "
+            "lod_exact=true hdr_topology=1 pssm=true pssm_populated_finalize=true reflection_initialized=true "
             "native_scene_lighting=true gpu_only=true "
             "no_ogre14_lighting=true completed_frames=1800 "
         )
@@ -705,10 +733,10 @@ class ConfigurationTests(unittest.TestCase):
     ) -> None:
         statement = (
             "[RoR|RendererCombined|NativeLighting] "
-            "schema_version=6 available=true pbs=256 casters=0 "
+            "schema_version=6 available=true pbs=256 casters=0 receivers=0 "
             "lod_items=256 lod_reduced=244 lod_max=4 lod_level_sum=688 "
             "triangles_base=2228224 triangles_selected=194560 "
-            "lod_exact=true pssm=false reflection_initialized=true "
+            "lod_exact=true hdr_topology=0 pssm=false pssm_populated_finalize=false reflection_initialized=true "
             "native_scene_lighting=true gpu_only=true "
             "no_ogre14_lighting=true completed_frames=300\n"
         )

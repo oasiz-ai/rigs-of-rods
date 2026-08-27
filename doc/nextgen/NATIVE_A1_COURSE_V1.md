@@ -1,24 +1,27 @@
 # Forward-Native A1 Visual Course v1
 
 `NATIVE-A1-001` is a project-original, renderer-neutral 60 metre visual course
-authored as a sibling of `NATIVE-A0-001`. It uses the backward-compatible
-`.rornative` v2 extension for its explicit thin-slab transmission material and
-does not silently reinterpret the A0 lighting coupon.
+authored as a sibling of `NATIVE-A0-001`. It uses `.rornative` v3 for explicit
+distance-LOD index ladders while retaining the v2 thin-slab transmission
+record, and does not silently reinterpret the A0 lighting coupon.
 
 ## Checked inputs and products
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.native.json` | `f13af91e56670bec17aa286d3b57e1a52d343f1bc307a90dafb9142f21430556` |
+| `content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.native.json` | `24f092f28c85aced94401491db91b302ba6fb35d7eec4c71a2aeff725709a202` |
 | `content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.glb` | `7b0648cde63053385d9a7ec66f56da470cfe8bf3465ef5d6c52cc0c9702b7801` |
 | `content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.composition.json` | `db7cbacdf1228d9e9836b32afc1c7d587151d61b4661715bd4132373f3403980` |
 | `content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.alignment.json` | `ef6764702e6c70375b4bd8e897e83e3191bd3a52778323538f87c8a4f81a1078` |
-| `resources/nextgen/native/a1_native_course_60m/rorng_a1_native_course_60m.rornative` | `fe37f2bb05f15bc4954c07ff83a71c2dea24b51af473056f8257a47b4cc8cc7e` |
+| `resources/nextgen/native/a1_native_course_60m/rorng_a1_native_course_60m.rornative` | `e420438797a77e4e49b91e3c6c930f39d340f99a4772ef989182a62605f2d53b` |
 
 The checked package contains 38 assets, nine static batch instances, and 48
 records: nine meshes, eight materials, nineteen textures, and two explicit
 samplers. The geometry contains 1,176 vertices, 1,764 indices, and 588
-triangles. All vertex streams include finite positions, unit normals,
+triangles. Three authored distance-LOD levels add 648 checked index entries:
+the barrier retains its two continuous rails beyond 35 m, while calibration
+markers retain their stems beyond 30 m and a six-marker subset beyond 55 m.
+All vertex streams include finite positions, unit normals,
 orthonormal tangents with explicit handedness, UV0, non-degenerate indexed
 triangles, and winding consistent with the authored normal hemisphere.
 
@@ -49,10 +52,10 @@ It contains:
 
 The dry and wet texture sets contain eleven mips, shoulder sets ten, barrier
 and curb sets nine, lane sets eight, and calibration sets five. The package
-contains 39,675,196 texture bytes and is 39,758,410 bytes total.
+contains 39,675,196 texture bytes and is 39,761,386 bytes total.
 
 Repeated structures are deterministically emitted into joined static batches.
-`.rornative` v2 retains the v1 one-node/mesh-to-one-static-instance rule, so
+`.rornative` v3 retains the v1 one-node/mesh-to-one-static-instance rule, so
 shared-geometry multi-placement instancing would require a package/compiler
 contract change. This bounded slice avoids that schema expansion.
 
@@ -98,7 +101,9 @@ This milestone is **visual-only and collision-pending**. The explicit native
 showcase selector can publish the package through the renderer-neutral scene
 source, but package staging or source validation alone is not live render
 evidence. It supplies no RoR terrain, collision mesh, driveability, vehicle
-spawn, gameplay, native terrain, AO, LOD, performance, or playability evidence.
+spawn, gameplay, native terrain, AO, performance, or playability evidence.
+The checked source/package proves authored LOD bytes and decoder binding only;
+live Ogre-Next selection remains a separate runtime receipt.
 Those claims require an explicit, tested RoR physics binding and separate live
 RoR acceptance.
 
@@ -109,13 +114,13 @@ and is not visual-quality evidence.
 
 ```sh
 python3 tools/blender/native_render/generate_a1_native_course.py --repo-root .
-python3 tools/validate_native_render_asset.py \
+python3 tools/validate_native_render_asset_v3.py \
   content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.native.json \
   --repo-root .
 python3 tools/validate_native_course_alignment.py \
   content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.alignment.json \
   --repo-root .
-python3 tools/compile_native_render_asset.py \
+python3 tools/compile_native_render_asset_v3.py \
   content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.native.json \
   --repo-root . --validate-checked
 python3 tests/tools/test_native_a1_course.py

@@ -73,6 +73,35 @@ bool IsFinite(const AppliedVector3& value)
     return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
 }
 
+bool SameDoubleBits(double first, double second)
+{
+    std::uint64_t first_bits = 0;
+    std::uint64_t second_bits = 0;
+    std::memcpy(&first_bits, &first, sizeof(first_bits));
+    std::memcpy(&second_bits, &second, sizeof(second_bits));
+    return first_bits == second_bits;
+}
+
+bool SameVectorBits(const Vector3& first, const Vector3& second)
+{
+    return SameDoubleBits(first.x, second.x) &&
+        SameDoubleBits(first.y, second.y) &&
+        SameDoubleBits(first.z, second.z);
+}
+
+bool SameNodeStateBits(const NodeState& first, const NodeState& second)
+{
+    return SameVectorBits(first.position_m, second.position_m) &&
+        SameVectorBits(first.velocity_mps, second.velocity_mps) &&
+        SameDoubleBits(first.mass_kg, second.mass_kg) &&
+        first.movable == second.movable;
+}
+
+bool IsValidNodeKey(const NodeKey& key)
+{
+    return key.actor > 0 && key.node <= MAX_NODE_INDEX;
+}
+
 Vector3 Widen(const AppliedVector3& value)
 {
     Vector3 widened;
@@ -233,6 +262,173 @@ bool TryAccumulateScalar(double term, double& sum)
         return false;
     sum += term;
     return IsFinite(sum);
+}
+
+bool TryAccumulateCount(std::uint64_t term, std::uint64_t& sum)
+{
+    if (term > std::numeric_limits<std::uint64_t>::max() - sum)
+        return false;
+    sum += term;
+    return true;
+}
+
+bool IsValidStepTelemetry(const StepTelemetry& telemetry)
+{
+    if (telemetry.schema_version != SCHEMA_VERSION ||
+        telemetry.contact_count > MAX_STEP_CONTACTS ||
+        telemetry.unique_node_count >
+            telemetry.contact_count * static_cast<std::uint64_t>(NODE_COUNT) ||
+        telemetry.shared_node_count > telemetry.unique_node_count ||
+        telemetry.maximum_node_contact_multiplicity >
+            telemetry.contact_count ||
+        !IsFinite(telemetry.summed_isolated_contact_work_j) ||
+        !IsFinite(
+            telemetry.summed_isolated_contact_kinetic_energy_delta_j) ||
+        !IsFinite(
+            telemetry.summed_isolated_contact_integration_energy_delta_j) ||
+        !IsFinite(telemetry.whole_step_contact_work_j) ||
+        !IsFinite(
+            telemetry.whole_step_contact_kinetic_energy_delta_j) ||
+        !IsFinite(
+            telemetry.whole_step_contact_integration_energy_delta_j) ||
+        !IsFinite(telemetry.shared_node_cross_term_j) ||
+        telemetry.summed_isolated_contact_integration_energy_delta_j < 0.0 ||
+        telemetry.whole_step_contact_integration_energy_delta_j < 0.0 ||
+        telemetry.summed_isolated_contact_kinetic_energy_delta_j !=
+            telemetry.summed_isolated_contact_work_j +
+                telemetry.summed_isolated_contact_integration_energy_delta_j ||
+        telemetry.whole_step_contact_kinetic_energy_delta_j !=
+            telemetry.whole_step_contact_work_j +
+                telemetry.whole_step_contact_integration_energy_delta_j ||
+        telemetry.whole_step_contact_work_j !=
+            telemetry.summed_isolated_contact_work_j ||
+        telemetry.shared_node_cross_term_j !=
+            telemetry.whole_step_contact_integration_energy_delta_j -
+                telemetry.
+                    summed_isolated_contact_integration_energy_delta_j)
+    {
+        return false;
+    }
+    if (telemetry.contact_count == 0)
+    {
+        return telemetry.unique_node_count == 0 &&
+            telemetry.shared_node_count == 0 &&
+            telemetry.maximum_node_contact_multiplicity == 0 &&
+            telemetry.summed_isolated_contact_work_j == 0.0 &&
+            telemetry.summed_isolated_contact_kinetic_energy_delta_j == 0.0 &&
+            telemetry.summed_isolated_contact_integration_energy_delta_j ==
+                0.0 &&
+            telemetry.whole_step_contact_work_j == 0.0 &&
+            telemetry.whole_step_contact_kinetic_energy_delta_j == 0.0 &&
+            telemetry.whole_step_contact_integration_energy_delta_j == 0.0 &&
+            telemetry.shared_node_cross_term_j == 0.0;
+    }
+    return telemetry.unique_node_count > 0 &&
+        telemetry.maximum_node_contact_multiplicity > 0;
+}
+
+bool IsValidAggregate(const Aggregate& aggregate)
+{
+    const std::uint64_t pending_contact_count =
+        aggregate.contact_count >= aggregate.whole_step_contact_count
+            ? aggregate.contact_count - aggregate.whole_step_contact_count
+            : std::numeric_limits<std::uint64_t>::max();
+    const bool complete_step_boundary = pending_contact_count == 0;
+    if (aggregate.contact_count > MAX_AGGREGATE_CONTACTS ||
+        aggregate.audited_fixed_step_count > MAX_AGGREGATE_FIXED_STEPS ||
+        aggregate.whole_step_contact_count > aggregate.contact_count ||
+        !IsFinite(aggregate.maximum_normalized_linear_impulse_residual) ||
+        !IsFinite(aggregate.maximum_angular_impulse_delta_magnitude_nms) ||
+        !IsFinite(aggregate.summed_angular_impulse_delta_nms) ||
+        !IsFinite(aggregate.summed_isolated_contact_work_j) ||
+        !IsFinite(
+            aggregate.summed_isolated_contact_kinetic_energy_delta_j) ||
+        !IsFinite(
+            aggregate.summed_isolated_contact_integration_energy_delta_j) ||
+        !IsFinite(aggregate.pending_step_isolated_contact_work_j) ||
+        !IsFinite(
+            aggregate.
+                pending_step_isolated_contact_kinetic_energy_delta_j) ||
+        !IsFinite(
+            aggregate.
+                pending_step_isolated_contact_integration_energy_delta_j) ||
+        !IsFinite(aggregate.summed_whole_step_contact_work_j) ||
+        !IsFinite(
+            aggregate.summed_whole_step_contact_kinetic_energy_delta_j) ||
+        !IsFinite(
+            aggregate.summed_whole_step_contact_integration_energy_delta_j) ||
+        !IsFinite(aggregate.summed_shared_node_cross_term_j) ||
+        aggregate.maximum_normalized_linear_impulse_residual < 0.0 ||
+        aggregate.maximum_angular_impulse_delta_magnitude_nms < 0.0 ||
+        aggregate.summed_isolated_contact_integration_energy_delta_j < 0.0 ||
+        aggregate.pending_step_isolated_contact_integration_energy_delta_j <
+            0.0 ||
+        aggregate.summed_whole_step_contact_integration_energy_delta_j < 0.0 ||
+        aggregate.summed_unique_node_count >
+            MAX_AGGREGATE_NODE_CONTRIBUTIONS ||
+        aggregate.summed_unique_node_count >
+            aggregate.whole_step_contact_count *
+                static_cast<std::uint64_t>(NODE_COUNT) ||
+        aggregate.summed_shared_node_count >
+            aggregate.summed_unique_node_count ||
+        aggregate.maximum_node_contact_multiplicity > MAX_STEP_CONTACTS ||
+        aggregate.summed_isolated_contact_kinetic_energy_delta_j !=
+            aggregate.summed_isolated_contact_work_j +
+                aggregate.summed_isolated_contact_integration_energy_delta_j ||
+        aggregate.pending_step_isolated_contact_kinetic_energy_delta_j !=
+            aggregate.pending_step_isolated_contact_work_j +
+                aggregate.
+                    pending_step_isolated_contact_integration_energy_delta_j ||
+        aggregate.summed_whole_step_contact_kinetic_energy_delta_j !=
+            aggregate.summed_whole_step_contact_work_j +
+                aggregate.summed_whole_step_contact_integration_energy_delta_j ||
+        (aggregate.whole_step_contact_count == 0 &&
+            (aggregate.summed_unique_node_count != 0 ||
+                aggregate.summed_shared_node_count != 0 ||
+                aggregate.maximum_node_contact_multiplicity != 0 ||
+                aggregate.summed_whole_step_contact_work_j != 0.0 ||
+                aggregate.
+                    summed_whole_step_contact_kinetic_energy_delta_j != 0.0 ||
+                aggregate.
+                    summed_whole_step_contact_integration_energy_delta_j !=
+                    0.0 ||
+                aggregate.summed_shared_node_cross_term_j != 0.0)) ||
+        (pending_contact_count == 0 &&
+            (aggregate.pending_step_isolated_contact_work_j != 0.0 ||
+                aggregate.
+                    pending_step_isolated_contact_kinetic_energy_delta_j !=
+                    0.0 ||
+                aggregate.
+                    pending_step_isolated_contact_integration_energy_delta_j !=
+                    0.0)) ||
+        (aggregate.whole_step_contact_count == 0 &&
+            (aggregate.pending_step_isolated_contact_work_j !=
+                    aggregate.summed_isolated_contact_work_j ||
+                aggregate.
+                    pending_step_isolated_contact_kinetic_energy_delta_j !=
+                    aggregate.
+                        summed_isolated_contact_kinetic_energy_delta_j ||
+                aggregate.
+                    pending_step_isolated_contact_integration_energy_delta_j !=
+                    aggregate.
+                        summed_isolated_contact_integration_energy_delta_j)) ||
+        (aggregate.audited_fixed_step_count == 0 &&
+            aggregate.whole_step_contact_count != 0) ||
+        (aggregate.whole_step_contact_count != 0 &&
+            (aggregate.summed_unique_node_count == 0 ||
+                aggregate.maximum_node_contact_multiplicity == 0)) ||
+        (complete_step_boundary &&
+            (aggregate.summed_whole_step_contact_work_j !=
+                    aggregate.summed_isolated_contact_work_j ||
+                aggregate.summed_shared_node_cross_term_j !=
+                    aggregate.
+                        summed_whole_step_contact_integration_energy_delta_j -
+                    aggregate.
+                        summed_isolated_contact_integration_energy_delta_j)))
+    {
+        return false;
+    }
+    return true;
 }
 
 Error PrepareTelemetryBase(const Input& input, Telemetry& candidate)
@@ -417,6 +613,8 @@ const char* ErrorToString(Error error)
         return "invalid mass";
     case Error::INVALID_NODE_MOBILITY:
         return "invalid node mobility";
+    case Error::INVALID_NODE_KEY:
+        return "invalid node key";
     case Error::INVALID_BARYCENTRIC_COORDINATES:
         return "invalid barycentric coordinates";
     case Error::DEGENERATE_SURFACE_TRIANGLE:
@@ -429,6 +627,10 @@ const char* ErrorToString(Error error)
         return "invalid telemetry";
     case Error::CONTACT_LIMIT_EXCEEDED:
         return "contact limit exceeded";
+    case Error::INCONSISTENT_NODE_STATE:
+        return "inconsistent node state";
+    case Error::STORAGE_FAILURE:
+        return "storage failure";
     case Error::NUMERIC_RANGE:
         return "numeric range";
     }
@@ -555,29 +757,293 @@ Error AuditAppliedForces(
     return Error::NONE;
 }
 
+void ResetStepAccumulator(StepAccumulator& accumulator)
+{
+    accumulator.schema_version = SCHEMA_VERSION;
+    accumulator.contact_count = 0;
+    accumulator.time_step_s = 0.0;
+    accumulator.summed_isolated_contact_work_j = 0.0;
+    accumulator.summed_isolated_contact_kinetic_energy_delta_j = 0.0;
+    accumulator.summed_isolated_contact_integration_energy_delta_j = 0.0;
+    accumulator.node_contributions.clear();
+}
+
+Error AccumulateStepContact(
+    const std::array<NodeKey, NODE_COUNT>& node_keys,
+    const Input& input,
+    const Telemetry& telemetry,
+    StepAccumulator& accumulator)
+{
+    if (accumulator.schema_version != SCHEMA_VERSION)
+        return Error::UNSUPPORTED_SCHEMA;
+    if (accumulator.contact_count >= MAX_STEP_CONTACTS)
+        return Error::CONTACT_LIMIT_EXCEEDED;
+    if (accumulator.node_contributions.size() !=
+            accumulator.contact_count * NODE_COUNT ||
+        accumulator.node_contributions.size() >
+            MAX_STEP_NODE_CONTRIBUTIONS ||
+        !IsFinite(accumulator.time_step_s) ||
+        !IsFinite(accumulator.summed_isolated_contact_work_j) ||
+        !IsFinite(
+            accumulator.summed_isolated_contact_kinetic_energy_delta_j) ||
+        !IsFinite(
+            accumulator.summed_isolated_contact_integration_energy_delta_j) ||
+        accumulator.summed_isolated_contact_integration_energy_delta_j < 0.0 ||
+        accumulator.summed_isolated_contact_kinetic_energy_delta_j !=
+            accumulator.summed_isolated_contact_work_j +
+                accumulator.
+                    summed_isolated_contact_integration_energy_delta_j ||
+        (accumulator.contact_count == 0 &&
+            accumulator.time_step_s != 0.0) ||
+        (accumulator.contact_count != 0 &&
+            accumulator.time_step_s <= 0.0))
+    {
+        return Error::INVALID_TELEMETRY;
+    }
+
+    Telemetry prepared;
+    const Error input_error = PrepareTelemetryBase(input, prepared);
+    if (input_error != Error::NONE)
+        return input_error;
+    Aggregate validation;
+    const Error telemetry_error = Accumulate(telemetry, validation);
+    if (telemetry_error != Error::NONE)
+        return telemetry_error;
+    if (accumulator.contact_count != 0 &&
+        !SameDoubleBits(accumulator.time_step_s, input.time_step_s))
+    {
+        return Error::INVALID_TIME_STEP;
+    }
+
+    const std::array<NodeState, NODE_COUNT> nodes = {{
+        input.hit_node,
+        input.surface_nodes[0],
+        input.surface_nodes[1],
+        input.surface_nodes[2]
+    }};
+    std::array<StepNodeContribution, NODE_COUNT> pending;
+    for (std::size_t index = 0; index < NODE_COUNT; ++index)
+    {
+        if (!IsValidNodeKey(node_keys[index]))
+            return Error::INVALID_NODE_KEY;
+        for (std::size_t prior = 0; prior < index; ++prior)
+        {
+            if (node_keys[prior] == node_keys[index])
+                return Error::INVALID_NODE_KEY;
+        }
+        pending[index].key = node_keys[index];
+        pending[index].node = nodes[index];
+        pending[index].impulse_ns = telemetry.impulses_ns[index];
+        pending[index].contact_ordinal = accumulator.contact_count;
+        pending[index].node_slot = static_cast<std::uint8_t>(index);
+    }
+
+    double candidate_work = accumulator.summed_isolated_contact_work_j;
+    double candidate_integration =
+        accumulator.summed_isolated_contact_integration_energy_delta_j;
+    if (!TryAccumulateScalar(
+            telemetry.isolated_contact_work_j,
+            candidate_work) ||
+        !TryAccumulateScalar(
+            telemetry.isolated_contact_integration_energy_delta_j,
+            candidate_integration))
+    {
+        return Error::NUMERIC_RANGE;
+    }
+    const double candidate_kinetic = candidate_work + candidate_integration;
+    if (!IsFinite(candidate_kinetic))
+        return Error::NUMERIC_RANGE;
+
+    const std::size_t original_size =
+        accumulator.node_contributions.size();
+    try
+    {
+        for (std::size_t index = 0; index < pending.size(); ++index)
+            accumulator.node_contributions.push_back(pending[index]);
+    }
+    catch (...)
+    {
+        accumulator.node_contributions.resize(original_size);
+        return Error::STORAGE_FAILURE;
+    }
+
+    ++accumulator.contact_count;
+    if (accumulator.contact_count == 1)
+        accumulator.time_step_s = input.time_step_s;
+    accumulator.summed_isolated_contact_work_j = candidate_work;
+    accumulator.summed_isolated_contact_integration_energy_delta_j =
+        candidate_integration;
+    accumulator.summed_isolated_contact_kinetic_energy_delta_j =
+        candidate_kinetic;
+    return Error::NONE;
+}
+
+Error FinalizeStep(
+    StepAccumulator& accumulator,
+    StepTelemetry& output)
+{
+    if (accumulator.schema_version != SCHEMA_VERSION)
+        return Error::UNSUPPORTED_SCHEMA;
+    if (accumulator.contact_count > MAX_STEP_CONTACTS ||
+        accumulator.node_contributions.size() !=
+            accumulator.contact_count * NODE_COUNT ||
+        accumulator.node_contributions.size() >
+            MAX_STEP_NODE_CONTRIBUTIONS ||
+        !IsFinite(accumulator.time_step_s) ||
+        !IsFinite(accumulator.summed_isolated_contact_work_j) ||
+        !IsFinite(
+            accumulator.summed_isolated_contact_kinetic_energy_delta_j) ||
+        !IsFinite(
+            accumulator.summed_isolated_contact_integration_energy_delta_j) ||
+        accumulator.summed_isolated_contact_integration_energy_delta_j < 0.0 ||
+        accumulator.summed_isolated_contact_kinetic_energy_delta_j !=
+            accumulator.summed_isolated_contact_work_j +
+                accumulator.
+                    summed_isolated_contact_integration_energy_delta_j ||
+        (accumulator.contact_count == 0 &&
+            accumulator.time_step_s != 0.0) ||
+        (accumulator.contact_count != 0 &&
+            accumulator.time_step_s <= 0.0))
+    {
+        return Error::INVALID_TELEMETRY;
+    }
+
+    for (std::size_t index = 0;
+            index < accumulator.node_contributions.size();
+            ++index)
+    {
+        const StepNodeContribution& contribution =
+            accumulator.node_contributions[index];
+        if (!IsValidNodeKey(contribution.key) ||
+            !IsFinite(contribution.node) ||
+            contribution.node.mass_kg <= 0.0 ||
+            !HasValidMobility(contribution.node) ||
+            !IsFinite(contribution.impulse_ns) ||
+            contribution.contact_ordinal != index / NODE_COUNT ||
+            contribution.node_slot !=
+                static_cast<std::uint8_t>(index % NODE_COUNT))
+        {
+            return Error::INVALID_TELEMETRY;
+        }
+    }
+
+    std::sort(
+        accumulator.node_contributions.begin(),
+        accumulator.node_contributions.end(),
+        [](const StepNodeContribution& left,
+           const StepNodeContribution& right)
+        {
+            if (left.key < right.key)
+                return true;
+            if (right.key < left.key)
+                return false;
+            if (left.contact_ordinal != right.contact_ordinal)
+                return left.contact_ordinal < right.contact_ordinal;
+            return left.node_slot < right.node_slot;
+        });
+
+    StepTelemetry candidate;
+    candidate.contact_count = accumulator.contact_count;
+    candidate.summed_isolated_contact_work_j =
+        accumulator.summed_isolated_contact_work_j;
+    candidate.summed_isolated_contact_kinetic_energy_delta_j =
+        accumulator.summed_isolated_contact_kinetic_energy_delta_j;
+    candidate.summed_isolated_contact_integration_energy_delta_j =
+        accumulator.summed_isolated_contact_integration_energy_delta_j;
+
+    std::size_t begin = 0;
+    while (begin < accumulator.node_contributions.size())
+    {
+        const StepNodeContribution& first =
+            accumulator.node_contributions[begin];
+        Vector3 total_impulse;
+        double isolated_node_integration = 0.0;
+        std::size_t end = begin;
+        while (end < accumulator.node_contributions.size() &&
+            accumulator.node_contributions[end].key == first.key)
+        {
+            const StepNodeContribution& contribution =
+                accumulator.node_contributions[end];
+            if (!SameNodeStateBits(first.node, contribution.node))
+                return Error::INCONSISTENT_NODE_STATE;
+            total_impulse = Add(total_impulse, contribution.impulse_ns);
+            if (!IsFinite(total_impulse))
+                return Error::NUMERIC_RANGE;
+            if (first.node.movable != 0)
+            {
+                const double impulse_squared = Dot(
+                    contribution.impulse_ns,
+                    contribution.impulse_ns);
+                const double integration =
+                    0.5 * impulse_squared / first.node.mass_kg;
+                if (!TryAccumulateScalar(
+                        integration,
+                        isolated_node_integration))
+                {
+                    return Error::NUMERIC_RANGE;
+                }
+            }
+            ++end;
+        }
+
+        if (end - begin > MAX_STEP_CONTACTS)
+            return Error::INVALID_TELEMETRY;
+        const std::uint64_t multiplicity = static_cast<std::uint64_t>(
+            end - begin);
+        if (!TryAccumulateCount(UINT64_C(1), candidate.unique_node_count))
+            return Error::NUMERIC_RANGE;
+        if (multiplicity > 1 &&
+            !TryAccumulateCount(UINT64_C(1), candidate.shared_node_count))
+        {
+            return Error::NUMERIC_RANGE;
+        }
+        candidate.maximum_node_contact_multiplicity = std::max(
+            candidate.maximum_node_contact_multiplicity,
+            multiplicity);
+
+        if (first.node.movable != 0 && multiplicity > 1)
+        {
+            const double impulse_squared = Dot(total_impulse, total_impulse);
+            const double grouped_integration =
+                0.5 * impulse_squared / first.node.mass_kg;
+            if (!TryAccumulateScalar(
+                    grouped_integration - isolated_node_integration,
+                    candidate.shared_node_cross_term_j))
+            {
+                return Error::NUMERIC_RANGE;
+            }
+        }
+        begin = end;
+    }
+
+    // Linear work is identical to the isolated-contact sum. Preserve that
+    // audited canonical order rather than reordering additions by node key;
+    // only the quadratic shared-node cross terms need separate reduction.
+    candidate.whole_step_contact_work_j =
+        candidate.summed_isolated_contact_work_j;
+    candidate.whole_step_contact_integration_energy_delta_j =
+        candidate.summed_isolated_contact_integration_energy_delta_j +
+        candidate.shared_node_cross_term_j;
+    candidate.shared_node_cross_term_j =
+        candidate.whole_step_contact_integration_energy_delta_j -
+        candidate.summed_isolated_contact_integration_energy_delta_j;
+    candidate.whole_step_contact_kinetic_energy_delta_j =
+        candidate.summed_isolated_contact_work_j +
+        candidate.whole_step_contact_integration_energy_delta_j;
+    if (!IsValidStepTelemetry(candidate))
+        return Error::INVALID_TELEMETRY;
+    output = candidate;
+    return Error::NONE;
+}
+
 Error Accumulate(const Telemetry& telemetry, Aggregate& aggregate)
 {
     if (aggregate.schema_version != SCHEMA_VERSION)
         return Error::UNSUPPORTED_SCHEMA;
     if (aggregate.contact_count >= MAX_AGGREGATE_CONTACTS)
         return Error::CONTACT_LIMIT_EXCEEDED;
-    if (!IsFinite(aggregate.maximum_normalized_linear_impulse_residual) ||
-        !IsFinite(aggregate.maximum_angular_impulse_delta_magnitude_nms) ||
-        !IsFinite(aggregate.summed_angular_impulse_delta_nms) ||
-        !IsFinite(aggregate.summed_isolated_contact_work_j) ||
-        !IsFinite(
-            aggregate.summed_isolated_contact_kinetic_energy_delta_j) ||
-        !IsFinite(
-            aggregate.summed_isolated_contact_integration_energy_delta_j) ||
-        aggregate.maximum_normalized_linear_impulse_residual < 0.0 ||
-        aggregate.maximum_angular_impulse_delta_magnitude_nms < 0.0 ||
-        aggregate.summed_isolated_contact_integration_energy_delta_j < 0.0 ||
-        aggregate.summed_isolated_contact_kinetic_energy_delta_j !=
-            aggregate.summed_isolated_contact_work_j +
-            aggregate.summed_isolated_contact_integration_energy_delta_j)
-    {
+    if (!IsValidAggregate(aggregate))
         return Error::INVALID_TELEMETRY;
-    }
     if (!IsFinite(telemetry.surface_contact_position_m) ||
         !IsFinite(telemetry.linear_impulse_residual_ns) ||
         !IsFinite(telemetry.normalized_linear_impulse_residual) ||
@@ -635,6 +1101,13 @@ Error Accumulate(const Telemetry& telemetry, Aggregate& aggregate)
             telemetry.isolated_contact_integration_energy_delta_j,
             candidate.
                 summed_isolated_contact_integration_energy_delta_j) ||
+        !TryAccumulateScalar(
+            telemetry.isolated_contact_work_j,
+            candidate.pending_step_isolated_contact_work_j) ||
+        !TryAccumulateScalar(
+            telemetry.isolated_contact_integration_energy_delta_j,
+            candidate.
+                pending_step_isolated_contact_integration_energy_delta_j) ||
         !IsFinite(candidate.summed_angular_impulse_delta_nms) ||
         !IsFinite(candidate.maximum_normalized_linear_impulse_residual) ||
         !IsFinite(candidate.maximum_angular_impulse_delta_magnitude_nms))
@@ -644,8 +1117,82 @@ Error Accumulate(const Telemetry& telemetry, Aggregate& aggregate)
     candidate.summed_isolated_contact_kinetic_energy_delta_j =
         candidate.summed_isolated_contact_work_j +
         candidate.summed_isolated_contact_integration_energy_delta_j;
+    candidate.pending_step_isolated_contact_kinetic_energy_delta_j =
+        candidate.pending_step_isolated_contact_work_j +
+        candidate.pending_step_isolated_contact_integration_energy_delta_j;
     if (!IsFinite(
-            candidate.summed_isolated_contact_kinetic_energy_delta_j))
+            candidate.summed_isolated_contact_kinetic_energy_delta_j) ||
+        !IsFinite(
+            candidate.pending_step_isolated_contact_kinetic_energy_delta_j))
+    {
+        return Error::NUMERIC_RANGE;
+    }
+    aggregate = candidate;
+    return Error::NONE;
+}
+
+Error AccumulateStep(
+    const StepTelemetry& telemetry,
+    Aggregate& aggregate)
+{
+    if (aggregate.schema_version != SCHEMA_VERSION ||
+        telemetry.schema_version != SCHEMA_VERSION)
+    {
+        return Error::UNSUPPORTED_SCHEMA;
+    }
+    if (!IsValidStepTelemetry(telemetry))
+        return Error::INVALID_TELEMETRY;
+    if (!IsValidAggregate(aggregate) ||
+        aggregate.contact_count - aggregate.whole_step_contact_count !=
+            telemetry.contact_count ||
+        aggregate.pending_step_isolated_contact_work_j !=
+            telemetry.summed_isolated_contact_work_j ||
+        aggregate.pending_step_isolated_contact_kinetic_energy_delta_j !=
+            telemetry.summed_isolated_contact_kinetic_energy_delta_j ||
+        aggregate.pending_step_isolated_contact_integration_energy_delta_j !=
+            telemetry.summed_isolated_contact_integration_energy_delta_j)
+    {
+        return Error::INVALID_TELEMETRY;
+    }
+    if (aggregate.audited_fixed_step_count >= MAX_AGGREGATE_FIXED_STEPS)
+        return Error::CONTACT_LIMIT_EXCEEDED;
+
+    Aggregate candidate = aggregate;
+    ++candidate.audited_fixed_step_count;
+    if (!TryAccumulateCount(
+            telemetry.contact_count,
+            candidate.whole_step_contact_count) ||
+        !TryAccumulateCount(
+            telemetry.unique_node_count,
+            candidate.summed_unique_node_count) ||
+        !TryAccumulateCount(
+            telemetry.shared_node_count,
+            candidate.summed_shared_node_count) ||
+        candidate.summed_unique_node_count >
+            MAX_AGGREGATE_NODE_CONTRIBUTIONS ||
+        !TryAccumulateScalar(
+            telemetry.whole_step_contact_integration_energy_delta_j,
+            candidate.
+                summed_whole_step_contact_integration_energy_delta_j))
+    {
+        return Error::NUMERIC_RANGE;
+    }
+    candidate.maximum_node_contact_multiplicity = std::max(
+        candidate.maximum_node_contact_multiplicity,
+        telemetry.maximum_node_contact_multiplicity);
+    candidate.pending_step_isolated_contact_work_j = 0.0;
+    candidate.pending_step_isolated_contact_kinetic_energy_delta_j = 0.0;
+    candidate.pending_step_isolated_contact_integration_energy_delta_j = 0.0;
+    candidate.summed_whole_step_contact_work_j =
+        candidate.summed_isolated_contact_work_j;
+    candidate.summed_whole_step_contact_kinetic_energy_delta_j =
+        candidate.summed_whole_step_contact_work_j +
+        candidate.summed_whole_step_contact_integration_energy_delta_j;
+    candidate.summed_shared_node_cross_term_j =
+        candidate.summed_whole_step_contact_integration_energy_delta_j -
+        candidate.summed_isolated_contact_integration_energy_delta_j;
+    if (!IsValidAggregate(candidate) ||
+        candidate.whole_step_contact_count != candidate.contact_count)
     {
         return Error::NUMERIC_RANGE;
     }

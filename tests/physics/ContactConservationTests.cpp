@@ -110,7 +110,91 @@ bool SameAggregate(
         DoubleBits(
             first.summed_isolated_contact_integration_energy_delta_j) ==
             DoubleBits(
-                second.summed_isolated_contact_integration_energy_delta_j);
+                second.summed_isolated_contact_integration_energy_delta_j) &&
+        DoubleBits(first.pending_step_isolated_contact_work_j) ==
+            DoubleBits(second.pending_step_isolated_contact_work_j) &&
+        DoubleBits(
+            first.pending_step_isolated_contact_kinetic_energy_delta_j) ==
+            DoubleBits(
+                second.
+                    pending_step_isolated_contact_kinetic_energy_delta_j) &&
+        DoubleBits(
+            first.pending_step_isolated_contact_integration_energy_delta_j) ==
+            DoubleBits(
+                second.
+                    pending_step_isolated_contact_integration_energy_delta_j) &&
+        first.audited_fixed_step_count ==
+            second.audited_fixed_step_count &&
+        first.whole_step_contact_count ==
+            second.whole_step_contact_count &&
+        first.summed_unique_node_count ==
+            second.summed_unique_node_count &&
+        first.summed_shared_node_count ==
+            second.summed_shared_node_count &&
+        first.maximum_node_contact_multiplicity ==
+            second.maximum_node_contact_multiplicity &&
+        DoubleBits(first.summed_whole_step_contact_work_j) ==
+            DoubleBits(second.summed_whole_step_contact_work_j) &&
+        DoubleBits(
+            first.summed_whole_step_contact_kinetic_energy_delta_j) ==
+            DoubleBits(
+                second.summed_whole_step_contact_kinetic_energy_delta_j) &&
+        DoubleBits(
+            first.summed_whole_step_contact_integration_energy_delta_j) ==
+            DoubleBits(
+                second.
+                    summed_whole_step_contact_integration_energy_delta_j) &&
+        DoubleBits(first.summed_shared_node_cross_term_j) ==
+            DoubleBits(second.summed_shared_node_cross_term_j);
+}
+
+bool SameStepTelemetry(
+    const Contact::StepTelemetry& first,
+    const Contact::StepTelemetry& second)
+{
+    return first.schema_version == second.schema_version &&
+        first.contact_count == second.contact_count &&
+        first.unique_node_count == second.unique_node_count &&
+        first.shared_node_count == second.shared_node_count &&
+        first.maximum_node_contact_multiplicity ==
+            second.maximum_node_contact_multiplicity &&
+        DoubleBits(first.summed_isolated_contact_work_j) ==
+            DoubleBits(second.summed_isolated_contact_work_j) &&
+        DoubleBits(
+            first.summed_isolated_contact_kinetic_energy_delta_j) ==
+            DoubleBits(
+                second.summed_isolated_contact_kinetic_energy_delta_j) &&
+        DoubleBits(
+            first.summed_isolated_contact_integration_energy_delta_j) ==
+            DoubleBits(
+                second.summed_isolated_contact_integration_energy_delta_j) &&
+        DoubleBits(first.whole_step_contact_work_j) ==
+            DoubleBits(second.whole_step_contact_work_j) &&
+        DoubleBits(first.whole_step_contact_kinetic_energy_delta_j) ==
+            DoubleBits(second.whole_step_contact_kinetic_energy_delta_j) &&
+        DoubleBits(first.whole_step_contact_integration_energy_delta_j) ==
+            DoubleBits(
+                second.whole_step_contact_integration_energy_delta_j) &&
+        DoubleBits(first.shared_node_cross_term_j) ==
+            DoubleBits(second.shared_node_cross_term_j);
+}
+
+Contact::StepTelemetry SentinelStepTelemetry()
+{
+    Contact::StepTelemetry telemetry;
+    telemetry.schema_version = Contact::SCHEMA_VERSION + 7;
+    telemetry.contact_count = 1;
+    telemetry.unique_node_count = 2;
+    telemetry.shared_node_count = 3;
+    telemetry.maximum_node_contact_multiplicity = 4;
+    telemetry.summed_isolated_contact_work_j = 5.0;
+    telemetry.summed_isolated_contact_kinetic_energy_delta_j = 6.0;
+    telemetry.summed_isolated_contact_integration_energy_delta_j = 7.0;
+    telemetry.whole_step_contact_work_j = 8.0;
+    telemetry.whole_step_contact_kinetic_energy_delta_j = 9.0;
+    telemetry.whole_step_contact_integration_energy_delta_j = 10.0;
+    telemetry.shared_node_cross_term_j = 11.0;
+    return telemetry;
 }
 
 bool SameTelemetry(
@@ -213,6 +297,9 @@ Contact::Aggregate SentinelAggregate()
     aggregate.summed_isolated_contact_work_j = 5.0;
     aggregate.summed_isolated_contact_integration_energy_delta_j = 7.0;
     aggregate.summed_isolated_contact_kinetic_energy_delta_j = 12.0;
+    aggregate.pending_step_isolated_contact_work_j = 5.0;
+    aggregate.pending_step_isolated_contact_integration_energy_delta_j = 7.0;
+    aggregate.pending_step_isolated_contact_kinetic_energy_delta_j = 12.0;
     return aggregate;
 }
 
@@ -237,6 +324,20 @@ Contact::Input ValidInput()
     input.force_on_hit_n = {20.0, -10.0, 30.0};
     input.time_step_s = 0.005;
     return input;
+}
+
+std::array<Contact::NodeKey, Contact::NODE_COUNT> ContactKeys(
+    std::int32_t hit_actor,
+    std::uint32_t hit_node,
+    std::int32_t surface_actor,
+    std::uint32_t first_surface_node)
+{
+    return {{
+        Contact::NodeKey(hit_actor, hit_node),
+        Contact::NodeKey(surface_actor, first_surface_node),
+        Contact::NodeKey(surface_actor, first_surface_node + 1),
+        Contact::NodeKey(surface_actor, first_surface_node + 2)
+    }};
 }
 
 double RelativeError(double measured, double expected)
@@ -649,6 +750,15 @@ void TestFailClosedInputs()
         Contact::ErrorToString(Contact::Error::INVALID_NODE_MOBILITY),
         "invalid node mobility") == 0);
     CHECK(std::strcmp(
+        Contact::ErrorToString(Contact::Error::INVALID_NODE_KEY),
+        "invalid node key") == 0);
+    CHECK(std::strcmp(
+        Contact::ErrorToString(Contact::Error::INCONSISTENT_NODE_STATE),
+        "inconsistent node state") == 0);
+    CHECK(std::strcmp(
+        Contact::ErrorToString(Contact::Error::STORAGE_FAILURE),
+        "storage failure") == 0);
+    CHECK(std::strcmp(
         Contact::ErrorToString(static_cast<Contact::Error>(999)),
         "unknown error") == 0);
 }
@@ -712,6 +822,10 @@ void TestBoundedAggregateFailClosed()
     unchanged.summed_isolated_contact_kinetic_energy_delta_j =
         unchanged.summed_isolated_contact_work_j +
         unchanged.summed_isolated_contact_integration_energy_delta_j;
+    unchanged.pending_step_isolated_contact_work_j =
+        unchanged.summed_isolated_contact_work_j;
+    unchanged.pending_step_isolated_contact_kinetic_energy_delta_j =
+        unchanged.summed_isolated_contact_kinetic_energy_delta_j;
     invalid = telemetry;
     invalid.isolated_contact_work_j = std::numeric_limits<double>::max();
     invalid.isolated_contact_kinetic_energy_delta_j =
@@ -729,6 +843,341 @@ void TestBoundedAggregateFailClosed()
     CHECK(Contact::Accumulate(invalid, unchanged) ==
         Contact::Error::INVALID_TELEMETRY);
     CHECK(SameAggregate(unchanged, sentinel));
+}
+
+void TestWholeStepSharedNodeContactEnergy()
+{
+    Contact::Input first_input = ValidInput();
+    first_input.force_on_hit_n = {20.0, 0.0, 0.0};
+    first_input.time_step_s = 0.1;
+    first_input.hit_node.mass_kg = 2.0;
+    first_input.hit_node.velocity_mps = {0.0, 0.0, 0.0};
+    for (std::size_t index = 0;
+        index < first_input.surface_nodes.size();
+        ++index)
+    {
+        first_input.surface_nodes[index].velocity_mps = {0.0, 0.0, 0.0};
+    }
+    Contact::Input second_input = first_input;
+    second_input.force_on_hit_n = {10.0, 0.0, 0.0};
+
+    Contact::Telemetry first_telemetry;
+    Contact::Telemetry second_telemetry;
+    CHECK(Contact::Evaluate(first_input, first_telemetry) ==
+        Contact::Error::NONE);
+    CHECK(Contact::Evaluate(second_input, second_telemetry) ==
+        Contact::Error::NONE);
+
+    const std::array<Contact::NodeKey, Contact::NODE_COUNT> first_keys =
+        ContactKeys(2, 7, 1, 10);
+    const std::array<Contact::NodeKey, Contact::NODE_COUNT> second_keys =
+        ContactKeys(2, 7, 3, 20);
+
+    Contact::StepAccumulator single_contact_step;
+    single_contact_step.node_contributions.reserve(Contact::NODE_COUNT);
+    CHECK(Contact::AccumulateStepContact(
+        first_keys,
+        first_input,
+        first_telemetry,
+        single_contact_step) == Contact::Error::NONE);
+    Contact::StepTelemetry single_contact_whole;
+    CHECK(Contact::FinalizeStep(
+        single_contact_step,
+        single_contact_whole) == Contact::Error::NONE);
+    CHECK(single_contact_whole.unique_node_count == Contact::NODE_COUNT);
+    CHECK(single_contact_whole.shared_node_count == 0);
+    CHECK(single_contact_whole.maximum_node_contact_multiplicity == 1);
+    CHECK(single_contact_whole.shared_node_cross_term_j == 0.0);
+    const std::size_t retained_capacity =
+        single_contact_step.node_contributions.capacity();
+    Contact::ResetStepAccumulator(single_contact_step);
+    CHECK(single_contact_step.contact_count == 0);
+    CHECK(single_contact_step.time_step_s == 0.0);
+    CHECK(single_contact_step.node_contributions.empty());
+    CHECK(single_contact_step.node_contributions.capacity() ==
+        retained_capacity);
+
+    static const std::size_t UNIQUE_CONTACT_COUNT = 257;
+    Contact::StepAccumulator unique_step;
+    unique_step.node_contributions.reserve(
+        UNIQUE_CONTACT_COUNT * Contact::NODE_COUNT);
+    std::uint32_t fixed_random = UINT32_C(0x6d2b79f5);
+    for (std::size_t index = 0; index < UNIQUE_CONTACT_COUNT; ++index)
+    {
+        fixed_random = fixed_random * UINT32_C(1664525) +
+            UINT32_C(1013904223);
+        Contact::Input unique_input = first_input;
+        unique_input.force_on_hit_n = {
+            static_cast<double>(1 + fixed_random % 1000),
+            static_cast<double>(1 + (fixed_random >> 10) % 1000),
+            static_cast<double>(1 + (fixed_random >> 20) % 1000)
+        };
+        Contact::Telemetry unique_telemetry;
+        CHECK(Contact::Evaluate(unique_input, unique_telemetry) ==
+            Contact::Error::NONE);
+        const std::int32_t permutation = static_cast<std::int32_t>(
+            (index * 37) % UNIQUE_CONTACT_COUNT);
+        const std::array<Contact::NodeKey, Contact::NODE_COUNT> unique_keys =
+            ContactKeys(
+                100 + permutation,
+                0,
+                1000 + permutation,
+                10);
+        CHECK(Contact::AccumulateStepContact(
+            unique_keys,
+            unique_input,
+            unique_telemetry,
+            unique_step) == Contact::Error::NONE);
+    }
+    Contact::StepTelemetry unique_whole;
+    CHECK(Contact::FinalizeStep(unique_step, unique_whole) ==
+        Contact::Error::NONE);
+    CHECK(unique_whole.contact_count == UNIQUE_CONTACT_COUNT);
+    CHECK(unique_whole.unique_node_count ==
+        UNIQUE_CONTACT_COUNT * Contact::NODE_COUNT);
+    CHECK(unique_whole.shared_node_count == 0);
+    CHECK(unique_whole.maximum_node_contact_multiplicity == 1);
+    CHECK(unique_whole.shared_node_cross_term_j == 0.0);
+    CHECK(unique_whole.whole_step_contact_integration_energy_delta_j ==
+        unique_whole.summed_isolated_contact_integration_energy_delta_j);
+
+    Contact::StepAccumulator step;
+    step.node_contributions.reserve(2 * Contact::NODE_COUNT);
+    CHECK(Contact::AccumulateStepContact(
+        first_keys,
+        first_input,
+        first_telemetry,
+        step) == Contact::Error::NONE);
+    CHECK(Contact::AccumulateStepContact(
+        second_keys,
+        second_input,
+        second_telemetry,
+        step) == Contact::Error::NONE);
+    CHECK(step.contact_count == 2);
+    CHECK(step.node_contributions.size() == 2 * Contact::NODE_COUNT);
+
+    Contact::StepTelemetry whole;
+    CHECK(Contact::FinalizeStep(step, whole) == Contact::Error::NONE);
+    CHECK(whole.contact_count == 2);
+    CHECK(whole.unique_node_count == 7);
+    CHECK(whole.shared_node_count == 1);
+    CHECK(whole.maximum_node_contact_multiplicity == 2);
+    CHECK(whole.whole_step_contact_work_j ==
+        whole.summed_isolated_contact_work_j);
+    CHECK(whole.whole_step_contact_kinetic_energy_delta_j ==
+        whole.whole_step_contact_work_j +
+            whole.whole_step_contact_integration_energy_delta_j);
+    CHECK(RelativeError(whole.shared_node_cross_term_j, 1.0) < 2.0e-15);
+    CHECK(whole.shared_node_cross_term_j ==
+        whole.whole_step_contact_integration_energy_delta_j -
+            whole.summed_isolated_contact_integration_energy_delta_j);
+
+    Contact::Aggregate scenario;
+    CHECK(Contact::Accumulate(first_telemetry, scenario) ==
+        Contact::Error::NONE);
+    CHECK(Contact::Accumulate(second_telemetry, scenario) ==
+        Contact::Error::NONE);
+    const Contact::Aggregate pending_scenario = scenario;
+    Contact::StepTelemetry corrupt_whole = whole;
+    corrupt_whole.shared_node_cross_term_j += 1.0;
+    CHECK(Contact::AccumulateStep(corrupt_whole, scenario) ==
+        Contact::Error::INVALID_TELEMETRY);
+    CHECK(SameAggregate(scenario, pending_scenario));
+    Contact::StepTelemetry unrelated_work = whole;
+    unrelated_work.summed_isolated_contact_work_j += 1.0;
+    unrelated_work.summed_isolated_contact_kinetic_energy_delta_j += 1.0;
+    unrelated_work.whole_step_contact_work_j += 1.0;
+    unrelated_work.whole_step_contact_kinetic_energy_delta_j += 1.0;
+    CHECK(Contact::AccumulateStep(unrelated_work, scenario) ==
+        Contact::Error::INVALID_TELEMETRY);
+    CHECK(SameAggregate(scenario, pending_scenario));
+    Contact::StepTelemetry unrelated_integration = whole;
+    unrelated_integration.
+        summed_isolated_contact_integration_energy_delta_j += 1.0;
+    unrelated_integration.
+        summed_isolated_contact_kinetic_energy_delta_j += 1.0;
+    unrelated_integration.
+        whole_step_contact_integration_energy_delta_j += 1.0;
+    unrelated_integration.
+        whole_step_contact_kinetic_energy_delta_j += 1.0;
+    CHECK(Contact::AccumulateStep(unrelated_integration, scenario) ==
+        Contact::Error::INVALID_TELEMETRY);
+    CHECK(SameAggregate(scenario, pending_scenario));
+    CHECK(Contact::AccumulateStep(whole, scenario) == Contact::Error::NONE);
+    CHECK(scenario.audited_fixed_step_count == 1);
+    CHECK(scenario.whole_step_contact_count == 2);
+    CHECK(scenario.summed_unique_node_count == 7);
+    CHECK(scenario.summed_shared_node_count == 1);
+    CHECK(scenario.maximum_node_contact_multiplicity == 2);
+    CHECK(scenario.summed_shared_node_cross_term_j ==
+        scenario.summed_whole_step_contact_integration_energy_delta_j -
+            scenario.summed_isolated_contact_integration_energy_delta_j);
+
+    Contact::StepAccumulator zero_step;
+    Contact::StepTelemetry zero_whole;
+    CHECK(Contact::FinalizeStep(zero_step, zero_whole) ==
+        Contact::Error::NONE);
+    CHECK(zero_whole.contact_count == 0);
+    CHECK(zero_whole.unique_node_count == 0);
+    CHECK(zero_whole.shared_node_cross_term_j == 0.0);
+    CHECK(Contact::AccumulateStep(zero_whole, scenario) ==
+        Contact::Error::NONE);
+    CHECK(scenario.audited_fixed_step_count == 2);
+    CHECK(scenario.whole_step_contact_count == 2);
+
+    Contact::Aggregate corrupt_scenario = scenario;
+    corrupt_scenario.maximum_normalized_linear_impulse_residual =
+        DoubleFromBits(UINT64_C(0x7ff8000000000042));
+    const Contact::Aggregate corrupt_sentinel = corrupt_scenario;
+    CHECK(Contact::AccumulateStep(zero_whole, corrupt_scenario) ==
+        Contact::Error::INVALID_TELEMETRY);
+    CHECK(SameAggregate(corrupt_scenario, corrupt_sentinel));
+    corrupt_scenario = scenario;
+    corrupt_scenario.summed_shared_node_cross_term_j += 1.0;
+    const Contact::Aggregate cross_term_sentinel = corrupt_scenario;
+    CHECK(Contact::AccumulateStep(zero_whole, corrupt_scenario) ==
+        Contact::Error::INVALID_TELEMETRY);
+    CHECK(SameAggregate(corrupt_scenario, cross_term_sentinel));
+
+    Contact::StepAccumulator opposing_step;
+    Contact::Input opposing_input = second_input;
+    opposing_input.force_on_hit_n = {-10.0, 0.0, 0.0};
+    Contact::Telemetry opposing_telemetry;
+    CHECK(Contact::Evaluate(opposing_input, opposing_telemetry) ==
+        Contact::Error::NONE);
+    CHECK(Contact::AccumulateStepContact(
+        first_keys,
+        first_input,
+        first_telemetry,
+        opposing_step) == Contact::Error::NONE);
+    CHECK(Contact::AccumulateStepContact(
+        second_keys,
+        opposing_input,
+        opposing_telemetry,
+        opposing_step) == Contact::Error::NONE);
+    Contact::StepTelemetry opposing_whole;
+    CHECK(Contact::FinalizeStep(opposing_step, opposing_whole) ==
+        Contact::Error::NONE);
+    CHECK(RelativeError(opposing_whole.shared_node_cross_term_j, -1.0) <
+        2.0e-15);
+
+    Contact::Input fixed_first = first_input;
+    Contact::Input fixed_second = second_input;
+    fixed_first.hit_node.movable = 0;
+    fixed_second.hit_node.movable = 0;
+    Contact::Telemetry fixed_first_telemetry;
+    Contact::Telemetry fixed_second_telemetry;
+    CHECK(Contact::Evaluate(fixed_first, fixed_first_telemetry) ==
+        Contact::Error::NONE);
+    CHECK(Contact::Evaluate(fixed_second, fixed_second_telemetry) ==
+        Contact::Error::NONE);
+    Contact::StepAccumulator fixed_step;
+    CHECK(Contact::AccumulateStepContact(
+        first_keys,
+        fixed_first,
+        fixed_first_telemetry,
+        fixed_step) == Contact::Error::NONE);
+    CHECK(Contact::AccumulateStepContact(
+        second_keys,
+        fixed_second,
+        fixed_second_telemetry,
+        fixed_step) == Contact::Error::NONE);
+    Contact::StepTelemetry fixed_whole;
+    CHECK(Contact::FinalizeStep(fixed_step, fixed_whole) ==
+        Contact::Error::NONE);
+    CHECK(fixed_whole.shared_node_count == 1);
+    CHECK(fixed_whole.shared_node_cross_term_j == 0.0);
+
+    Contact::Input inconsistent_input = second_input;
+    inconsistent_input.hit_node.velocity_mps.x = 1.0;
+    Contact::Telemetry inconsistent_telemetry;
+    CHECK(Contact::Evaluate(inconsistent_input, inconsistent_telemetry) ==
+        Contact::Error::NONE);
+    Contact::StepAccumulator inconsistent_step;
+    CHECK(Contact::AccumulateStepContact(
+        first_keys,
+        first_input,
+        first_telemetry,
+        inconsistent_step) == Contact::Error::NONE);
+    CHECK(Contact::AccumulateStepContact(
+        second_keys,
+        inconsistent_input,
+        inconsistent_telemetry,
+        inconsistent_step) == Contact::Error::NONE);
+    Contact::StepTelemetry unchanged = SentinelStepTelemetry();
+    const Contact::StepTelemetry sentinel = unchanged;
+    CHECK(Contact::FinalizeStep(inconsistent_step, unchanged) ==
+        Contact::Error::INCONSISTENT_NODE_STATE);
+    CHECK(SameStepTelemetry(unchanged, sentinel));
+
+    Contact::StepAccumulator invalid_step;
+    std::array<Contact::NodeKey, Contact::NODE_COUNT> invalid_keys =
+        first_keys;
+    invalid_keys[1] = invalid_keys[0];
+    CHECK(Contact::AccumulateStepContact(
+        invalid_keys,
+        first_input,
+        first_telemetry,
+        invalid_step) == Contact::Error::INVALID_NODE_KEY);
+    CHECK(invalid_step.contact_count == 0);
+    CHECK(invalid_step.node_contributions.empty());
+    invalid_keys = first_keys;
+    invalid_keys[0].actor = 0;
+    CHECK(Contact::AccumulateStepContact(
+        invalid_keys,
+        first_input,
+        first_telemetry,
+        invalid_step) == Contact::Error::INVALID_NODE_KEY);
+    CHECK(invalid_step.contact_count == 0);
+
+    Contact::StepAccumulator mismatched_time_step;
+    CHECK(Contact::AccumulateStepContact(
+        first_keys,
+        first_input,
+        first_telemetry,
+        mismatched_time_step) == Contact::Error::NONE);
+    Contact::Input changed_time_input = second_input;
+    changed_time_input.time_step_s = 0.05;
+    Contact::Telemetry changed_time_telemetry;
+    CHECK(Contact::Evaluate(changed_time_input, changed_time_telemetry) ==
+        Contact::Error::NONE);
+    CHECK(Contact::AccumulateStepContact(
+        second_keys,
+        changed_time_input,
+        changed_time_telemetry,
+        mismatched_time_step) == Contact::Error::INVALID_TIME_STEP);
+    CHECK(mismatched_time_step.contact_count == 1);
+    CHECK(mismatched_time_step.node_contributions.size() ==
+        Contact::NODE_COUNT);
+
+    Contact::StepAccumulator corrupt_step;
+    CHECK(Contact::AccumulateStepContact(
+        first_keys,
+        first_input,
+        first_telemetry,
+        corrupt_step) == Contact::Error::NONE);
+    corrupt_step.node_contributions[0].node_slot = 1;
+    unchanged = SentinelStepTelemetry();
+    CHECK(Contact::FinalizeStep(corrupt_step, unchanged) ==
+        Contact::Error::INVALID_TELEMETRY);
+    CHECK(SameStepTelemetry(unchanged, sentinel));
+
+    Contact::StepAccumulator full_step;
+    full_step.contact_count = Contact::MAX_STEP_CONTACTS;
+    CHECK(Contact::AccumulateStepContact(
+        first_keys,
+        first_input,
+        first_telemetry,
+        full_step) == Contact::Error::CONTACT_LIMIT_EXCEEDED);
+    CHECK(full_step.contact_count == Contact::MAX_STEP_CONTACTS);
+
+    Contact::Aggregate full_trace;
+    full_trace.audited_fixed_step_count =
+        Contact::MAX_AGGREGATE_FIXED_STEPS;
+    const Contact::Aggregate full_trace_sentinel = full_trace;
+    CHECK(Contact::AccumulateStep(zero_whole, full_trace) ==
+        Contact::Error::CONTACT_LIMIT_EXCEEDED);
+    CHECK(SameAggregate(full_trace, full_trace_sentinel));
 }
 
 class FixedRandom
@@ -1001,6 +1450,7 @@ int main()
     TestAccumulatorDeltaAuditAndMobility();
     TestFailClosedInputs();
     TestBoundedAggregateFailClosed();
+    TestWholeStepSharedNodeContactEnergy();
     TestFixedSeedPartitionDeterminism();
 
     if (g_failures != 0)

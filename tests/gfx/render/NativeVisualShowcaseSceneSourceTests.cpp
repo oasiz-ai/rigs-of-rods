@@ -259,7 +259,7 @@ void TestA1CourseUsesItsExactPackageAndComposition() {
                   kNativeVisualShowcaseA1PackageSha256 &&
               package->package_id == kNativeVisualShowcaseA1PackageId &&
               package->origin_class == "project_original" &&
-              package->version == 2U && package->assets.size() == 38U &&
+              package->version == 3U && package->assets.size() == 38U &&
               package->static_meshes.size() == 9U,
           "A1 source did not retain the exact project-original checkpoint");
 

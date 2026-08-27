@@ -100,6 +100,44 @@ fi
 
 "${physics_test_compiler}" \
     "${common_test_flags[@]}" \
+    -fno-fast-math \
+    -ffp-contract=off \
+    -fno-lto \
+    -c "${repository_dir}/source/main/physics/ContactConservation.cpp" \
+    -o "${test_build_dir}/contact_conservation.o"
+
+"${physics_test_compiler}" \
+    "${common_test_flags[@]}" \
+    -fno-fast-math \
+    -ffp-contract=off \
+    -fno-lto \
+    -pthread \
+    -c "${repository_dir}/tests/physics/ContactConservationTests.cpp" \
+    -o "${test_build_dir}/contact_conservation_tests.o"
+
+"${physics_test_compiler}" \
+    "${common_test_flags[@]}" \
+    -pthread \
+    "${test_build_dir}/contact_conservation_tests.o" \
+    "${test_build_dir}/contact_conservation.o" \
+    -o "${test_build_dir}/contact_conservation_tests"
+
+"${physics_test_compiler}" \
+    "${common_test_flags[@]}" \
+    -ffast-math \
+    -pthread \
+    -c "${repository_dir}/tests/physics/ContactConservationTests.cpp" \
+    -o "${test_build_dir}/contact_conservation_fast_math_tests.o"
+
+"${physics_test_compiler}" \
+    "${common_test_flags[@]}" \
+    -pthread \
+    "${test_build_dir}/contact_conservation_fast_math_tests.o" \
+    "${test_build_dir}/contact_conservation.o" \
+    -o "${test_build_dir}/contact_conservation_fast_math_tests"
+
+"${physics_test_compiler}" \
+    "${common_test_flags[@]}" \
     "${repository_dir}/tests/physics/CalibratedBeamMaterialTests.cpp" \
     -o "${test_build_dir}/calibrated_beam_material_tests"
 
@@ -189,6 +227,8 @@ physics_test_executables=(
     deterministic_scenario_schedule_tests
     deterministic_impact_initial_condition_tests
     deterministic_contact_order_tests
+    contact_conservation_tests
+    contact_conservation_fast_math_tests
     deterministic_input_trace_tests
     deterministic_input_trace_runtime_tests
     deterministic_input_continuation_savegame_tests

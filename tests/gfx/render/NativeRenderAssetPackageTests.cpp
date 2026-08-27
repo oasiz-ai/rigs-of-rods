@@ -16,6 +16,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -94,6 +95,21 @@ void PutU64(std::vector<std::uint8_t> &bytes, std::size_t offset,
     bytes[offset + index] =
         static_cast<std::uint8_t>((value >> (index * 8U)) & 0xFFU);
   }
+}
+
+void AppendU32(std::vector<std::uint8_t> &bytes, std::uint32_t value) {
+  for (std::size_t index = 0U; index < 4U; ++index) {
+    bytes.push_back(
+        static_cast<std::uint8_t>((value >> (index * 8U)) & 0xFFU));
+  }
+}
+
+void AppendFloat(std::vector<std::uint8_t> &bytes, float value) {
+  static_assert(sizeof(float) == sizeof(std::uint32_t),
+                "package test requires IEEE binary32 storage");
+  std::uint32_t bits = 0U;
+  std::memcpy(&bits, &value, sizeof(bits));
+  AppendU32(bytes, bits);
 }
 
 struct RecordView {
@@ -202,6 +218,70 @@ std::vector<std::uint8_t> ReplaceManifestPayload(
                                                   manifest.payload_size),
       bytes.end());
   PutU64(result, manifest.header_offset + 16U, text.size());
+  PutU64(result, 32U, result.size());
+  RefreshBodyDigest(result);
+  return result;
+}
+
+std::vector<std::uint8_t> MakeSyntheticTransmissionV2Package() {
+  std::vector<std::uint8_t> source = ReplaceManifestPayload(
+      ReadFixture(), "ror-native-render-package-manifest-v1",
+      "ror-native-render-package-manifest-v2");
+  Require(U32(source, 8U) == kNativeRenderAssetPackageVersion,
+          "v2 regression source is not the checked v1 package");
+
+  std::vector<std::uint8_t> result(
+      source.begin(),
+      source.begin() +
+          static_cast<std::ptrdiff_t>(kNativeRenderAssetPackageHeaderBytes));
+  constexpr std::array<std::uint8_t, 8U> kTransmissionMagic{{
+      'R', 'O', 'R', 'N', 'A', 'T', '2', 0U,
+  }};
+  std::copy(kTransmissionMagic.begin(), kTransmissionMagic.end(),
+            result.begin());
+  PutU32(result, 8U, kNativeRenderAssetPackageTransmissionVersion);
+
+  for (const RecordView &record : Records(source)) {
+    std::vector<std::uint8_t> payload(
+        source.begin() + static_cast<std::ptrdiff_t>(record.payload_offset),
+        source.begin() + static_cast<std::ptrdiff_t>(record.payload_offset +
+                                                      record.payload_size));
+    if (record.type == 4U) {
+      const std::string name = RecordName(source, record);
+      const std::uint32_t name_size = U32(payload, 4U);
+      const std::size_t state_offset = 8U + name_size;
+      const std::size_t transmission_offset = state_offset + 8U + 17U * 4U;
+      Require(transmission_offset <= payload.size(),
+              "v1 material layout is truncated");
+      PutU32(payload, 0U, kMaterialDescriptorTransmissionVersion);
+
+      const bool thin_slab = name == "rorng_a0_reflector_material";
+      if (thin_slab) {
+        payload[state_offset + 6U] = 0U; // depth_write
+        payload[state_offset + 7U] = static_cast<std::uint8_t>(
+            MaterialTransmissionMode::THIN_PARALLEL_SLAB);
+      }
+      std::vector<std::uint8_t> transmission;
+      transmission.reserve(6U * sizeof(float));
+      AppendFloat(transmission, thin_slab ? 0.75F : 0.0F);
+      AppendFloat(transmission, thin_slab ? 0.8F : 1.0F);
+      AppendFloat(transmission, thin_slab ? 0.9F : 1.0F);
+      AppendFloat(transmission, 1.0F);
+      AppendFloat(transmission, thin_slab ? 2.0F : 1.0F);
+      AppendFloat(transmission, thin_slab ? 0.1F : 0.0F);
+      payload.insert(
+          payload.begin() + static_cast<std::ptrdiff_t>(transmission_offset),
+          transmission.begin(), transmission.end());
+    }
+
+    const std::size_t header_offset = result.size();
+    result.insert(
+        result.end(),
+        source.begin() + static_cast<std::ptrdiff_t>(record.header_offset),
+        source.begin() + static_cast<std::ptrdiff_t>(record.payload_offset));
+    PutU64(result, header_offset + 16U, payload.size());
+    result.insert(result.end(), payload.begin(), payload.end());
+  }
   PutU64(result, 32U, result.size());
   RefreshBodyDigest(result);
   return result;
@@ -599,6 +679,51 @@ void TestCheckedFixtureDecodesToCanonicalJoinedInputs() {
                     *repeated.package->assets[index].payload),
             "repeat decode changed canonical asset contents");
   }
+}
+
+void TestSyntheticV2TransmissionRemainsBackwardCompatible() {
+  const std::vector<std::uint8_t> bytes =
+      MakeSyntheticTransmissionV2Package();
+  const NativeRenderAssetPackageDecodeResult decoded =
+      DecodeNativeRenderAssetPackage(bytes.data(), bytes.size(),
+                                     TrustedDigest(bytes));
+  Require(decoded.ok(), "synthetic checked v2 package did not decode");
+  const NativeRenderAssetPackage &package = *decoded.package;
+  Require(package.version == kNativeRenderAssetPackageTransmissionVersion &&
+              package.provenance_manifest_json.find(
+                  "ror-native-render-package-manifest-v2") !=
+                  std::string::npos,
+          "v2 package identity or embedded manifest changed");
+
+  std::size_t mesh_count = 0U;
+  std::size_t material_count = 0U;
+  for (const GraphicsSceneAssetInput &input : package.assets) {
+    if (const auto *mesh =
+            std::get_if<MeshResourceDescriptor>(input.payload.get())) {
+      ++mesh_count;
+      Require(mesh->distance_lod_levels.empty(),
+              "v2 mesh unexpectedly decoded a v3 LOD ladder");
+    } else if (const auto *material =
+                   std::get_if<MaterialDescriptor>(input.payload.get())) {
+      ++material_count;
+      Require(material->version == kMaterialDescriptorTransmissionVersion,
+              "v2 material did not decode through the transmission wire path");
+    }
+  }
+  Require(mesh_count == 5U && material_count == 4U,
+          "synthetic v2 asset counts changed");
+
+  const GraphicsSceneAssetInput *reflector =
+      FindAsset(package, "rorng_a0_reflector_material");
+  Require(reflector != nullptr, "synthetic v2 thin-slab material is absent");
+  const auto &glass = std::get<MaterialDescriptor>(*reflector->payload);
+  Require(glass.transmission_mode ==
+                  MaterialTransmissionMode::THIN_PARALLEL_SLAB &&
+              glass.transmission_factor == 0.75F &&
+              glass.attenuation_color == Float3{0.8F, 0.9F, 1.0F} &&
+              glass.attenuation_distance_m == 2.0F &&
+              glass.slab_thickness_m == 0.1F && !glass.depth_write,
+          "v2 thin-slab transmission fields changed during decode");
 }
 
 void TestHeaderDigestAndBoundsFailClosed() {
@@ -1051,6 +1176,7 @@ void TestCanonicalRecordAndSemanticMutationsFailClosed() {
 
 int main() {
   TestCheckedFixtureDecodesToCanonicalJoinedInputs();
+  TestSyntheticV2TransmissionRemainsBackwardCompatible();
   TestHeaderDigestAndBoundsFailClosed();
   TestCanonicalRecordAndSemanticMutationsFailClosed();
   std::cout << "native render asset package tests passed\n";

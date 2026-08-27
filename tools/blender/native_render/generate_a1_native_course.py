@@ -218,6 +218,22 @@ def build_meshes(utility: ModuleType) -> dict[str, Mesh]:
     return dict(sorted(meshes.items()))
 
 
+def selected_box_indices(mesh: Mesh, box_indexes: Iterable[int]) -> list[int]:
+    """Return an ordered triangle subset from a joined-box base mesh."""
+
+    indices = mesh["indices"]
+    if not isinstance(indices, list) or len(indices) % 36 != 0:
+        raise RuntimeError("distance LOD source is not a canonical joined-box mesh")
+    result: list[int] = []
+    previous = -1
+    for box_index in box_indexes:
+        if box_index <= previous or box_index < 0 or (box_index + 1) * 36 > len(indices):
+            raise RuntimeError("distance LOD box indexes must be unique, sorted, and in range")
+        result.extend(indices[box_index * 36 : (box_index + 1) * 36])
+        previous = box_index
+    return result
+
+
 def build_glb(utility: ModuleType) -> bytes:
     meshes = build_meshes(utility)
     binary = bytearray()
@@ -918,6 +934,7 @@ def build_texture_definitions(utility: ModuleType) -> tuple[tuple[str, str, str,
 
 def build_sources(repo_root: Path) -> None:
     utility = load_authoring_utility(repo_root)
+    authored_meshes = build_meshes(utility)
     source_root = repo_root / SOURCE_DIRECTORY
     texture_root = source_root / "textures"
     texture_root.mkdir(parents=True, exist_ok=True)
@@ -1093,6 +1110,32 @@ def build_sources(repo_root: Path) -> None:
         "rorng_a1_shoulder_mesh",
         "rorng_a0_wet_asphalt_mesh",
     }
+    mesh_distance_lods: dict[str, list[dict[str, object]]] = {
+        "rorng_a1_barrier_mesh": [
+            {
+                "activation_distance_meters": 35.0,
+                "indices": selected_box_indices(
+                    authored_meshes["rorng_a1_barrier_mesh"], (0, 1)
+                ),
+            }
+        ],
+        "rorng_a1_calibration_marker_mesh": [
+            {
+                "activation_distance_meters": 30.0,
+                "indices": selected_box_indices(
+                    authored_meshes["rorng_a1_calibration_marker_mesh"],
+                    range(0, 20, 2),
+                ),
+            },
+            {
+                "activation_distance_meters": 55.0,
+                "indices": selected_box_indices(
+                    authored_meshes["rorng_a1_calibration_marker_mesh"],
+                    (0, 2, 8, 10, 16, 18),
+                ),
+            },
+        ],
+    }
     manifest_meshes = []
     for mesh_id, material_id in sorted(mesh_materials.items()):
         if mesh_id in passive:
@@ -1103,6 +1146,7 @@ def build_sources(repo_root: Path) -> None:
             flags = ["casts_shadow", "receives_shadow", "visible_in_reflections"]
         manifest_meshes.append(
             {
+                "distance_lods": mesh_distance_lods.get(mesh_id, []),
                 "id": mesh_id,
                 "instance_flags": flags,
                 "material": material_id,
@@ -1116,11 +1160,11 @@ def build_sources(repo_root: Path) -> None:
         "claims": {
             "ambient_occlusion": False,
             "collision": False,
-            "lods": False,
+            "lods": True,
             "native_terrain": False,
             "visual_only": True,
         },
-        "format": "ror-native-render-source-v2",
+        "format": "ror-native-render-source-v3",
         "materials": materials,
         "meshes": manifest_meshes,
         "outputs": {
@@ -1129,14 +1173,14 @@ def build_sources(repo_root: Path) -> None:
         },
         "package": {
             "author": "Rigs of Rods contributors",
-            "creation_attestation": "Project-original A1 geometry, textures, material declarations, and alignment data were independently authored for V2. The generator reuses only hash-pinned project-owned A0 authoring utility code; no geometry, texture, material-script, or shader bytes were copied from A0, legacy content, or another simulator.",
+            "creation_attestation": "Project-original A1 geometry, textures, material declarations, alignment data, and v3 distance-LOD triangle selections were independently authored for this package. The generator reuses only hash-pinned project-owned A0 authoring utility code; no geometry, texture, material-script, or shader bytes were copied from A0, legacy content, or another simulator.",
             "dimensions_m": [13.0, 3.27, 60.0],
             "display_name": "A1 native 60 metre visual calibration course",
             "id": PACKAGE_ID,
             "license": "GPL-3.0-or-later",
             "modified": False,
             "origin_class": "project_original",
-            "source_revision": "sha256-pinned-source-set-v2-thin-slab-transmission",
+            "source_revision": "sha256-pinned-source-set-v3-distance-lod",
             "source_uri": "https://github.com/RigsOfRods/rigs-of-rods",
         },
         "samplers": [

@@ -41,9 +41,9 @@ constexpr RenderPayloadDigest kNativeVisualShowcasePackageSha256{{
     0x26U, 0x7EU, 0xC1U, 0xC9U, 0x06U, 0x8AU, 0x0EU, 0xA9U, 0xBCU, 0x05U,
 }};
 /// A1 is the current project-original 60 m visual course. It intentionally
-/// uses the backward-compatible `.rornative` v2 extension for its authored
-/// thin-slab transmission witness; collision and driveability are separate
-/// gates.
+/// uses `.rornative` v3 for its authored distance-LOD ladder while retaining
+/// the v2 thin-slab transmission record; collision and driveability are
+/// separate gates.
 constexpr char kNativeVisualShowcaseA1PackageRelativePath[] =
     "resources/nextgen/native/a1_native_course_60m/"
     "rorng_a1_native_course_60m.rornative";
@@ -53,11 +53,11 @@ constexpr char kNativeVisualShowcaseA1ExecutableResourceRelativePath[] =
 constexpr char kNativeVisualShowcaseA1PackageId[] =
     "rorng_a1_native_course_60m";
 constexpr char kNativeVisualShowcaseA1PackageSha256Hex[] =
-    "fe37f2bb05f15bc4954c07ff83a71c2dea24b51af473056f8257a47b4cc8cc7e";
+    "e420438797a77e4e49b91e3c6c930f39d340f99a4772ef989182a62605f2d53b";
 constexpr RenderPayloadDigest kNativeVisualShowcaseA1PackageSha256{{
-    0xFEU, 0x37U, 0xF2U, 0xBBU, 0x05U, 0xF1U, 0x5BU, 0xC4U, 0x95U, 0x4CU, 0x07U,
-    0xFFU, 0x83U, 0xA7U, 0x1CU, 0x2DU, 0xEAU, 0x24U, 0xB5U, 0x1AU, 0xF4U, 0x73U,
-    0x05U, 0x6FU, 0x82U, 0x57U, 0xA4U, 0x7BU, 0x4CU, 0xC8U, 0xCCU, 0x7EU,
+    0xE4U, 0x20U, 0x43U, 0x87U, 0x97U, 0xA7U, 0x7EU, 0x4EU, 0x49U, 0xB9U, 0x1EU,
+    0x3CU, 0x6CU, 0x93U, 0x0FU, 0x39U, 0xD3U, 0x40U, 0xF9U, 0x9AU, 0x47U, 0x72U,
+    0xEFU, 0x98U, 0x91U, 0x82U, 0xA6U, 0x26U, 0x05U, 0xF2U, 0xD5U, 0x3BU,
 }};
 constexpr std::uint64_t kNativeVisualShowcaseSunLightId = 0x524F524E4753554EULL;
 constexpr std::uint64_t kNativeVisualShowcaseCameraViewId =

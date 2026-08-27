@@ -78,11 +78,19 @@ class ContentProvenanceWorkflowContractTests(unittest.TestCase):
         self.assertIn("Verify checked forward-native A1 package", workflow)
         self.assertEqual(
             workflow.count("tools/validate_native_render_asset.py"),
-            2,
+            1,
         )
         self.assertEqual(
             workflow.count("tools/compile_native_render_asset.py"),
-            2,
+            1,
+        )
+        self.assertEqual(
+            workflow.count("tools/validate_native_render_asset_v3.py"),
+            1,
+        )
+        self.assertEqual(
+            workflow.count("tools/compile_native_render_asset_v3.py"),
+            1,
         )
         self.assertEqual(workflow.count(NATIVE_RENDER_ASSET_SOURCE_PATH), 2)
         self.assertEqual(workflow.count(NATIVE_A1_COURSE_SOURCE_PATH), 2)

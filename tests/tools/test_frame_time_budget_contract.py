@@ -395,6 +395,71 @@ class FrameTimeBudgetContractTests(unittest.TestCase):
             self.source,
         )
 
+    def test_native_draw_receipt_uses_the_behavioral_pass_state_machine(
+        self,
+    ) -> None:
+        frontend = strip_comments(
+            (ROOT / "source/main/gfx/render/ogrenext/OgreNextN1Frontend.cpp")
+            .read_text()
+        )
+        listener_start = frontend.index(
+            "class NativeRenderPassMetricsListener final"
+        )
+        listener_end = frontend.index("namespace {", listener_start)
+        listener = frontend[listener_start:listener_end]
+        self.assertIn('#include "OgreNextNativeRenderPassMetrics.h"', frontend)
+        for delegation in (
+            "state_.BeginFrame(",
+            "state_.ScenePre(",
+            "state_.SceneAfterShadowMaps(",
+            "state_.ScenePost(",
+            "state_.WorkspacePost(",
+            "state_.EndFrame(total, output)",
+            "OgreNextNativeRenderPassMetricsState state_;",
+            "reinterpret_cast<std::uintptr_t>(pass)",
+        ):
+            self.assertIn(delegation, listener)
+        for duplicated_model in (
+            "expected_scene_pass_count_",
+            "aggregate_shadow_maps_",
+            "TryAddNativeRenderMetrics",
+            "TrySubtractNativeRenderMetrics",
+        ):
+            self.assertNotIn(duplicated_model, listener)
+
+        expected_ids = (
+            "kOgreNextHdrBaseScenePassIdentifier",
+            "kOgreNextHdrSunFullScenePassIdentifier",
+            "kOgreNextHdrRasterLitScenePassIdentifier",
+        )
+        offsets = [listener.index(name) for name in expected_ids]
+        self.assertEqual(offsets, sorted(offsets))
+        self.assertIn("kOgreNextHdrSingleScenePassIdentifier", listener)
+
+        begin = frontend.index(
+            "native_render_pass_metrics_listener.BeginFrame("
+        )
+        begin_call = frontend[begin : begin + 260]
+        self.assertIn(
+            "persistent_hdr && !impl_->SingleSceneHdrPssmEnabled()",
+            begin_call,
+        )
+
+        tests = (ROOT / "tests/CMakeLists.txt").read_text()
+        self.assertIn("ror_ogre_next_native_render_pass_metrics_tests", tests)
+        self.assertIn("OgreNextNativeRenderPassMetricsTests.cpp", tests)
+        self.assertIn("OgreNextNativeRenderPassMetrics.cpp", tests)
+
+        for provider in (
+            ROOT / "cmake/ogre_next_embedded/CMakeLists.txt",
+            ROOT / "tools/ogre_next_probe/CMakeLists.txt",
+        ):
+            self.assertIn(
+                "OgreNextNativeRenderPassMetrics.cpp",
+                provider.read_text(),
+                str(provider),
+            )
+
     def test_build_graph_compiles_the_exact_production_kernel(self) -> None:
         game = (ROOT / "source/main/CMakeLists.txt").read_text()
         self.assertIn("system/FrameTimeBudget.{h,cpp}", game)

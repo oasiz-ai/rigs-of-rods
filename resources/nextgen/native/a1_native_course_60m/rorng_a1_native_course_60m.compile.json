@@ -8,19 +8,27 @@
       {
         "path": "tools/validate_native_render_asset.py",
         "sha256": "ba177e420ac00424c23845d6d312637b023b82e57f36b572bfe460658c58b620"
+      },
+      {
+        "path": "tools/validate_native_render_asset_v3.py",
+        "sha256": "91ffc99fc53fe06082fab6d5b0916b45696843cd61db5489660c036e830b8a09"
+      },
+      {
+        "path": "tools/compile_native_render_asset.py",
+        "sha256": "1394ffd3062ada2afe58c8d98dc7b6ca803dec5b0e1396189dad1925ec44e6d1"
       }
     ],
-    "format": "ror-native-render-compiler-v1",
-    "path": "tools/compile_native_render_asset.py",
-    "sha256": "1394ffd3062ada2afe58c8d98dc7b6ca803dec5b0e1396189dad1925ec44e6d1"
+    "format": "ror-native-render-compiler-v3",
+    "path": "tools/compile_native_render_asset_v3.py",
+    "sha256": "2c2e06cc095c959f017325369592fbe72e6f0e87a256edd63fca2a15c7f7c2f5"
   },
   "format": "ror-native-render-compile-report-v1",
   "output": {
-    "body_sha256": "4b9e1c71aee5d5395179677e25f35c1644a3b31cd22783cdcfdd9359ef4ef68a",
-    "bytes": 39758410,
+    "body_sha256": "48f68d1f8e0e43511a4c062b2efc231902f07f1079af552604e2874a4d917582",
+    "bytes": 39761386,
     "path": "resources/nextgen/native/a1_native_course_60m/rorng_a1_native_course_60m.rornative",
     "record_count": 48,
-    "sha256": "fe37f2bb05f15bc4954c07ff83a71c2dea24b51af473056f8257a47b4cc8cc7e"
+    "sha256": "e420438797a77e4e49b91e3c6c930f39d340f99a4772ef989182a62605f2d53b"
   },
   "package_id": "rorng_a1_native_course_60m",
   "source": {
@@ -33,13 +41,15 @@
       "sha256": "7b0648cde63053385d9a7ec66f56da470cfe8bf3465ef5d6c52cc0c9702b7801"
     },
     "manifest_path": "content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.native.json",
-    "manifest_sha256": "f13af91e56670bec17aa286d3b57e1a52d343f1bc307a90dafb9142f21430556"
+    "manifest_sha256": "24f092f28c85aced94401491db91b302ba6fb35d7eec4c71a2aeff725709a202"
   },
   "summary": {
     "asset_count": 38,
     "indices": 1764,
     "instance_count": 9,
     "instances": 9,
+    "lod_indices": 648,
+    "lod_levels": 3,
     "materials": 8,
     "meshes": 9,
     "samplers": 2,
