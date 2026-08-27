@@ -17,6 +17,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/ogre11-compat-native.yml"
 DEPENDENCIES = ROOT / "cmake/DependenciesConfig.cmake"
+MAIN_CMAKE = ROOT / "source/main/CMakeLists.txt"
 TESTS_CMAKE = ROOT / "tests/CMakeLists.txt"
 LINUX_LAUNCHER = ROOT / "tools/linux/RunRoR"
 TOOLS = ROOT / "tools"
@@ -31,6 +32,7 @@ class Ogre11CompatibilityWorkflowContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
         cls.dependencies = DEPENDENCIES.read_text(encoding="utf-8")
+        cls.main_cmake = MAIN_CMAKE.read_text(encoding="utf-8")
         cls.tests_cmake = TESTS_CMAKE.read_text(encoding="utf-8")
 
     def test_ois_header_repair_is_shared_and_alias_safe(self) -> None:
@@ -179,6 +181,15 @@ class Ogre11CompatibilityWorkflowContractTests(unittest.TestCase):
         )
         for test_name in match.group(1).split():
             self.assertIn(f"NAME {test_name}", self.tests_cmake)
+
+    def test_windows_install_uses_declared_application_targets_only(self) -> None:
+        self.assertIn(
+            "TARGETS ${_ror_application_install_targets}", self.main_cmake
+        )
+        self.assertNotRegex(
+            self.main_cmake,
+            r"file\(GLOB files \$\{RUNTIME_OUTPUT_DIRECTORY\}/\*\.exe\)",
+        )
 
     def test_success_and_failure_artifacts_cannot_be_confused_with_product(self) -> None:
         text = self.workflow
