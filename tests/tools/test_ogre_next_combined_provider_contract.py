@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import importlib.util
 import json
@@ -1197,7 +1198,7 @@ class CombinedProviderContractTests(unittest.TestCase):
             'mv "$build/bin/resources/ogrenext" "$quarantine"',
             'test ! -e "$build/bin/resources/ogrenext"',
             "ror.ogre_next_combined_elf_closure.v1",
-            "ror.ogre_next_combined_linux_package.v6",
+            "ror.ogre_next_combined_linux_package.v7",
             '"transport_dereferences_file_symlinks": True',
             '"all_transport_files_inventoried": True',
             '"staged_symlink_count": staged_symlink_count',
@@ -1256,10 +1257,11 @@ class CombinedProviderContractTests(unittest.TestCase):
             "numerical-impact-fixture-not-physical-calibration",
             "Prove authenticated native inter-actor contact conservation",
             "tools/run_jbeam_inter_actor_collision.py",
-            "ror-j2-authenticated-inter-actor-collision-v3",
-            "ror-jbeam-authenticated-inter-actor-collision-v1",
+            "ror-j2-authenticated-inter-actor-collision-v4",
+            "ror-jbeam-authenticated-inter-actor-collision-v2",
             "beamng-docs-0.38.5.0-2026-07-27",
-            "24d4d21a1a171f11f6bc970fc3dd4d3b885b5ddb7ebf2f145b90a642da416fea",
+            "ad51da07ec2986e76bf324be71c364276887c3ed662daaed5707917332ff8288",
+            "730c384619186cc96291f9893ad54c9fb4c66dec74a982666f139968fec438ca",
             "152214276db02490d9b87795716dd3e8fecfd7373719610a2a183254d86fc935",
             "b47115c7c44c1abeb57b32e2acdf77186a6f7f68ded43e75e036a65d68102511",
             "e91e74b5ad429e27b5d09de3391b8f29d3e96bbde0edb8e92844bcef0b2dc577",
@@ -1271,6 +1273,14 @@ class CombinedProviderContractTests(unittest.TestCase):
             '"fixture_profile": "inputs/fixture-profile.json"',
             '"fixture_profile_sha256"',
             '"contact_conservation_schema": 3',
+            '"contact_acceptance_schema": 1',
+            '"contact_acceptance": contact_acceptance',
+            '"contact_acceptance_canonicalization"',
+            "ror-contact-acceptance-sorted-decimal-json-v1",
+            '"contact_acceptance_sha256": contact_acceptance_sha256',
+            '"report_sha256": contact_report_sha256',
+            '"summed_angular_impulse_delta_magnitude_nms"',
+            '"summedAngularImpulseDeltaMagnitudeNms"',
             '"audited_fixed_steps": 2000',
             '"whole_step_shared_node_energy": "audited"',
             '"shared_node_contacts_observed": True',
@@ -1291,6 +1301,15 @@ class CombinedProviderContractTests(unittest.TestCase):
         ):
             with self.subTest(token=token):
                 self.assertIn(token, linux_job)
+        for retired in (
+            "ror.ogre_next_combined_linux_package.v6",
+            "ror-j2-authenticated-inter-actor-collision-v3",
+            "ror-jbeam-authenticated-inter-actor-collision-v1",
+            "fd7b41ededbe1a4dd150d5f35a47378904a669efda2ec1689a56c863cb442b55",
+            "ffbfd22f7754d85bbb0dec2c548776b90d622408a8826b3cb4aa111a84165ee3",
+        ):
+            with self.subTest(retired=retired):
+                self.assertNotIn(retired, linux_job)
         self.assertNotIn("--native-visual-showcase-a0", linux_job)
         self.assertNotIn("ROR_OGRE_NEXT_ALLOW_DIRTY_DEVELOPMENT_BUILD", linux_job)
         self.assertIn(
@@ -1307,6 +1326,29 @@ class CombinedProviderContractTests(unittest.TestCase):
             "${{ runner.temp }}/ror-combined-packaged-scene/",
             linux_job,
         )
+
+    def test_combined_workflow_embedded_python_is_syntactically_valid(self) -> None:
+        lines = COMBINED_WORKFLOW.splitlines()
+        block_count = 0
+        index = 0
+        while index < len(lines):
+            if "<<'PY'" not in lines[index]:
+                index += 1
+                continue
+            index += 1
+            body: list[str] = []
+            while index < len(lines) and lines[index].strip() != "PY":
+                line = lines[index]
+                body.append(line[10:] if line.startswith("          ") else line)
+                index += 1
+            self.assertLess(index, len(lines), "workflow has an unclosed Python heredoc")
+            ast.parse(
+                "\n".join(body) + "\n",
+                filename=f"ogre-next-combined-workflow-{block_count + 1}.py",
+            )
+            block_count += 1
+            index += 1
+        self.assertGreater(block_count, 0)
 
     def test_windows_combined_workflow_builds_installs_and_smokes_one_target(
         self,

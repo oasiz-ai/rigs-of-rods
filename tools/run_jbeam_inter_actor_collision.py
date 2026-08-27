@@ -12,6 +12,7 @@ parity or broad third-party-mod compatibility.
 from __future__ import annotations
 
 import argparse
+from decimal import Decimal
 import hashlib
 import json
 import math
@@ -46,6 +47,10 @@ SCENARIO_ID = 2026082106
 EXPECTED_STEPS = 2000
 EXPECTED_ACTORS = 2
 EXPECTED_STATE_DIGEST_SCHEMA_VERSION = 3
+EXPECTED_PHYSICS_FLAGS = 1
+CONTACT_ACCEPTANCE_CANONICALIZATION = (
+    "ror-contact-acceptance-sorted-decimal-json-v1"
+)
 
 START_MARKER = (
     "[RoR|J2|InterActorCollision] START scenario=2026082106 "
@@ -118,13 +123,215 @@ def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _strict_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise CollisionGateFailure(f"duplicate JSON object key: {key}")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(token: str) -> object:
+    raise CollisionGateFailure(f"non-finite JSON constant: {token}")
+
+
+def _require_finite_json(value: object, label: str) -> None:
+    if isinstance(value, float) and not math.isfinite(value):
+        raise CollisionGateFailure(f"{label} contains a non-finite number")
+    if isinstance(value, dict):
+        for child in value.values():
+            _require_finite_json(child, label)
+    elif isinstance(value, list):
+        for child in value:
+            _require_finite_json(child, label)
+
+
+def decode_strict_json(source: str, label: str) -> object:
+    try:
+        value = json.loads(
+            source,
+            object_pairs_hook=_strict_json_object,
+            parse_constant=_reject_json_constant,
+        )
+    except CollisionGateFailure:
+        raise
+    except (json.JSONDecodeError, OverflowError, TypeError, ValueError) as error:
+        raise CollisionGateFailure(f"{label} is not strict JSON") from error
+    _require_finite_json(value, label)
+    return value
+
+
+def is_finite_number(value: object) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (OverflowError, ValueError):
+        return False
+
+
+CONTACT_ACCEPTANCE_KEYS = {
+    "contactCount",
+    "maximumAngularImpulseDeltaMagnitudeNms",
+    "maximumNormalizedLinearImpulseResidual",
+    "maximumRelativeVelocityChangeMps",
+    "maximumVerticalSeparationM",
+    "schema",
+    "summedAngularImpulseDeltaMagnitudeNms",
+    "summedSharedNodeCrossTermJ",
+    "summedWholeStepContactIntegrationEnergyDeltaJ",
+    "summedWholeStepContactKineticEnergyDeltaJ",
+    "summedWholeStepContactWorkJ",
+}
+
+NONNEGATIVE_ACCEPTANCE_KEYS = {
+    "maximumAngularImpulseDeltaMagnitudeNms",
+    "maximumNormalizedLinearImpulseResidual",
+    "maximumRelativeVelocityChangeMps",
+    "maximumVerticalSeparationM",
+    "summedAngularImpulseDeltaMagnitudeNms",
+}
+
+
+def validate_contact_acceptance(value: object) -> dict[str, object]:
+    if not isinstance(value, dict) or set(value) != CONTACT_ACCEPTANCE_KEYS:
+        raise CollisionGateFailure("contact acceptance schema drifted")
+    if type(value.get("schema")) is not int or value["schema"] != 1:
+        raise CollisionGateFailure("contact acceptance schema is unsupported")
+    for key in CONTACT_ACCEPTANCE_KEYS - {"schema"}:
+        bounds = value.get(key)
+        if not isinstance(bounds, dict) or set(bounds) != {"minimum", "maximum"}:
+            raise CollisionGateFailure(f"contact acceptance {key} bounds drifted")
+        minimum = bounds.get("minimum")
+        maximum = bounds.get("maximum")
+        if key == "contactCount":
+            if (
+                type(minimum) is not int
+                or type(maximum) is not int
+                or minimum < 1
+            ):
+                raise CollisionGateFailure(
+                    "contact acceptance contactCount bounds are invalid"
+                )
+        elif not is_finite_number(minimum) or not is_finite_number(maximum):
+            raise CollisionGateFailure(f"contact acceptance {key} bounds are invalid")
+        if minimum > maximum:
+            raise CollisionGateFailure(f"contact acceptance {key} bounds are reversed")
+        if key in NONNEGATIVE_ACCEPTANCE_KEYS and minimum < 0:
+            raise CollisionGateFailure(
+                f"contact acceptance {key} minimum must be nonnegative"
+            )
+    return value
+
+
+def _canonical_decimal_json(value: object) -> str:
+    if isinstance(value, dict):
+        return "{" + ",".join(
+            json.dumps(key, ensure_ascii=True)
+            + ":"
+            + _canonical_decimal_json(value[key])
+            for key in sorted(value)
+        ) + "}"
+    if type(value) is int:
+        return str(value)
+    if type(value) is float:
+        number = Decimal(str(value))
+        if number == 0:
+            return "0"
+        return format(number.normalize(), "f")
+    raise CollisionGateFailure(
+        f"contact acceptance contains unsupported canonical type: {type(value).__name__}"
+    )
+
+
+def contact_acceptance_canonical_bytes(value: object) -> bytes:
+    accepted = validate_contact_acceptance(value)
+    return _canonical_decimal_json(accepted).encode("ascii")
+
+
+def contact_acceptance_sha256(value: object) -> str:
+    return sha256_bytes(contact_acceptance_canonical_bytes(value))
+
+
+def enforce_contact_acceptance(
+    acceptance: object,
+    telemetry: object,
+) -> None:
+    accepted = validate_contact_acceptance(acceptance)
+    if not isinstance(telemetry, dict):
+        raise CollisionGateFailure("contact telemetry is missing")
+    conservation = telemetry.get("contact_conservation")
+    if not isinstance(conservation, dict):
+        raise CollisionGateFailure("contact conservation telemetry is missing")
+    bindings = {
+        "contactCount": conservation.get("contact_count"),
+        "maximumRelativeVelocityChangeMps": telemetry.get(
+            "maximum_relative_velocity_change"
+        ),
+        "maximumVerticalSeparationM": telemetry.get(
+            "maximum_vertical_separation"
+        ),
+        "maximumNormalizedLinearImpulseResidual": conservation.get(
+            "maximum_normalized_linear_impulse_residual"
+        ),
+        "maximumAngularImpulseDeltaMagnitudeNms": conservation.get(
+            "maximum_angular_impulse_delta_magnitude_nms"
+        ),
+        "summedAngularImpulseDeltaMagnitudeNms": conservation.get(
+            "summed_angular_impulse_delta_magnitude_nms"
+        ),
+        "summedWholeStepContactWorkJ": conservation.get(
+            "summed_whole_step_contact_work_j"
+        ),
+        "summedWholeStepContactKineticEnergyDeltaJ": conservation.get(
+            "summed_whole_step_contact_kinetic_energy_delta_j"
+        ),
+        "summedWholeStepContactIntegrationEnergyDeltaJ": conservation.get(
+            "summed_whole_step_contact_integration_energy_delta_j"
+        ),
+        "summedSharedNodeCrossTermJ": conservation.get(
+            "summed_shared_node_cross_term_j"
+        ),
+    }
+    for key, measurement in bindings.items():
+        if key == "contactCount":
+            valid_measurement = type(measurement) is int
+        else:
+            valid_measurement = is_finite_number(measurement)
+        if not valid_measurement:
+            raise CollisionGateFailure(f"contact acceptance {key} measurement is invalid")
+        bounds = accepted[key]
+        if measurement < bounds["minimum"] or measurement > bounds["maximum"]:
+            raise CollisionGateFailure(
+                f"contact acceptance {key} measurement is outside the scenario envelope"
+            )
+    contact_count = int(bindings["contactCount"])
+    maximum_angular_delta = float(
+        bindings["maximumAngularImpulseDeltaMagnitudeNms"]
+    )
+    summed_angular_delta = float(
+        bindings["summedAngularImpulseDeltaMagnitudeNms"]
+    )
+    angular_ceiling = contact_count * maximum_angular_delta
+    if summed_angular_delta > angular_ceiling and not math.isclose(
+        summed_angular_delta,
+        angular_ceiling,
+        rel_tol=1e-12,
+        abs_tol=1e-12,
+    ):
+        raise CollisionGateFailure(
+            "summed angular impulse delta exceeds the per-contact triangle bound"
+        )
+
+
 def resolve_direct_file(path: Path, label: str) -> Path:
     if path.is_symlink() or not path.is_file():
         raise CollisionGateFailure(f"{label} is missing or indirect: {path}")
     return path.resolve(strict=True)
 
 
-def read_profile(repository: Path) -> tuple[dict[str, object], bytes, bytes]:
+def read_profile(repository: Path) -> tuple[dict[str, object], bytes, bytes, bytes]:
     profile_path = repository / PROFILE_RELATIVE
     jbeam_path = repository / JBEAM_RELATIVE
     script_path = repository / SCRIPT_RELATIVE
@@ -136,9 +343,12 @@ def read_profile(repository: Path) -> tuple[dict[str, object], bytes, bytes]:
         if not path.is_file() or path.is_symlink():
             raise CollisionGateFailure(f"{label} is missing or indirect: {path}")
     try:
-        profile = json.loads(profile_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise CollisionGateFailure("fixture profile is not canonical JSON") from error
+        profile_bytes = profile_path.read_bytes()
+        profile = decode_strict_json(
+            profile_bytes.decode("utf-8"), "fixture profile"
+        )
+    except (OSError, UnicodeDecodeError) as error:
+        raise CollisionGateFailure("fixture profile is not strict JSON") from error
     try:
         jbeam = support.canonical_lf_text(jbeam_path.read_bytes(), "JBeam source")
         script = support.canonical_lf_text(script_path.read_bytes(), "scenario script")
@@ -146,6 +356,7 @@ def read_profile(repository: Path) -> tuple[dict[str, object], bytes, bytes]:
         raise CollisionGateFailure(str(error)) from error
     expected_keys = {
         "authorship",
+        "contactAcceptance",
         "documentationProfile",
         "execution",
         "expectedRuntime",
@@ -160,9 +371,9 @@ def read_profile(repository: Path) -> tuple[dict[str, object], bytes, bytes]:
     if not isinstance(profile, dict) or set(profile) != expected_keys:
         raise CollisionGateFailure("fixture profile schema drifted")
     if (
-        profile.get("schema") != 1
+        profile.get("schema") != 2
         or profile.get("fixtureId")
-        != "ror-jbeam-authenticated-inter-actor-collision-v1"
+        != "ror-jbeam-authenticated-inter-actor-collision-v2"
         or profile.get("authorship") != "original-clean-room"
         or profile.get("license") != "GPL-3.0-or-later"
         or profile.get("execution") != "authenticated-product-path"
@@ -202,7 +413,27 @@ def read_profile(repository: Path) -> tuple[dict[str, object], bytes, bytes]:
         ]
     ):
         raise CollisionGateFailure("fixture profile does not match exact sources")
-    return profile, jbeam, script
+    validate_contact_acceptance(profile.get("contactAcceptance"))
+    return profile, profile_bytes, jbeam, script
+
+
+def stage_profile_bytes(destination: Path, payload: bytes) -> str:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(destination, flags, 0o644)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(payload)
+    except OSError as error:
+        raise CollisionGateFailure("fixture profile staging failed closed") from error
+    try:
+        staged_payload = destination.read_bytes()
+    except OSError as error:
+        raise CollisionGateFailure("fixture profile staging is unreadable") from error
+    if destination.is_symlink() or not destination.is_file() or staged_payload != payload:
+        raise CollisionGateFailure("fixture profile staging changed bytes")
+    return sha256_bytes(payload)
 
 
 def build_command(executable: Path) -> tuple[str, ...]:
@@ -229,6 +460,7 @@ def validate_logs(
     script_log: str,
     archive_sha256: str,
     require_scan_receipt: bool,
+    contact_acceptance: object,
 ) -> dict[str, object]:
     if returncode != 0:
         raise CollisionGateFailure(f"RoR collision gate exited with {returncode}")
@@ -336,6 +568,11 @@ def validate_logs(
             conservation_match.group("shared_cross")
         ),
     }
+    conservation["summed_angular_impulse_delta_magnitude_nms"] = math.hypot(
+        conservation["summed_angular_impulse_delta_x_nms"],
+        conservation["summed_angular_impulse_delta_y_nms"],
+        conservation["summed_angular_impulse_delta_z_nms"],
+    )
     scalar_values = (
         value for value in conservation.values() if isinstance(value, float)
     )
@@ -396,12 +633,14 @@ def validate_logs(
         raise CollisionGateFailure(
             "native whole-step shared-node energy identity is inconsistent"
         )
-    return {
+    telemetry = {
         "broken_beams": broken,
         "contact_conservation": conservation,
         "maximum_relative_velocity_change": relative,
         "maximum_vertical_separation": separation,
     }
+    enforce_contact_acceptance(contact_acceptance, telemetry)
+    return telemetry
 
 
 def bind_conservation_to_trace(
@@ -419,6 +658,125 @@ def bind_conservation_to_trace(
             "native conservation contact count does not bind to the trace"
         )
     return conservation
+
+
+def require_exact_object(
+    value: object,
+    expected_keys: set[str],
+    label: str,
+) -> dict[str, object]:
+    if not isinstance(value, dict) or set(value) != expected_keys:
+        raise CollisionGateFailure(f"{label} key set changed")
+    return value
+
+
+def require_exact_int(
+    value: object,
+    expected: int,
+    label: str,
+) -> int:
+    if type(value) is not int or value != expected:
+        raise CollisionGateFailure(f"{label}={value!r}; expected exact integer {expected}")
+    return value
+
+
+def validate_trace_metadata(
+    value: object,
+    workers: int,
+    digest_key: str,
+    label: str,
+) -> dict[str, object]:
+    metadata_keys = {
+        digest_key,
+        "first_physics_step",
+        "physics_flags",
+        "physics_step_denominator",
+        "physics_step_numerator",
+        "scenario_id",
+        "worker_count",
+    }
+    metadata = require_exact_object(value, metadata_keys, label)
+    expected = {
+        digest_key: EXPECTED_STATE_DIGEST_SCHEMA_VERSION,
+        "first_physics_step": 0,
+        "physics_flags": EXPECTED_PHYSICS_FLAGS,
+        "physics_step_denominator": 2000,
+        "physics_step_numerator": 1,
+        "scenario_id": SCENARIO_ID,
+        "worker_count": workers,
+    }
+    for key, expected_value in expected.items():
+        require_exact_int(metadata[key], expected_value, f"{label} {key}")
+    return metadata
+
+
+def validate_trace_comparison(
+    value: object,
+    left: Path,
+    right: Path,
+    left_workers: int,
+    right_workers: int,
+) -> dict[str, object]:
+    payload = require_exact_object(
+        value,
+        {
+            "difference",
+            "first_divergent_step",
+            "format",
+            "left",
+            "metadata_field",
+            "right",
+            "status",
+            "steps_compared",
+        },
+        "trace comparison",
+    )
+    if (
+        payload["format"] != "ror-d0-state-trace-comparison-v2"
+        or payload["status"] != "match"
+        or payload["difference"] != "none"
+        or payload["metadata_field"] != "none"
+        or payload["first_divergent_step"] is not None
+    ):
+        raise CollisionGateFailure("trace comparison did not report an exact match")
+    require_exact_int(
+        payload["steps_compared"], EXPECTED_STEPS, "trace comparison steps"
+    )
+    for side_name, trace, workers in (
+        ("left", left, left_workers),
+        ("right", right, right_workers),
+    ):
+        side = require_exact_object(
+            payload[side_name],
+            {"error", "label", "metadata", "step"},
+            f"{side_name} trace comparison",
+        )
+        if side["label"] != str(trace) or side["step"] is not None:
+            raise CollisionGateFailure(
+                f"{side_name} trace comparison binding changed"
+            )
+        validate_trace_metadata(
+            side["metadata"],
+            workers,
+            "digest_schema_version",
+            f"{side_name} trace comparison metadata",
+        )
+        error = require_exact_object(
+            side["error"],
+            {"byte_offset", "code", "step_index"},
+            f"{side_name} trace comparison error",
+        )
+        if error["code"] != "none":
+            raise CollisionGateFailure(
+                f"{side_name} trace comparison reported an input error"
+            )
+        require_exact_int(
+            error["byte_offset"], 0, f"{side_name} trace error byte offset"
+        )
+        require_exact_int(
+            error["step_index"], 0, f"{side_name} trace error step index"
+        )
+    return payload
 
 
 def compare_traces(
@@ -440,35 +798,115 @@ def compare_traces(
     )
     output = support.decode_output(completed.stdout)
     try:
-        payload = json.loads(output)
-    except json.JSONDecodeError as error:
+        payload = decode_strict_json(output, "trace comparator output")
+    except CollisionGateFailure as error:
         raise CollisionGateFailure("trace comparator emitted invalid JSON") from error
-    if (
-        completed.returncode != 0
-        or not isinstance(payload, dict)
-        or payload.get("format") != "ror-d0-state-trace-comparison-v2"
-        or payload.get("status") != "match"
-        or payload.get("steps_compared") != EXPECTED_STEPS
-    ):
+    if completed.returncode != 0:
         raise CollisionGateFailure(f"collision traces diverged: {output}")
-    for side_name, workers in (("left", left_workers), ("right", right_workers)):
-        side = payload.get(side_name)
-        metadata = side.get("metadata") if isinstance(side, dict) else None
-        expected = {
-            "first_physics_step": 0,
-            "physics_step_denominator": 2000,
-            "physics_step_numerator": 1,
-            "scenario_id": SCENARIO_ID,
-            "worker_count": workers,
-        }
-        if not isinstance(metadata, dict):
-            raise CollisionGateFailure(f"trace missed {side_name} metadata")
-        for key, value in expected.items():
-            if metadata.get(key) != value:
-                raise CollisionGateFailure(
-                    f"{side_name} trace {key}={metadata.get(key)!r}; "
-                    f"expected {value!r}"
-                )
+    return validate_trace_comparison(
+        payload, left, right, left_workers, right_workers
+    )
+
+
+def validate_trace_inspection(
+    value: object,
+    trace: Path,
+    workers: int,
+) -> dict[str, object]:
+    payload = require_exact_object(
+        value,
+        {
+            "bytes_read",
+            "contact_summary",
+            "final_step",
+            "format",
+            "has_final_step",
+            "metadata",
+            "path",
+            "status",
+            "step_count",
+        },
+        "trace inspection",
+    )
+    if (
+        payload["format"] != "ror-d0-state-trace-inspection-v2"
+        or payload["status"] != "valid"
+        or payload["path"] != str(trace)
+        or payload["has_final_step"] is not True
+    ):
+        raise CollisionGateFailure("trace inspection binding changed")
+    require_exact_int(payload["step_count"], EXPECTED_STEPS, "trace step count")
+    trace_bytes = trace.stat().st_size
+    require_exact_int(payload["bytes_read"], trace_bytes, "trace bytes read")
+    if trace_bytes <= 0:
+        raise CollisionGateFailure("trace is empty")
+    validate_trace_metadata(
+        payload["metadata"],
+        workers,
+        "state_digest_schema_version",
+        "trace inspection metadata",
+    )
+    summary = require_exact_object(
+        payload["contact_summary"],
+        {
+            "contact_step_count",
+            "first_contact_physics_step",
+            "last_contact_physics_step",
+            "maximum_contact_count",
+            "total_contact_count",
+        },
+        "trace contact summary",
+    )
+    for key in summary:
+        if type(summary[key]) is not int:
+            raise CollisionGateFailure(f"trace contact summary {key} is not an integer")
+    total_contacts = summary["total_contact_count"]
+    contact_steps = summary["contact_step_count"]
+    maximum_contacts = summary["maximum_contact_count"]
+    first_contact = summary["first_contact_physics_step"]
+    last_contact = summary["last_contact_physics_step"]
+    if (
+        total_contacts <= 0
+        or contact_steps <= 0
+        or contact_steps > EXPECTED_STEPS
+        or maximum_contacts <= 0
+        or first_contact != 0
+        or last_contact < first_contact
+        or last_contact >= EXPECTED_STEPS
+        or contact_steps > total_contacts
+        or maximum_contacts > total_contacts
+        or total_contacts > contact_steps * maximum_contacts
+    ):
+        raise CollisionGateFailure("trace contact summary is inconsistent")
+    final_step = require_exact_object(
+        payload["final_step"],
+        {
+            "actor_count",
+            "contact_count",
+            "input_digest",
+            "physics_step",
+            "state_digest",
+        },
+        "trace final step",
+    )
+    require_exact_int(
+        final_step["physics_step"], EXPECTED_STEPS - 1, "final physics step"
+    )
+    require_exact_int(final_step["actor_count"], EXPECTED_ACTORS, "final actor count")
+    if (
+        type(final_step["contact_count"]) is not int
+        or final_step["contact_count"] < 0
+        or final_step["contact_count"] > maximum_contacts
+        or final_step["input_digest"] is not None
+        or not isinstance(final_step["state_digest"], str)
+        or re.fullmatch(r"[0-9a-f]{64}", final_step["state_digest"]) is None
+    ):
+        raise CollisionGateFailure("trace final step is inconsistent")
+    if (
+        final_step["physics_step"] > last_contact
+        and final_step["contact_count"] != 0
+    ):
+        raise CollisionGateFailure("trace final contact count contradicts its summary")
     return payload
 
 
@@ -483,45 +921,12 @@ def inspect_trace(
     )
     output = support.decode_output(completed.stdout)
     try:
-        payload = json.loads(output)
-    except json.JSONDecodeError as error:
+        payload = decode_strict_json(output, "trace inspector output")
+    except CollisionGateFailure as error:
         raise CollisionGateFailure("trace inspector emitted invalid JSON") from error
-    metadata = payload.get("metadata") if isinstance(payload, dict) else None
-    final_step = payload.get("final_step") if isinstance(payload, dict) else None
-    summary = payload.get("contact_summary") if isinstance(payload, dict) else None
-    if (
-        completed.returncode != 0
-        or payload.get("format") != "ror-d0-state-trace-inspection-v2"
-        or payload.get("status") != "valid"
-        or payload.get("step_count") != EXPECTED_STEPS
-        or payload.get("has_final_step") is not True
-        or not isinstance(metadata, dict)
-        or metadata.get("state_digest_schema_version")
-        != EXPECTED_STATE_DIGEST_SCHEMA_VERSION
-        or metadata.get("worker_count") != workers
-        or metadata.get("scenario_id") != SCENARIO_ID
-        or metadata.get("first_physics_step") != 0
-        or metadata.get("physics_step_numerator") != 1
-        or metadata.get("physics_step_denominator") != 2000
-        or not isinstance(final_step, dict)
-        or final_step.get("physics_step") != EXPECTED_STEPS - 1
-        or final_step.get("actor_count") != EXPECTED_ACTORS
-        or not isinstance(final_step.get("state_digest"), str)
-        or re.fullmatch(r"[0-9a-f]{64}", final_step["state_digest"]) is None
-        or not isinstance(summary, dict)
-        or not isinstance(summary.get("total_contact_count"), int)
-        or summary["total_contact_count"] <= 0
-        or not isinstance(summary.get("contact_step_count"), int)
-        or summary["contact_step_count"] <= 0
-        or summary["contact_step_count"] > EXPECTED_STEPS
-        or not isinstance(summary.get("maximum_contact_count"), int)
-        or summary["maximum_contact_count"] <= 0
-        or summary.get("first_contact_physics_step") != 0
-        or not isinstance(summary.get("last_contact_physics_step"), int)
-        or summary["last_contact_physics_step"] >= EXPECTED_STEPS
-    ):
+    if completed.returncode != 0:
         raise CollisionGateFailure(f"collision trace inspection failed: {output}")
-    return payload
+    return validate_trace_inspection(payload, trace, workers)
 
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
@@ -558,17 +963,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise CollisionGateFailure(f"artifact directory already exists: {artifact_dir}")
     artifact_dir.mkdir(parents=True)
 
-    profile, jbeam, script = read_profile(repository)
-    profile_source = resolve_direct_file(
-        repository / PROFILE_RELATIVE, "fixture profile"
-    )
-    profile_sha256 = support.sha256_file(profile_source)
+    profile, profile_bytes, jbeam, script = read_profile(repository)
+    contact_acceptance = profile["contactAcceptance"]
+    acceptance_sha256 = contact_acceptance_sha256(contact_acceptance)
     inputs = artifact_dir / "inputs"
     inputs.mkdir()
     staged_profile = inputs / "fixture-profile.json"
-    shutil.copy2(profile_source, staged_profile)
-    if support.sha256_file(staged_profile) != profile_sha256:
-        raise CollisionGateFailure("fixture profile staging changed bytes")
+    profile_sha256 = stage_profile_bytes(staged_profile, profile_bytes)
     runtime_content = (
         support.infer_runtime_content(executable)
         if args.runtime_content is None
@@ -638,6 +1039,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 script_log,
                 archive_sha256,
                 not cache_initialized,
+                contact_acceptance,
             )
             cache_initialized = True
             runtime_trace = support.find_single_trace(layout["logs"])
@@ -705,13 +1107,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
 
     report = {
+        "contact_acceptance": contact_acceptance,
+        "contact_acceptance_canonicalization": (
+            CONTACT_ACCEPTANCE_CANONICALIZATION
+        ),
+        "contact_acceptance_sha256": acceptance_sha256,
         "documentation_profile": profile["documentationProfile"],
         "executable": str(executable),
         "executable_sha256": support.sha256_file(executable),
         "fixture_id": profile["fixtureId"],
         "fixture_profile": str(staged_profile.relative_to(artifact_dir)),
         "fixture_profile_sha256": profile_sha256,
-        "format": "ror-j2-authenticated-inter-actor-collision-v3",
+        "format": "ror-j2-authenticated-inter-actor-collision-v4",
         "jbeam_archive_sha256": archive_sha256,
         "jbeam_source_sha256": sha256_bytes(jbeam),
         "machine": platform.machine(),
@@ -732,7 +1139,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     temporary = artifact_dir / "report.json.tmp"
     final = artifact_dir / "report.json"
     temporary.write_text(
-        json.dumps(report, indent=2, sort_keys=True) + "\n",
+        json.dumps(report, allow_nan=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     os.replace(temporary, final)

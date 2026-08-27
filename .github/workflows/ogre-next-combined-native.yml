@@ -997,6 +997,7 @@ jobs:
           import hashlib
           import json
           import math
+          from decimal import Decimal
           from pathlib import Path
           import re
           import sys
@@ -1007,8 +1008,29 @@ jobs:
           repository = Path(sys.argv[4]).resolve(strict=True)
           if not report_path.is_file() or report_path.is_symlink():
               raise SystemExit("inter-actor collision report is missing or indirect")
-          report = json.loads(report_path.read_text(encoding="utf-8"))
+          def unique_report_object(pairs):
+              value = {}
+              for name, member in pairs:
+                  if name in value:
+                      raise SystemExit(
+                          f"inter-actor report repeats JSON field {name}"
+                      )
+                  value[name] = member
+              return value
+
+          report = json.loads(
+              report_path.read_text(encoding="utf-8"),
+              object_pairs_hook=unique_report_object,
+              parse_constant=lambda token: (_ for _ in ()).throw(
+                  SystemExit(
+                      f"inter-actor report contains non-finite constant {token}"
+                  )
+              ),
+          )
           expected_report_keys = {
+              "contact_acceptance",
+              "contact_acceptance_canonicalization",
+              "contact_acceptance_sha256",
               "documentation_profile",
               "executable",
               "executable_sha256",
@@ -1032,12 +1054,87 @@ jobs:
           }
           if not isinstance(report, dict) or set(report) != expected_report_keys:
               raise SystemExit("inter-actor collision report key set changed")
+          expected_contact_acceptance = {
+              "schema": 1,
+              "contactCount": {"minimum": 128, "maximum": 256},
+              "maximumRelativeVelocityChangeMps": {
+                  "minimum": 5,
+                  "maximum": 8,
+              },
+              "maximumVerticalSeparationM": {
+                  "minimum": 0.5,
+                  "maximum": 1,
+              },
+              "maximumNormalizedLinearImpulseResidual": {
+                  "minimum": 0,
+                  "maximum": 1e-6,
+              },
+              "maximumAngularImpulseDeltaMagnitudeNms": {
+                  "minimum": 1,
+                  "maximum": 2,
+              },
+              "summedAngularImpulseDeltaMagnitudeNms": {
+                  "minimum": 4,
+                  "maximum": 8,
+              },
+              "summedWholeStepContactWorkJ": {
+                  "minimum": -3000,
+                  "maximum": -1800,
+              },
+              "summedWholeStepContactKineticEnergyDeltaJ": {
+                  "minimum": 1200,
+                  "maximum": 3000,
+              },
+              "summedWholeStepContactIntegrationEnergyDeltaJ": {
+                  "minimum": 3500,
+                  "maximum": 5500,
+              },
+              "summedSharedNodeCrossTermJ": {
+                  "minimum": -2500,
+                  "maximum": -1200,
+              },
+          }
+          def canonical_decimal_json(value):
+              if isinstance(value, dict):
+                  return "{" + ",".join(
+                      json.dumps(key, ensure_ascii=True)
+                      + ":"
+                      + canonical_decimal_json(value[key])
+                      for key in sorted(value)
+                  ) + "}"
+              if type(value) is int:
+                  return str(value)
+              if type(value) is float:
+                  number = Decimal(str(value))
+                  if number == 0:
+                      return "0"
+                  return format(number.normalize(), "f")
+              raise SystemExit(
+                  "inter-actor contact acceptance has an unsupported canonical type"
+              )
+
+          canonical_acceptance = canonical_decimal_json(
+              expected_contact_acceptance
+          ).encode("ascii")
+          expected_acceptance_sha256 = (
+              "730c384619186cc96291f9893ad54c9fb4c66dec74a982666f139968fec438ca"
+          )
+          if (
+              report.get("contact_acceptance") != expected_contact_acceptance
+              or report.get("contact_acceptance_canonicalization")
+              != "ror-contact-acceptance-sorted-decimal-json-v1"
+              or report.get("contact_acceptance_sha256")
+              != expected_acceptance_sha256
+              or hashlib.sha256(canonical_acceptance).hexdigest()
+              != expected_acceptance_sha256
+          ):
+              raise SystemExit("inter-actor contact acceptance envelope changed")
           expected = {
-              "format": "ror-j2-authenticated-inter-actor-collision-v3",
-              "fixture_id": "ror-jbeam-authenticated-inter-actor-collision-v1",
+              "format": "ror-j2-authenticated-inter-actor-collision-v4",
+              "fixture_id": "ror-jbeam-authenticated-inter-actor-collision-v2",
               "fixture_profile": "inputs/fixture-profile.json",
               "fixture_profile_sha256": (
-                  "24d4d21a1a171f11f6bc970fc3dd4d3b885b5ddb7ebf2f145b90a642da416fea"
+                  "ad51da07ec2986e76bf324be71c364276887c3ed662daaed5707917332ff8288"
               ),
               "documentation_profile": "beamng-docs-0.38.5.0-2026-07-27",
               "jbeam_archive_sha256": (
@@ -1072,7 +1169,7 @@ jobs:
               repository
               / "tests/fixtures/beamng/jbeam_inter_actor_collision/fixture-profile.json": (
                   "fixture_profile_sha256",
-                  "24d4d21a1a171f11f6bc970fc3dd4d3b885b5ddb7ebf2f145b90a642da416fea",
+                  "ad51da07ec2986e76bf324be71c364276887c3ed662daaed5707917332ff8288",
               ),
               repository
               / "tests/fixtures/beamng/jbeam_spawn_soak/vehicles/ror_jbeam_spawn/main.jbeam": (
@@ -1180,6 +1277,7 @@ jobs:
                   "summed_angular_impulse_delta_x_nms",
                   "summed_angular_impulse_delta_y_nms",
                   "summed_angular_impulse_delta_z_nms",
+                  "summed_angular_impulse_delta_magnitude_nms",
                   "summed_isolated_contact_integration_energy_delta_j",
                   "summed_isolated_contact_kinetic_energy_delta_j",
                   "summed_isolated_contact_work_j",
@@ -1316,6 +1414,84 @@ jobs:
                   <= 1.0e7
               ):
                   raise SystemExit("inter-actor native contact receipt changed")
+              expected_summed_angular_magnitude = math.hypot(
+                  conservation["summed_angular_impulse_delta_x_nms"],
+                  conservation["summed_angular_impulse_delta_y_nms"],
+                  conservation["summed_angular_impulse_delta_z_nms"],
+              )
+              if (
+                  conservation["summed_angular_impulse_delta_magnitude_nms"]
+                  != expected_summed_angular_magnitude
+              ):
+                  raise SystemExit(
+                      "inter-actor summed angular magnitude is not derived exactly"
+                  )
+              acceptance_measurements = {
+                  "contactCount": conservation["contact_count"],
+                  "maximumRelativeVelocityChangeMps": telemetry[
+                      "maximum_relative_velocity_change"
+                  ],
+                  "maximumVerticalSeparationM": telemetry[
+                      "maximum_vertical_separation"
+                  ],
+                  "maximumNormalizedLinearImpulseResidual": conservation[
+                      "maximum_normalized_linear_impulse_residual"
+                  ],
+                  "maximumAngularImpulseDeltaMagnitudeNms": conservation[
+                      "maximum_angular_impulse_delta_magnitude_nms"
+                  ],
+                  "summedAngularImpulseDeltaMagnitudeNms": conservation[
+                      "summed_angular_impulse_delta_magnitude_nms"
+                  ],
+                  "summedWholeStepContactWorkJ": conservation[
+                      "summed_whole_step_contact_work_j"
+                  ],
+                  "summedWholeStepContactKineticEnergyDeltaJ": conservation[
+                      "summed_whole_step_contact_kinetic_energy_delta_j"
+                  ],
+                  "summedWholeStepContactIntegrationEnergyDeltaJ": conservation[
+                      "summed_whole_step_contact_integration_energy_delta_j"
+                  ],
+                  "summedSharedNodeCrossTermJ": conservation[
+                      "summed_shared_node_cross_term_j"
+                  ],
+              }
+              for name, measurement in acceptance_measurements.items():
+                  bounds = expected_contact_acceptance[name]
+                  if name == "contactCount":
+                      valid_measurement = type(measurement) is int
+                  else:
+                      valid_measurement = (
+                          not isinstance(measurement, bool)
+                          and isinstance(measurement, (int, float))
+                          and math.isfinite(float(measurement))
+                      )
+                  if (
+                      not valid_measurement
+                      or measurement < bounds["minimum"]
+                      or measurement > bounds["maximum"]
+                  ):
+                      raise SystemExit(
+                          f"inter-actor contact acceptance failed for {name}"
+                      )
+              angular_ceiling = (
+                  acceptance_measurements["contactCount"]
+                  * acceptance_measurements[
+                      "maximumAngularImpulseDeltaMagnitudeNms"
+                  ]
+              )
+              summed_angular = acceptance_measurements[
+                  "summedAngularImpulseDeltaMagnitudeNms"
+              ]
+              if summed_angular > angular_ceiling and not math.isclose(
+                  summed_angular,
+                  angular_ceiling,
+                  rel_tol=1e-12,
+                  abs_tol=1e-12,
+              ):
+                  raise SystemExit(
+                      "inter-actor angular telemetry violates the triangle bound"
+                  )
               contact_counts.add(summary["total_contact_count"])
               if conservation_receipt is None:
                   conservation_receipt = conservation
@@ -1459,6 +1635,7 @@ jobs:
         run: |
           stage="$ROR_COMBINED_STAGE_DIR"
           python - "$stage" "$GITHUB_SHA" <<'PY'
+          from decimal import Decimal
           import hashlib
           import json
           import os
@@ -1558,8 +1735,130 @@ jobs:
                   "native A1 Linux receipt no longer binds the final staged inputs"
               )
           canonical_json = lambda value: json.dumps(
-              value, sort_keys=True, separators=(",", ":")
+              value, allow_nan=False, sort_keys=True, separators=(",", ":")
           )
+          def canonical_decimal_json(value):
+              if isinstance(value, dict):
+                  return "{" + ",".join(
+                      json.dumps(key, ensure_ascii=True)
+                      + ":"
+                      + canonical_decimal_json(value[key])
+                      for key in sorted(value)
+                  ) + "}"
+              if type(value) is int:
+                  return str(value)
+              if type(value) is float:
+                  number = Decimal(str(value))
+                  if number == 0:
+                      return "0"
+                  return format(number.normalize(), "f")
+              raise SystemExit(
+                  "inter-actor contact acceptance has an unsupported canonical type"
+              )
+
+          contact_report_relative = Path(
+              "qualification/jbeam-inter-actor-contact-conservation/report.json"
+          )
+          contact_report_path = root / contact_report_relative
+          if not contact_report_path.is_file() or contact_report_path.is_symlink():
+              raise SystemExit(
+                  "inter-actor contact report is missing or indirect at inventory time"
+              )
+          contact_report_bytes = contact_report_path.read_bytes()
+          contact_report_sha256 = hashlib.sha256(contact_report_bytes).hexdigest()
+          contact_report = json.loads(
+              contact_report_bytes,
+              object_pairs_hook=unique_receipt_object,
+              parse_constant=lambda token: (_ for _ in ()).throw(
+                  SystemExit(
+                      f"inter-actor contact report contains non-finite constant {token}"
+                  )
+              ),
+          )
+          if not isinstance(contact_report, dict):
+              raise SystemExit("inter-actor contact report is not an object")
+          expected_contact_report_keys = {
+              "contact_acceptance",
+              "contact_acceptance_canonicalization",
+              "contact_acceptance_sha256",
+              "documentation_profile",
+              "executable",
+              "executable_sha256",
+              "fixture_id",
+              "fixture_profile",
+              "fixture_profile_sha256",
+              "format",
+              "jbeam_archive_sha256",
+              "jbeam_source_sha256",
+              "machine",
+              "platform",
+              "repository_commit",
+              "results",
+              "runs_per_worker",
+              "scenario_id",
+              "scope",
+              "script_sha256",
+              "state_comparisons",
+              "steps",
+              "workers",
+          }
+          if set(contact_report) != expected_contact_report_keys:
+              raise SystemExit(
+                  "inter-actor contact report key set changed at inventory time"
+              )
+          contact_acceptance = contact_report.get("contact_acceptance")
+          contact_acceptance_canonicalization = contact_report.get(
+              "contact_acceptance_canonicalization"
+          )
+          contact_acceptance_sha256 = contact_report.get(
+              "contact_acceptance_sha256"
+          )
+          fixture_profile_relative = contact_report.get("fixture_profile")
+          if fixture_profile_relative != "inputs/fixture-profile.json":
+              raise SystemExit("inter-actor fixture profile path changed")
+          fixture_profile_path = contact_report_path.parent / fixture_profile_relative
+          if (
+              not fixture_profile_path.is_file()
+              or fixture_profile_path.is_symlink()
+          ):
+              raise SystemExit(
+                  "inter-actor fixture profile is missing or indirect at inventory time"
+              )
+          fixture_profile_bytes = fixture_profile_path.read_bytes()
+          fixture_profile_sha256 = hashlib.sha256(
+              fixture_profile_bytes
+          ).hexdigest()
+          fixture_profile = json.loads(
+              fixture_profile_bytes,
+              object_pairs_hook=unique_receipt_object,
+              parse_constant=lambda token: (_ for _ in ()).throw(
+                  SystemExit(
+                      f"inter-actor fixture profile contains non-finite constant {token}"
+                  )
+              ),
+          )
+          if (
+              contact_report.get("format")
+              != "ror-j2-authenticated-inter-actor-collision-v4"
+              or contact_report.get("repository_commit") != source_commit
+              or contact_acceptance_canonicalization
+              != "ror-contact-acceptance-sorted-decimal-json-v1"
+              or contact_acceptance_sha256
+              != "730c384619186cc96291f9893ad54c9fb4c66dec74a982666f139968fec438ca"
+              or hashlib.sha256(
+                  canonical_decimal_json(contact_acceptance).encode("ascii")
+              ).hexdigest()
+              != contact_acceptance_sha256
+              or fixture_profile_sha256
+              != "ad51da07ec2986e76bf324be71c364276887c3ed662daaed5707917332ff8288"
+              or contact_report.get("fixture_profile_sha256")
+              != fixture_profile_sha256
+              or not isinstance(fixture_profile, dict)
+              or fixture_profile.get("contactAcceptance") != contact_acceptance
+          ):
+              raise SystemExit(
+                  "inter-actor contact report lost its accepted envelope binding"
+              )
           expected_native_distance_lod = {
               "available": True,
               "casters": 4,
@@ -1742,7 +2041,7 @@ jobs:
                   "native A1 Linux receipt semantic qualification changed"
               )
           document = {
-              "schema": "ror.ogre_next_combined_linux_package.v6",
+              "schema": "ror.ogre_next_combined_linux_package.v7",
               "source_commit": source_commit,
               "platform_policy": "linux-x86_64-vulkan",
               "entrypoint": "RunRoR",
@@ -1795,10 +2094,8 @@ jobs:
               },
               "authenticated_inter_actor_contact_conservation": {
                   "qualified": True,
-                  "report": (
-                      "qualification/jbeam-inter-actor-contact-conservation/"
-                      "report.json"
-                  ),
+                  "report": contact_report_relative.as_posix(),
+                  "report_sha256": contact_report_sha256,
                   "workers": [1, 8],
                   "steps": 2000,
                   "fixture_input": "clean-room-jbeam",
@@ -1807,6 +2104,12 @@ jobs:
                       "node-energy-attribution"
                   ),
                   "contact_conservation_schema": 3,
+                  "contact_acceptance_schema": 1,
+                  "contact_acceptance": contact_acceptance,
+                  "contact_acceptance_canonicalization": (
+                      contact_acceptance_canonicalization
+                  ),
+                  "contact_acceptance_sha256": contact_acceptance_sha256,
                   "audited_fixed_steps": 2000,
                   "whole_step_shared_node_energy": "audited",
                   "shared_node_contacts_observed": True,

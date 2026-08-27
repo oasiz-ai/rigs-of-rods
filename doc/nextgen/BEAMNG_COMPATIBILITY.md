@@ -143,18 +143,25 @@ and the exact report SHA-256 is
 `0c15d65bafe312b96527b6c612d5be8984bc72988be97143decc684b3d117758`.
 The separate authenticated inter-actor gate then spawns two copies of that
 same exact archive above the terrain with stable actor IDs, 0.01 m vertical
-separation, and a 1 m/s closing speed. Its canonical 2,000-step trace records
-343 external node-to-`NORMALTYPE`-cab keys across 299 steps (maximum 20 in one
-step, first contact at step zero), a 7.234161376953125 m/s change in relative
-vertical velocity, 0.6013336181640625 m maximum separation, and zero broken
-beams. One-worker and eight-worker state digests match at every step after the
-authenticated worker-count metadata difference. The executable SHA-256 is
-`f0524e9dcd5b85b1b585c7e54e40a606fb2aaf935da656db080eb4612608ad88`
-and the exact report SHA-256 is
-`9fe46da17c90432f022097ceefdd5bc4367cad61242139d85e880001b716c6e2`.
-This is not
-evidence that a third-party vehicle spawned, drove, rendered correctly,
-replayed, or synchronized over multiplayer.
+separation, and a 1 m/s closing speed. At source commit `550cff84c`, its
+canonical 2,000-step trace records 218 external node-to-`NORMALTYPE`-cab keys
+across 178 steps (maximum 20 in one step, first contact at step zero), a
+6.937932014465332 m/s change in relative vertical velocity,
+0.6513442993164062 m maximum separation, and zero broken beams. One-worker and
+eight-worker state digests and schema-3 contact-conservation receipts match
+exactly; the report SHA-256 is
+`3197e3b4528cc05ee429cb7a54b29793d8ea31edf966a44296e00c10a9bac83e`.
+
+The version-2 fixture profile now adds a strict numerical regression envelope
+for contact count, response/separation, linear and angular residuals, and
+whole-step energy attribution. Its canonical envelope SHA-256 is
+`730c384619186cc96291f9893ad54c9fb4c66dec74a982666f139968fec438ca`,
+over recursively key-sorted, exponent-free decimal JSON identified by
+`ror-contact-acceptance-sorted-decimal-json-v1`.
+This is a clean-room RoR scenario contract, not BeamNG force calibration, and
+is not evidence that a third-party vehicle spawned, drove, rendered correctly,
+replayed, or synchronized over multiplayer. Fresh schema-4 combined-runtime
+evidence remains required for the strengthened envelope.
 Configuration selection (`.pc`), powertrain/electrics, visual resources, and
 every unsupported active section remain fail-closed. Pressure wheels are
 admitted only by the narrow J3 `Wheel2` approximation described below; this is

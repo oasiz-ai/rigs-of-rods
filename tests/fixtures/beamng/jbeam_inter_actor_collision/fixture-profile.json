@@ -1,6 +1,6 @@
 {
-  "schema": 1,
-  "fixtureId": "ror-jbeam-authenticated-inter-actor-collision-v1",
+  "schema": 2,
+  "fixtureId": "ror-jbeam-authenticated-inter-actor-collision-v2",
   "documentationProfile": "beamng-docs-0.38.5.0-2026-07-27",
   "authorship": "original-clean-room",
   "license": "GPL-3.0-or-later",
@@ -27,6 +27,49 @@
     "physicsStepDenominator": 2000,
     "physicsStepNumerator": 1,
     "runtimeBeamsPerActor": 16
+  },
+  "contactAcceptance": {
+    "schema": 1,
+    "contactCount": {
+      "minimum": 128,
+      "maximum": 256
+    },
+    "maximumRelativeVelocityChangeMps": {
+      "minimum": 5,
+      "maximum": 8
+    },
+    "maximumVerticalSeparationM": {
+      "minimum": 0.5,
+      "maximum": 1
+    },
+    "maximumNormalizedLinearImpulseResidual": {
+      "minimum": 0,
+      "maximum": 1e-06
+    },
+    "maximumAngularImpulseDeltaMagnitudeNms": {
+      "minimum": 1,
+      "maximum": 2
+    },
+    "summedAngularImpulseDeltaMagnitudeNms": {
+      "minimum": 4,
+      "maximum": 8
+    },
+    "summedWholeStepContactWorkJ": {
+      "minimum": -3000,
+      "maximum": -1800
+    },
+    "summedWholeStepContactKineticEnergyDeltaJ": {
+      "minimum": 1200,
+      "maximum": 3000
+    },
+    "summedWholeStepContactIntegrationEnergyDeltaJ": {
+      "minimum": 3500,
+      "maximum": 5500
+    },
+    "summedSharedNodeCrossTermJ": {
+      "minimum": -2500,
+      "maximum": -1200
+    }
   },
   "prohibitedInputs": [
     "lua-execution",

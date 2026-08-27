@@ -701,34 +701,46 @@ objects, the strict state-trace test, and normal/optimized runner hostiles pass;
 this paragraph describes implemented instrumentation, not the still-pending
 combined-runtime receipt.
 
-The contact-conservation slice now closes each accepted internal point/triangle
+The contact-conservation slice closes each accepted internal point/triangle
 force pair across the hit node and the three barycentrically weighted surface
-nodes. Schema 2 audits the exact widened binary32 accumulator differences after
-production's four `+=` operations, rather than the ideal force before narrowing.
-It treats fixed nodes and network-replicated actors as non-integrated for the
-isolated-contact work calculation, retains legacy collision response if planning
-or audit instrumentation fails, and stops only trace evidence on an audit fault.
-The bounded aggregate covers the complete state-trace ceiling of
-`65,536 * 16,777,216` contacts. Its energy fields are explicitly sums of
-isolated-contact attributions; exact whole-step energy for contacts sharing a
-node remains `not_audited` and is still required for full D0 closure.
+nodes. Schema 3 audits the exact widened binary32 accumulator differences after
+production's four `+=` operations, rather than the ideal force before
+narrowing. It also attributes each unique node once at the whole-step boundary,
+records shared-node multiplicity, and requires exact isolated-contact and
+whole-step energy identities. Fixed nodes and network-replicated actors remain
+non-integrated for this calculation. Planning or audit failure retains legacy
+collision response but stops trace evidence. The bounded aggregate covers the
+complete state-trace ceiling of `65,536 * 16,777,216` contacts.
 
-A macOS arm64 dirty-development run rooted at commit `1adbc7d19` exercised the
-linked `RoR-Combined` Ogre-Next product path for 2,000 steps with one and eight
-workers. Both traces matched all state records, ended at digest
-`f657f9c1ef02f137e623735c6620f22c003bc5243074975d30383d26b2a15c47`,
-and recorded 153 native inter-actor contacts. The maximum normalized linear
-impulse residual was `3.135192940445975e-07`; the isolated-contact identity was
-`3898.1542663391374 = -2425.1934749969514 + 6323.3477413360888` joules.
-The development binary SHA-256 was
-`581cfa803bdcbe88e1aa1917118a04b3892f9f75711d3f8bfcd9fd197e68dcbc`
-and the report SHA-256 was
-`c84ca6863723240c3c734926b6b9d973db3af8f970fe935a5ef408dbe22e21b5`;
-the copied fixture profile was independently bound at SHA-256
-`24d4d21a1a171f11f6bc970fc3dd4d3b885b5ddb7ebf2f145b90a642da416fea`.
-Because the source tree was dirty and its post-link source manifest predated
-the final edits, this is local runtime evidence only, not a qualified artifact,
-release, VM, or playability result.
+The version-2 authenticated collision profile adds a strict schema-1
+`contactAcceptance` envelope. It binds contact count, response/separation,
+linear and angular impulse residuals, summed angular-delta magnitude, and the
+whole-step work, kinetic, integration, and shared-node-cross-term values to
+inclusive scenario ranges. Duplicate JSON keys, unknown or missing fields,
+booleans, fractional counts, non-finite values, reversed ranges, and
+out-of-envelope telemetry fail closed. Summed angular magnitude is also bound
+by contact count times the maximum per-contact angular delta. Reports publish
+the exact envelope and
+its recursively key-sorted, exponent-free decimal JSON canonicalization under
+`ror-contact-acceptance-sorted-decimal-json-v1`. The canonical SHA-256 is
+`730c384619186cc96291f9893ad54c9fb4c66dec74a982666f139968fec438ca`;
+the fixture profile is pinned at
+`ad51da07ec2986e76bf324be71c364276887c3ed662daaed5707917332ff8288`.
+This is a numerical regression envelope for one clean-room RoR scenario, not
+physical calibration or a BeamNG collision-force claim.
+
+The qualified Linux combined-runtime artifact at source commit `550cff84c`
+provides the pre-envelope baseline: one-worker and eight-worker runs matched at
+218 contacts, 6.937932014465332 m/s maximum relative-velocity change,
+0.6513442993164062 m maximum separation, a
+`9.479808970995164e-7` normalized linear residual, 1.4753589780552108 N·m·s
+maximum per-contact angular delta, and 5.803463887598127 N·m·s summed angular
+magnitude. Whole-step work, kinetic delta, integration delta, and shared-node
+cross term were -2383.5962537237647 J, 1982.7861239381718 J,
+4366.3823776619365 J, and -1954.883379701625 J. The exact schema-3 report is
+SHA-256 `3197e3b4528cc05ee429cb7a54b29793d8ea31edf966a44296e00c10a9bac83e`.
+That artifact validates the baseline physics and deterministic worker-count
+result; a fresh schema-4 report is still required to qualify the new envelope.
 
 For a local kernel stress pass, run
 `ROR_PHYSICS_TEST_REPEAT=30 tools/run-physics-tests.sh`, then repeat with
@@ -1951,20 +1963,22 @@ replay, multiplayer, or third-party compatibility.
 The follow-on authenticated inter-actor gate uses the same immutable JBeam
 archive but spawns two exact instances at stable IDs above the terrain. Their
 five `NORMALTYPE` surfaces per actor begin 0.01 m apart with a 1 m/s closing
-speed. The canonical 2,000-step trace records 343 external node-to-triangle
-keys across 299 steps, with a maximum of 20 keys in one step and contact
-beginning at fixed step zero. Native response changes relative vertical
-velocity by 7.234161376953125 m/s, separates the centers by up to
-0.6013336181640625 m, and breaks zero beams. The one-worker and eight-worker
-traces match at all 2,000 steps and end at state digest
-`56a19857bd4142e3c36efa9fe6464330de6231afde4861a02d7e52fa143a3a8b`;
-the executable SHA-256 is
-`f0524e9dcd5b85b1b585c7e54e40a606fb2aaf935da656db080eb4612608ad88`
-and the exact report SHA-256 is
-`9fe46da17c90432f022097ceefdd5bc4367cad61242139d85e880001b716c6e2`.
-This closes bounded default external node-to-`NORMALTYPE`-cab execution, not
-BeamNG collision-force parity, self-collision, disabled static collision,
-arbitrary collision groups, or third-party vehicle behavior.
+speed. At qualified source commit `550cff84c`, the canonical 2,000-step trace
+recorded 218 external node-to-triangle keys across 178 steps, with a maximum of
+20 keys in one step and contact beginning at fixed step zero. Native response
+changed relative vertical velocity by 6.937932014465332 m/s, separated the
+centers by up to 0.6513442993164062 m, and broke zero beams. The one-worker and
+eight-worker traces and schema-3 conservation receipts matched exactly; the
+report SHA-256 is
+`3197e3b4528cc05ee429cb7a54b29793d8ea31edf966a44296e00c10a9bac83e`.
+
+Profile version 2 makes those physical receipts scenario-specific acceptance
+inputs rather than accepting arbitrary finite magnitudes. The schema-4 report
+must bind the exact envelope and its digest into the package inventory before
+this stronger gate is qualified. This closes bounded default external
+node-to-`NORMALTYPE`-cab execution, not BeamNG collision-force parity,
+self-collision, disabled static collision, arbitrary collision groups, or
+third-party vehicle behavior.
 
 ### J1 — Parser, part graph, and normalized import IR
 
