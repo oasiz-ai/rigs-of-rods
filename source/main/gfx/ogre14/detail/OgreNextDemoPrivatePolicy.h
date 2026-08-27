@@ -498,6 +498,12 @@ struct OgreNextDemoTextureSourceCounters final {
   std::size_t active_opaque_texture_normalizations = 0U;
   std::size_t active_straight_alpha_texture_normalizations = 0U;
   std::size_t active_linear_specular_texture_normalizations = 0U;
+  /// Authored-data alpha is deliberately separate from coverage alpha, and
+  /// linear RGBA is deliberately separate from alpha-discarding specular.
+  /// Keeping both policies in their own buckets prevents the exact active
+  /// normalization partition from silently collapsing their semantics.
+  std::size_t active_linear_data_rgba_texture_normalizations = 0U;
+  std::size_t active_srgb_data_alpha_texture_normalizations = 0U;
 };
 
 [[nodiscard]] bool IsOgreNextDemoAuthenticatedTextureSourceMode(

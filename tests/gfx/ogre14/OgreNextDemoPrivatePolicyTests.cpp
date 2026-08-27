@@ -1008,16 +1008,20 @@ void CheckSourceAccountingAndEligibility() {
   counters.active_metallic_roughness_workflow_projections = 3U;
   counters.active_specular_workflow_projections = 1U;
   counters.active_anisotropic_sampler_projections = 2U;
-  counters.active_normalized_texture_observations = 3U;
+  counters.active_normalized_texture_observations = 5U;
   counters.active_opaque_texture_normalizations = 1U;
   counters.active_straight_alpha_texture_normalizations = 1U;
   counters.active_linear_specular_texture_normalizations = 1U;
+  counters.active_linear_data_rgba_texture_normalizations = 1U;
+  counters.active_srgb_data_alpha_texture_normalizations = 1U;
 
   OgreNextDemoTextureSourceCounters committed;
   Require(
       AccumulateOgreNextDemoTextureSourceCounters(counters, committed).ok() &&
           committed.authenticated_source_decodes == 29U &&
           committed.ordinary_observed_source_decodes == 3U &&
+          committed.active_linear_data_rgba_texture_normalizations == 1U &&
+          committed.active_srgb_data_alpha_texture_normalizations == 1U &&
           committed.gpu_readbacks == 0U,
       "valid source-byte counters did not commit atomically");
   OgreNextDemoTextureSourceCounters hostile_increment;
@@ -1052,7 +1056,8 @@ void CheckSourceAccountingAndEligibility() {
                .ok(),
           "corrupt active blend denominator was accepted");
   OgreNextDemoTextureSourceCounters broken_normalization_partition = counters;
-  --broken_normalization_partition.active_linear_specular_texture_normalizations;
+  --broken_normalization_partition
+        .active_srgb_data_alpha_texture_normalizations;
   Require(!AccumulateOgreNextDemoTextureSourceCounters(
                broken_normalization_partition, committed)
                .ok(),

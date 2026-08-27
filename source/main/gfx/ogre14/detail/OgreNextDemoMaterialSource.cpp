@@ -7133,6 +7133,14 @@ OgreNextDemoMaterialSource::CurrentCaptureCounters() const noexcept {
         LINEAR_SPECULAR_V1:
       ++counters.active_linear_specular_texture_normalizations;
       break;
+    case OgreNextDemoTextureNormalizationObservation::Policy::
+        LINEAR_DATA_RGBA_V1:
+      ++counters.active_linear_data_rgba_texture_normalizations;
+      break;
+    case OgreNextDemoTextureNormalizationObservation::Policy::
+        SRGB_DATA_ALPHA_V1:
+      ++counters.active_srgb_data_alpha_texture_normalizations;
+      break;
     }
     counters.active_authored_mip_prefix_levels +=
         entry.second.authored_mip_prefix_levels;

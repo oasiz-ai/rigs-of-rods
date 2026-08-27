@@ -339,6 +339,23 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
                     1,
                 )
 
+    def test_material_source_native_target_links_detail_layer_policy(
+        self,
+    ) -> None:
+        target_start = self.test_cmake_text.index(
+            "add_executable(\n"
+            f"        {AUTOMATIC_TEXTURE_NATIVE_TARGET}\n"
+        )
+        target_end = self.test_cmake_text.index("\n    )", target_start)
+        target = self.test_cmake_text[target_start:target_end]
+        self.assertEqual(
+            target.count(
+                "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/detail/"
+                "Ogre14MaterialDetailLayerDeclaration.cpp"
+            ),
+            1,
+        )
+
     def test_automatic_texture_gate_rejects_step_scoped_mutations(
         self,
     ) -> None:

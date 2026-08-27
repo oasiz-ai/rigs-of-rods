@@ -308,7 +308,13 @@ bool HasConsistentMaterialDenominators(
   const std::size_t normalization_partition = SaturatingAdd(
       counters.active_opaque_texture_normalizations,
       SaturatingAdd(counters.active_straight_alpha_texture_normalizations,
-                    counters.active_linear_specular_texture_normalizations));
+                    SaturatingAdd(
+                        counters.active_linear_specular_texture_normalizations,
+                        SaturatingAdd(
+                            counters
+                                .active_linear_data_rgba_texture_normalizations,
+                            counters
+                                .active_srgb_data_alpha_texture_normalizations))));
   const std::size_t decode_normalization_partition = SaturatingAdd(
       counters.opaque_source_normalizations,
       SaturatingAdd(counters.straight_alpha_source_normalizations,
@@ -938,6 +944,12 @@ Render::ValidationResult AccumulateOgreNextDemoTextureSourceCounters(
   candidate.active_linear_specular_texture_normalizations = SaturatingAdd(
       candidate.active_linear_specular_texture_normalizations,
       increment.active_linear_specular_texture_normalizations);
+  candidate.active_linear_data_rgba_texture_normalizations = SaturatingAdd(
+      candidate.active_linear_data_rgba_texture_normalizations,
+      increment.active_linear_data_rgba_texture_normalizations);
+  candidate.active_srgb_data_alpha_texture_normalizations = SaturatingAdd(
+      candidate.active_srgb_data_alpha_texture_normalizations,
+      increment.active_srgb_data_alpha_texture_normalizations);
   if (!HasConsistentMaterialDenominators(candidate)) {
     return Failure(Render::ValidationCode::SEQUENCE_MISMATCH,
                    "ogre_next_demo.material.source_accounting.denominator",
