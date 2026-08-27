@@ -13,6 +13,9 @@ on:
       - source/main/**
       - tools/linux/RunRoR
       - tools/ogre11_compat_runtime_audit.py
+      - tests/CMakeLists.txt
+      - tests/resources/LegacyMaterialCompatibilityPlanTests.cpp
+      - tests/resources/ShaderCompatibilityPolicyTests.cpp
       - tests/tools/assert_ogre11_app_graph.py
       - tests/tools/test_legacy_ogre_cgfree_recipe_contract.py
       - tests/tools/test_ogre11_compat_native_workflow_contract.py
@@ -27,6 +30,9 @@ on:
       - source/main/**
       - tools/linux/RunRoR
       - tools/ogre11_compat_runtime_audit.py
+      - tests/CMakeLists.txt
+      - tests/resources/LegacyMaterialCompatibilityPlanTests.cpp
+      - tests/resources/ShaderCompatibilityPolicyTests.cpp
       - tests/tools/assert_ogre11_app_graph.py
       - tests/tools/test_legacy_ogre_cgfree_recipe_contract.py
       - tests/tools/test_ogre11_compat_native_workflow_contract.py
@@ -274,12 +280,51 @@ jobs:
           --target all
           --config Release
 
-      - name: Run the complete configured compatibility test suite
+      - name: Verify the exact scoped Ogre 1.11 compatibility test manifest
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+
+          completed = subprocess.run(
+              [
+                  "ctest",
+                  "--test-dir",
+                  os.environ["ROR_OGRE11_BUILD_DIR"],
+                  "--build-config",
+                  "Release",
+                  "--show-only=json-v1",
+                  "--label-regex",
+                  "^ogre11-compatibility$",
+              ],
+              check=True,
+              capture_output=True,
+              text=True,
+          )
+          payload = json.loads(completed.stdout)
+          actual = sorted(test.get("name") for test in payload.get("tests", []))
+          expected = sorted(
+              [
+                  "shader_compatibility_policy",
+                  "legacy_material_compatibility_plan",
+              ]
+          )
+          if actual != expected:
+              raise SystemExit(
+                  f"unexpected Ogre 1.11 compatibility test manifest: {actual!r}"
+              )
+          print(json.dumps({"ogre11_compatibility_tests": actual}, sort_keys=True))
+          PY
+
+      - name: Run scoped Ogre 1.11 compatibility policy tests
         shell: bash
         run: >-
           ctest
           --test-dir "$ROR_OGRE11_BUILD_DIR"
           --build-config Release
+          --label-regex '^ogre11-compatibility$'
           --output-on-failure
           --no-tests=error
 

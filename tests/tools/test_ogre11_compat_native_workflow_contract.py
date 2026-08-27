@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -16,6 +17,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/ogre11-compat-native.yml"
 DEPENDENCIES = ROOT / "cmake/DependenciesConfig.cmake"
+TESTS_CMAKE = ROOT / "tests/CMakeLists.txt"
 LINUX_LAUNCHER = ROOT / "tools/linux/RunRoR"
 TOOLS = ROOT / "tools"
 if str(TOOLS) not in sys.path:
@@ -29,6 +31,7 @@ class Ogre11CompatibilityWorkflowContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
         cls.dependencies = DEPENDENCIES.read_text(encoding="utf-8")
+        cls.tests_cmake = TESTS_CMAKE.read_text(encoding="utf-8")
 
     def test_ois_header_repair_is_shared_and_alias_safe(self) -> None:
         text = self.dependencies
@@ -64,6 +67,17 @@ class Ogre11CompatibilityWorkflowContractTests(unittest.TestCase):
         self.assertIn('toolset: "14.44"', text)
         self.assertIn("contents: read", text)
         self.assertNotIn("secrets.", text)
+        self.assertEqual(text.count("      - tests/CMakeLists.txt"), 2)
+        self.assertEqual(
+            text.count(
+                "      - tests/resources/LegacyMaterialCompatibilityPlanTests.cpp"
+            ),
+            2,
+        )
+        self.assertEqual(
+            text.count("      - tests/resources/ShaderCompatibilityPolicyTests.cpp"),
+            2,
+        )
 
     def test_real_build_uses_exact_profiles_locks_and_forced_recipe_audits(self) -> None:
         text = self.workflow
@@ -123,6 +137,15 @@ class Ogre11CompatibilityWorkflowContractTests(unittest.TestCase):
         ):
             self.assertEqual(text.count(option), 1)
         self.assertIn('--target all', text)
+        self.assertIn('Run scoped Ogre 1.11 compatibility policy tests', text)
+        self.assertEqual(
+            text.count("^ogre11-compatibility$"), 2
+        )
+        self.assertEqual(text.count('"--show-only=json-v1"'), 1)
+        self.assertIn(
+            'unexpected Ogre 1.11 compatibility test manifest', text
+        )
+        self.assertNotIn('Run the complete configured compatibility test suite', text)
         self.assertIn('--no-tests=error', text)
         self.assertIn('cmake --install', text)
         self.assertIn(
@@ -135,6 +158,27 @@ class Ogre11CompatibilityWorkflowContractTests(unittest.TestCase):
         self.assertIn('--forbidden-prefix "$CONAN_HOME"', text)
         self.assertNotIn('ogre14_native_runtime_smoke.py', text)
         self.assertNotIn('run_playable_performance_scene.py', text)
+
+    def test_ctest_scope_is_positive_and_renderer_independent(self) -> None:
+        self.assertEqual(self.tests_cmake.count("ogre11-compatibility"), 1)
+        match = re.search(
+            r"set\(ROR_OGRE11_COMPATIBILITY_TESTS\s+(.*?)\s*\)\s*"
+            r"set_property\(\s*TEST \$\{ROR_OGRE11_COMPATIBILITY_TESTS\}\s*"
+            r"APPEND PROPERTY LABELS ogre11-compatibility\s*\)",
+            self.tests_cmake,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match)
+        assert match is not None
+        self.assertEqual(
+            match.group(1).split(),
+            [
+                "shader_compatibility_policy",
+                "legacy_material_compatibility_plan",
+            ],
+        )
+        for test_name in match.group(1).split():
+            self.assertIn(f"NAME {test_name}", self.tests_cmake)
 
     def test_success_and_failure_artifacts_cannot_be_confused_with_product(self) -> None:
         text = self.workflow

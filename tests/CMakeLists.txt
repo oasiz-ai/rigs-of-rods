@@ -4145,6 +4145,19 @@ add_test(
     COMMAND ror_legacy_material_compatibility_plan_tests
 )
 
+# The Ogre 1.11 artifact lane builds and links the complete configured tree, but
+# its CTest gate is intentionally limited to renderer-independent compatibility
+# policies. Ogre 14/Ogre-Next transport and visual goldens belong to their native
+# renderer workflows and must not qualify or reject this legacy package.
+set(ROR_OGRE11_COMPATIBILITY_TESTS
+    shader_compatibility_policy
+    legacy_material_compatibility_plan
+)
+set_property(
+    TEST ${ROR_OGRE11_COMPATIBILITY_TESTS}
+    APPEND PROPERTY LABELS ogre11-compatibility
+)
+
 add_test(
     NAME terrain_bundle_archive_verifier
     COMMAND ror_terrain_bundle_archive_verifier_tests
