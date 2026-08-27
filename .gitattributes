@@ -72,6 +72,10 @@ content-source/cityworld_next/provenance/*.json text eol=lf
 # authored LF payloads on Windows so its member and archive hashes stay exact.
 tests/fixtures/nicemetal_runtime/** text eol=lf
 
+# The D0 authenticated contact runner publishes the fixture profile's exact
+# SHA-256. Keep that profile byte-identical on Windows and POSIX checkouts.
+tests/fixtures/beamng/jbeam_inter_actor_collision/fixture-profile.json text eol=lf
+
 # OGRE-Next dependency, patch, and shader-license contracts are verified by
 # exact byte hashes. Keep the isolated probe identical on every checkout.
 cmake/RendererLauncherPackageConfig.cmake text eol=lf
